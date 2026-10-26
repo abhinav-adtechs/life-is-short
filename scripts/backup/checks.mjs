@@ -111,9 +111,10 @@ function checkProject(snap, which, ownerSha, f) {
  * @param {object} a.backup    audit.snapshot() from the backup
  * @param {string} a.ownerSha  sha256 of the owner's lowercased email
  * @param {boolean} [a.force]  skip the data guards (never the security checks)
+ * @param {number} [a.lost]     backup tasks this sync would delete or rewrite, from countLost()
  * @returns {{findings: {level: 'block'|'warn'|'info', check: string, detail: string}[], primaryOwner: object|undefined, blocked: boolean}}
  */
-export function evaluate({ primary, backup, ownerSha, force = false }) {
+export function evaluate({ primary, backup, ownerSha, force = false, lost = 0 }) {
   const findings = [];
   const f = {
     block: (check, detail) => findings.push({ level: 'block', check, detail }),
@@ -143,10 +144,21 @@ export function evaluate({ primary, backup, ownerSha, force = false }) {
   // Nothing to guard when the backup already holds exactly what the primary has.
   const same = !!P.sha256 && P.sha256 === B.sha256;
   if (!same && B.count >= 6 && P.count < B.count * 0.5) guard('data:mass-deletion', `primary has ${P.count} tasks, backup has ${B.count}`);
-  if (!same && B.count >= 6 && P.updated_24h > Math.max(10, P.count * 0.6)) guard('data:mass-change', `${P.updated_24h} of ${P.count} tasks changed in the last 24 hours`);
+  if (!same && B.count >= 6 && lost > Math.max(10, B.count * 0.6)) guard('data:mass-change', `${lost} of the backup's ${B.count} tasks would be deleted or rewritten`);
   if (lastSync && (Date.parse(primary.at) || Date.now()) - lastSync > 3 * DAY) f.warn('data:backup-stale', 'the last successful sync was more than 3 days ago');
 
   return { findings, primaryOwner, blocked: findings.some(x => x.level === 'block') };
+}
+
+/**
+ * Backup tasks a sync would lose: gone from the primary, or with their words changed.
+ * Ticking off and moving don't count. Compares the rows themselves, because updated_at
+ * is set by the browser and an intruder could backdate it.
+ */
+export function countLost(primaryRows, backupRows) {
+  const now = new Map(primaryRows.map(t => [t.id, t]));
+  const words = t => [t.title, t.notes, t.raw].map(v => v ?? '').join('\u0000');
+  return backupRows.filter(b => !now.has(b.id) || words(now.get(b.id)) !== words(b)).length;
 }
 
 /** After copying: the backup must hold exactly what the primary had. */

@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import pg from 'pg';
-import { compareData, evaluate } from './checks.mjs';
+import { compareData, countLost, evaluate } from './checks.mjs';
 
 // Keep dates and bigints exactly as stored so the copy hashes the same.
 pg.types.setTypeParser(1082, v => v);
@@ -113,8 +113,10 @@ async function main() {
   const P = await connect(PRIMARY_DB_URL, 'primary');
   const B = await connect(BACKUP_DB_URL, 'backup');
   try {
-    const [ps, bs] = await Promise.all([snapshot(P), snapshot(B)]);
-    const { findings, primaryOwner, blocked } = evaluate({ primary: ps, backup: bs, ownerSha, force: FORCE === 'true' });
+    const words = 'select id, title, notes, raw from public.tasks';
+    const [ps, bs, pw, bw] = await Promise.all([snapshot(P), snapshot(B), P.query(words), B.query(words)]);
+    const lost = countLost(pw.rows, bw.rows);
+    const { findings, primaryOwner, blocked } = evaluate({ primary: ps, backup: bs, ownerSha, force: FORCE === 'true', lost });
     say(`Life is short backup ${mode} · primary ${ps.tasks.count} tasks · backup ${bs.tasks.count} tasks`);
     for (const x of findings) say(`${x.level.toUpperCase().padEnd(5)} ${x.check.padEnd(22)} ${x.detail}`);
     if (blocked) {
