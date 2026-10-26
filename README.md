@@ -17,14 +17,16 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 
 ## Set up for real (phone + laptop)
 
-### 1. Supabase
+The full ordered checklist, including the backup and GitHub secrets, is in [`docs/go-live.md`](docs/go-live.md).
+
+### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001_init.sql` (tables, row-level security, realtime).
-3. Authentication → Users → **Add user**: your email and a password, with auto-confirm on.
-4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**. It's a single-user app.
-5. Authentication → URL Configuration: set **Site URL** to your Vercel URL so magic links come back to the app.
-6. Project Settings → API: copy the project URL and the `anon` key for step 4.
+2. SQL editor: run `supabase/migrations/0001` to `0003` in order, then `supabase/roles/primary_backup_reader.sql`.
+3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
+4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
+5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
+6. Project Settings → API: copy the project URL and the `anon` key for Vercel.
 
 ### 2. Load your tasks
 
@@ -68,7 +70,45 @@ Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time
 - `app/api/google/*`: OAuth and pull. The refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
 - `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
 
-Every API route requires a signed-in Supabase user.
+Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours.
+
+## Security
+
+- **Sign-in:** email + password, then a 6-digit code from an authenticator app (TOTP). The first sign-in sets the authenticator up from a QR code. There's no sign-up, password reset or email link in the app.
+- **Every 24 hours:** only the authenticator code is asked for again, not the password. The app locks itself when the 24 hours run out.
+- **The database enforces it too.** Restrictive row-level security policies (`supabase/migrations/0002`) only return or accept rows for a session at `aal2` whose last authenticator code is under 24 hours old. A stolen password, or a stolen session older than a day, reads nothing. The API routes apply the same rule.
+- **Browser hardening:** a strict nonce-based Content-Security-Policy (only our scripts run; the page talks only to itself and Supabase), no framing, HSTS, no referrer, and no caching of API responses.
+- **Lost your phone?** Remove the factor in Supabase → Authentication → Users → your user → MFA factors, then sign in and set up a new one.
+
+## Backup database
+
+A second, independent Supabase project holds a copy of your tasks. The two never hold each other's credentials, so a compromise of the primary can't reach the backup.
+
+- **Daily** (`.github/workflows/backup-sync.yml`): the job reads the primary through `backup_reader`, a read-only login, and overwrites the backup through `backup_writer`, which can only replace task rows. Before every overwrite it runs the breach checks below. If any of them **blocks**, it doesn't overwrite, and the backup keeps the last good copy.
+- **Weekly** (`.github/workflows/backup-verify.yml`, Mondays): it repeats the checks on both databases, re-syncs, confirms the copies match byte for byte (by hash), and fails on warnings too. A failed run makes GitHub email you.
+- **What's checked** (`scripts/backup/checks.mjs`): exactly one account, and it's yours; exactly one verified authenticator, and none added or changed recently; sign-ins that passed the password but not 2FA; sign-up, password-change and recovery events; row-level security on every table; the exact set of policies; no access for signed-out visitors; the 2FA rule unchanged and identical on both projects; no unexpected database logins; mass deletions or mass edits; and a backup that was edited since the last sync.
+- **Public logs:** the repo is public, so the job prints check names and counts only. It never prints emails, IPs or task text.
+
+### Set up the backup
+
+1. Create a second Supabase project, ideally under a separate Supabase organization.
+2. SQL editor: run `supabase/migrations/0001` to `0003`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password) and turn sign-ups off.
+3. On each project set the job login's password (SQL editor, a long random value, never committed):
+   `alter role backup_reader with password '…';` on the primary, and `alter role backup_writer with password '…';` on the backup.
+4. GitHub → Settings → Secrets and variables → Actions, add:
+
+| secret | value |
+|---|---|
+| `PRIMARY_DB_URL` | the primary's **Session pooler** connection string, user `backup_reader.<primary-ref>` |
+| `BACKUP_DB_URL` | the backup's **Session pooler** connection string, user `backup_writer.<backup-ref>` |
+| `OWNER_EMAIL` | your sign-in email |
+| `SUPABASE_CA_CERT` | optional: Supabase's CA certificate (Project Settings → Database → SSL), to pin it |
+
+5. Run **Actions → Backup sync → Run workflow** once to confirm it's green.
+
+### If the primary is ever compromised
+
+Disable the **Backup sync** workflow so nothing overwrites the backup. Then point the app at the backup: in Vercel, set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to the backup project's values and redeploy. You can also keep a second Vercel project permanently pointed at the backup, so a live copy is always one URL away.
 
 ## Keeping keys and tasks out of this public repo
 
