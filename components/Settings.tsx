@@ -374,6 +374,25 @@ function AccountSection() {
   const { email, toast } = usePlanner();
   const [pw, setPw] = useState('');
   const [pwOpen, setPwOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [pwRecent, setPwRecent] = useState(false);
+
+  // A PIN can only be changed within 10 minutes of a password sign-in (the database checks this too).
+  useEffect(() => {
+    supabase().rpc('pin_status').then(({ data }) => setPwRecent((data?.password_age ?? Infinity) < 600));
+  }, [pinOpen]);
+
+  const changePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^[0-9]{6,12}$/.test(pin)) { toast('Use 6 to 12 digits.'); return; }
+    if (pin !== pin2) { toast('The two PINs don’t match.'); return; }
+    const { data, error } = await supabase().rpc('set_pin', { new_pin: pin });
+    if (error || data !== 'ok') { toast(data === 'password-required' ? 'Sign out and sign in with your password first, then change the PIN within 10 minutes.' : 'Couldn’t change the PIN.'); return; }
+    toast('PIN changed');
+    setPin(''); setPin2(''); setPinOpen(false);
+  };
 
   const changePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -392,8 +411,25 @@ function AccountSection() {
           <div className="sacts"><button type="submit" className="btn pri">Save password</button>
             <button type="button" className="btn sec" onClick={() => setPwOpen(false)}>Cancel</button></div>
         </form>
+      ) : pinOpen ? (
+        pwRecent ? (
+          <form onSubmit={changePin} autoComplete="off" className="pwform">
+            <div className="fld"><label htmlFor="new-pin">New PIN (6 to 12 digits)</label>
+              <input id="new-pin" type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))} /></div>
+            <div className="fld"><label htmlFor="new-pin2">New PIN again</label>
+              <input id="new-pin2" type="password" inputMode="numeric" value={pin2} onChange={e => setPin2(e.target.value.replace(/\D/g, '').slice(0, 12))} /></div>
+            <div className="sacts"><button type="submit" className="btn pri">Save PIN</button>
+              <button type="button" className="btn sec" onClick={() => setPinOpen(false)}>Cancel</button></div>
+          </form>
+        ) : (
+          <>
+            <p className="note">To change your PIN, sign out and sign in again with your password, then come back here within 10 minutes.</p>
+            <div className="sacts"><button type="button" className="btn sec" onClick={() => setPinOpen(false)}>OK</button></div>
+          </>
+        )
       ) : (
         <div className="sacts">
+          <button type="button" className="btn sec" onClick={() => setPinOpen(true)}>Change PIN</button>
           <button type="button" className="btn sec" onClick={() => setPwOpen(true)}>Change password</button>
           <button type="button" className="btn sec" onClick={() => supabase().auth.signOut()}>Sign out</button>
         </div>

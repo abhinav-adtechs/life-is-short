@@ -4,7 +4,8 @@ import { mfaState } from '../mfa';
 
 /**
  * Our API routes spend your Gemini quota and touch your Google account, so they only answer you:
- * a verified session that passed 2FA with a code in the last 24 hours, the same rule as the database.
+ * a verified session the database itself would show your data to (2FA code in the last 24 hours,
+ * plus the password or the PIN in the last 24 hours).
  * Returns a 401 response to send back, or null when the caller is allowed.
  * Without Supabase configured (local-only mode) they're open in development, and in production only with ALLOW_LOCAL_MODE=1.
  */
@@ -21,5 +22,9 @@ export async function denyUnlessSignedIn(req: Request): Promise<Response | null>
   const { data, error } = await sb.auth.getClaims(token);
   if (error || !data?.claims?.sub) return Response.json({ reason: 'signed-out' }, { status: 401 });
   if (mfaState(data.claims) !== 'fresh') return Response.json({ reason: 'code-required' }, { status: 401 });
+  // Ask the database the same question its row-level security asks.
+  const asUser = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
+  const { data: status } = await asUser.rpc('pin_status');
+  if (!(status as { unlocked?: boolean } | null)?.unlocked) return Response.json({ reason: 'locked' }, { status: 401 });
   return null;
 }

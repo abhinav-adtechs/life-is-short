@@ -12,6 +12,8 @@ const WARNING_EVENTS = [
   'factor_unenrolled', 'factor_deleted', 'recovery_codes_deleted', 'identity_unlinked',
 ];
 const DAY = 864e5;
+/** Functions the app calls; anything else in the public schema is a surprise. */
+const PUBLIC_FUNCTIONS = new Set(['pin_status', 'set_pin', 'unlock_with_pin']);
 
 /** Expected policies per table, by project. The `qual` must mention these to count. */
 function expectedPolicies(which) {
@@ -20,7 +22,7 @@ function expectedPolicies(which) {
     : { name: 'backup job writes', permissive: 'PERMISSIVE', roles: ['backup_writer'], cmd: 'ALL' };
   const per = table => [
     { table, name: table === 'tasks' ? 'own tasks' : 'own settings', permissive: 'PERMISSIVE', roles: ['authenticated'], cmd: 'ALL', mentions: 'auth.uid()' },
-    { table, name: 'fresh 2fa', permissive: 'RESTRICTIVE', roles: ['authenticated'], cmd: 'ALL', mentions: 'mfa_fresh' },
+    { table, name: 'unlocked', permissive: 'RESTRICTIVE', roles: ['authenticated'], cmd: 'ALL', mentions: 'access_ok' },
     { table, ...job },
   ];
   return [...per('settings'), ...per('tasks')];
@@ -35,21 +37,29 @@ function checkProject(snap, which, ownerSha, f) {
   if (users.length !== 1) f.block(`${P}:users`, `${users.length} accounts exist (expected exactly 1)`);
 
   const factors = snap.factors || [];
-  const strangers = factors.filter(x => !owner || x.user_id !== owner.id);
-  if (strangers.length) f.block(`${P}:2fa`, `${strangers.length} authenticator factor(s) belong to another account`);
-  const verified = factors.filter(x => owner && x.user_id === owner.id && x.type === 'totp' && x.status === 'verified');
-  if (which === 'primary' && verified.length !== 1) f.block(`${P}:2fa`, `${verified.length} verified authenticator factors (expected 1)`);
-  if (which === 'backup' && verified.length > 1) f.block(`${P}:2fa`, `${verified.length} verified authenticator factors (expected at most 1)`);
-  if (which === 'backup' && verified.length === 0) f.warn(`${P}:2fa`, 'authenticator not set up yet on the backup app');
-  const unverified = factors.filter(x => x.status !== 'verified').length;
-  if (unverified) f.warn(`${P}:2fa`, `${unverified} unfinished authenticator setup(s)`);
-  const nowMs = Date.parse(snap.at) || Date.now();
-  const recent = factors.filter(x => nowMs - Date.parse(x.updated_at || x.created_at) < 8 * DAY).length;
-  if (recent) f.warn(`${P}:2fa`, `${recent} authenticator factor(s) added or changed in the last 8 days`);
-
   const s = snap.sessions_7d || {};
-  if (!s.unavailable && s.still_aal1 > 0) f.warn(`${P}:sessions`, `${s.still_aal1} sign-in(s) in 7 days passed the password but not 2FA`);
-  if (!s.unavailable) f.info(`${P}:sessions`, `${s.count || 0} sign-ins in 7 days from ${s.distinct_ips || 0} IP(s), ${s.distinct_agents || 0} device(s)`);
+  const pins = snap.pins || { count: 0, failed: 0 };
+  if (which === 'backup') {
+    // The backup has no app: nobody should ever sign in to it.
+    if (factors.length) f.warn(`${P}:2fa`, `${factors.length} authenticator(s) set up on the backup, which has no app`);
+    if (!s.unavailable && s.count > 0) f.warn(`${P}:sessions`, `${s.count} sign-in(s) in 7 days on the backup, which has no app`);
+    if (pins.count > 0) f.warn(`${P}:pin`, 'a PIN was set on the backup, which has no app');
+  } else {
+    const strangers = factors.filter(x => !owner || x.user_id !== owner.id);
+    if (strangers.length) f.block(`${P}:2fa`, `${strangers.length} authenticator factor(s) belong to another account`);
+    const verified = factors.filter(x => owner && x.user_id === owner.id && x.type === 'totp' && x.status === 'verified');
+    if (verified.length !== 1) f.block(`${P}:2fa`, `${verified.length} verified authenticator factors (expected 1)`);
+    const unverified = factors.filter(x => x.status !== 'verified').length;
+    if (unverified) f.warn(`${P}:2fa`, `${unverified} unfinished authenticator setup(s)`);
+    const nowMs = Date.parse(snap.at) || Date.now();
+    const recent = factors.filter(x => nowMs - Date.parse(x.updated_at || x.created_at) < 8 * DAY).length;
+    if (recent) f.warn(`${P}:2fa`, `${recent} authenticator factor(s) added or changed in the last 8 days`);
+    if (!s.unavailable && s.still_aal1 > 0) f.warn(`${P}:sessions`, `${s.still_aal1} sign-in(s) in 7 days passed the password but not 2FA`);
+    if (!s.unavailable) f.info(`${P}:sessions`, `${s.count || 0} sign-ins in 7 days from ${s.distinct_ips || 0} IP(s), ${s.distinct_agents || 0} device(s)`);
+    if (!pins.count) f.warn(`${P}:pin`, 'no PIN set yet');
+    if (pins.failed > 0) f.warn(`${P}:pin`, `${pins.failed} wrong PIN attempt(s) since the last unlock`);
+    if (pins.updated_at && nowMs - Date.parse(pins.updated_at) < 8 * DAY) f.info(`${P}:pin`, 'PIN set or changed in the last 8 days');
+  }
 
   const ev = snap.auth_events_7d || {};
   if (!ev.unavailable) {
@@ -76,10 +86,16 @@ function checkProject(snap, which, ownerSha, f) {
   for (const p of have) if (!want.some(w => w.table === p.table && w.name === p.name)) f.block(`${P}:policies`, `unexpected policy "${p.name}" on ${p.table}`);
 
   if ((snap.public_grants || []).length) f.block(`${P}:grants`, `signed-out visitors have ${snap.public_grants.length} privilege(s) on public tables`);
-  if ((snap.public_functions || []).length) f.warn(`${P}:functions`, `${snap.public_functions.length} function(s) in the public schema`);
+  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n));
+  if (extraFns.length) f.warn(`${P}:functions`, `${extraFns.length} unexpected function(s) in the public schema`);
+  for (const n of PUBLIC_FUNCTIONS) if (!(snap.public_functions || []).includes(n)) f.block(`${P}:functions`, `the ${n} function is missing`);
 
   const src = snap.mfa_check_src || '';
   if (!src.includes("'totp'") || !src.includes('86400') || !src.includes("'aal2'")) f.block(`${P}:2fa-rule`, 'the database 2FA rule (private.mfa_fresh) is missing or was changed');
+  const rule = snap.access_rule_src || '';
+  if (!rule.includes('mfa_fresh') || !rule.includes('unlocks') || !rule.includes("'password'") || !rule.includes('86400')) {
+    f.block(`${P}:access-rule`, 'the sign-in rule (private.access_ok) is missing or was changed');
+  }
 
   const roles = (snap.login_roles || []).filter(r => !SUPABASE_LOGIN_ROLES.has(r) && !r.startsWith('supabase_'));
   if (roles.length) f.warn(`${P}:roles`, `${roles.length} unexpected database login role(s)`);
@@ -110,7 +126,10 @@ export function evaluate({ primary, backup, ownerSha, force = false }) {
   if (primary.mfa_check_sha256 && backup.mfa_check_sha256 && primary.mfa_check_sha256 !== backup.mfa_check_sha256) {
     f.block('both:2fa-rule', 'the database 2FA rule differs between primary and backup');
   }
-  for (const name of ['own tasks', 'fresh 2fa']) {
+  if (primary.access_rule_sha256 && backup.access_rule_sha256 && primary.access_rule_sha256 !== backup.access_rule_sha256) {
+    f.block('both:access-rule', 'the sign-in rule differs between primary and backup');
+  }
+  for (const name of ['own tasks', 'unlocked']) {
     const a = (primary.policies || []).find(p => p.table === 'tasks' && p.name === name);
     const b = (backup.policies || []).find(p => p.table === 'tasks' && p.name === name);
     if (a && b && (a.qual !== b.qual || a.with_check !== b.with_check)) f.warn('both:policies', `policy "${name}" reads differently on primary and backup`);

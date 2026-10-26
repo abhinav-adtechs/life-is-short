@@ -6,7 +6,7 @@ Everything needed to take Dump & Slot live, in order. Each step says what it unl
 
 1. Create a project. Pick a region near you (Mumbai, `ap-south-1`) and a strong database password, and keep that password in your password manager.
 2. SQL editor, in order:
-   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, then `supabase/roles/primary_backup_reader.sql`.
+   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, then `supabase/roles/primary_backup_reader.sql`.
 3. Authentication settings:
    - Sign In / Providers → Email: **Allow new users to sign up: off**. Minimum password length 16.
    - Multi-Factor: TOTP **enabled** (enroll and verify).
@@ -17,8 +17,8 @@ Everything needed to take Dump & Slot live, in order. Each step says what it unl
 ## 2. Backup database *(account: Supabase, ideally a separate organization)*
 
 1. Create a second project.
-2. SQL editor: `0001`, `0002`, `0003`, then `supabase/roles/backup_writer.sql`.
-3. Same auth settings as above. Add the same email as a user, with its **own** password.
+2. SQL editor: `0001` to `0004`, then `supabase/roles/backup_writer.sql`.
+3. Same auth settings as above. Add the same email as a user, with its **own** password. Nobody signs in to the backup; the user only owns the copied rows.
 
 ## 3. Logins for the backup job *(account: Supabase)*
 
@@ -38,7 +38,6 @@ Then build the **Session pooler** URLs (Connect → Session pooler), replacing t
 2. Environment variables (Production and Preview):
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (primary), `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
 3. Deploy. Put the production URL into Supabase → URL Configuration (step 1.3).
-4. Optional "always live" copy: a second Vercel project from the same repo, with the **backup** project's URL and anon key.
 
 ## 5. Google Calendar and Tasks *(account: Google Cloud)*
 
@@ -55,11 +54,12 @@ Then Actions → **Backup sync** → Run workflow, and confirm it's green.
 
 ## 7. First sign-in
 
-Open the app → email + password → scan the QR code with an authenticator app → enter the code. From then on you'll only be asked for the code, once a day. Do the same on the backup app if you made one; the weekly check warns until you do.
+Open the app → email + password → scan the QR code with an authenticator app → enter the code → choose a PIN. From then on you sign in with the PIN and an authenticator code, once a day.
 
 ## Checks after go-live
 
 - Sign out, sign in: password, then code. Wrong code is refused.
+- A day later: PIN + code, no password. A wrong PIN is refused.
 - In another browser, sign in with the password only: no tasks load.
 - The task you add on your phone shows on the laptop within a few seconds.
 - Actions → Weekly security check → Run workflow: green.

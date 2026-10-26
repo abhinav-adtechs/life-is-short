@@ -2,6 +2,9 @@
 // Backup job, run by GitHub Actions.
 //   node scripts/backup/run.mjs sync     daily: checks, then overwrite the backup if they pass
 //   node scripts/backup/run.mjs verify   weekly: the same, and fail on warnings too so you get an email
+//   node scripts/backup/run.mjs restore  by hand, in an emergency: copy the backup back into the primary
+//                                        (needs RESTORE_TO_DB_URL, an admin connection to the primary,
+//                                        and CONFIRM=overwrite-primary)
 //
 // Env: PRIMARY_DB_URL (backup_reader login), BACKUP_DB_URL (backup_writer login), OWNER_EMAIL,
 //      optional SUPABASE_CA_CERT (PEM) to pin Supabase's certificate authority, optional FORCE=true.
@@ -16,8 +19,8 @@ import { compareData, evaluate } from './checks.mjs';
 pg.types.setTypeParser(1082, v => v);
 pg.types.setTypeParser(20, v => v);
 
-const mode = process.argv[2] === 'verify' ? 'verify' : 'sync';
-const { PRIMARY_DB_URL, BACKUP_DB_URL, OWNER_EMAIL = '', SUPABASE_CA_CERT, FORCE } = process.env;
+const mode = ['verify', 'restore'].includes(process.argv[2]) ? process.argv[2] : 'sync';
+const { PRIMARY_DB_URL, BACKUP_DB_URL, RESTORE_TO_DB_URL, CONFIRM, OWNER_EMAIL = '', SUPABASE_CA_CERT, FORCE } = process.env;
 
 const lines = [];
 const say = (s = '') => { lines.push(s); console.log(s); };
@@ -42,39 +45,66 @@ async function connect(url, name) {
 
 const snapshot = async c => (await c.query('select audit.snapshot() as s')).rows[0].s;
 
-async function copy(P, B, primaryOwnerId, ownerSha, primarySnap) {
-  const tasks = (await P.query('select * from public.tasks where user_id = $1 order by id', [primaryOwnerId])).rows;
-  const settings = (await P.query('select * from public.settings where user_id = $1 order by key', [primaryOwnerId])).rows;
-  const backupOwner = (await B.query('select audit.owner_id($1) as id', [ownerSha])).rows[0]?.id;
-  if (!backupOwner) throw new Error('The owner account is missing on the backup project.');
-  await B.query('begin');
+/** Replace `to`'s tasks and settings with `from`'s, owned by `toOwner`. One transaction: all or nothing. */
+async function copy(from, fromOwner, to, toOwner, log) {
+  const tasks = (await from.query('select * from public.tasks where user_id = $1 order by id', [fromOwner])).rows;
+  const settings = (await from.query('select * from public.settings where user_id = $1 order by key', [fromOwner])).rows;
+  await to.query('begin');
   try {
-    await B.query('delete from public.tasks');
-    await B.query('delete from public.settings');
+    await to.query('delete from public.tasks where user_id = $1 or $2', [toOwner, log != null]);
+    await to.query('delete from public.settings where user_id = $1 or $2', [toOwner, log != null]);
     for (let i = 0; i < tasks.length; i += 200) {
       const chunk = tasks.slice(i, i + 200);
       const vals = [];
       const rows = chunk.map((t, j) => {
-        vals.push(backupOwner, t.id, t.title, t.raw, t.notes, t.priority, t.minutes, t.start, t.due, t.status, t.created, t.sort_order, t.done_at, t.external_id, t.updated_at);
+        vals.push(toOwner, t.id, t.title, t.raw, t.notes, t.priority, t.minutes, t.start, t.due, t.status, t.created, t.sort_order, t.done_at, t.external_id, t.updated_at);
         const b = j * 15;
         return `(${Array.from({ length: 15 }, (_, k) => `$${b + k + 1}`).join(',')})`;
       });
-      await B.query(`insert into public.tasks (user_id, id, title, raw, notes, priority, minutes, start, due, status, created, sort_order, done_at, external_id, updated_at) values ${rows.join(',')}`, vals);
+      await to.query(`insert into public.tasks (user_id, id, title, raw, notes, priority, minutes, start, due, status, created, sort_order, done_at, external_id, updated_at) values ${rows.join(',')}`, vals);
     }
     for (const s of settings) {
-      await B.query('insert into public.settings (user_id, key, value, updated_at) values ($1, $2, $3::jsonb, $4)', [backupOwner, s.key, JSON.stringify(s.value), s.updated_at]);
+      await to.query('insert into public.settings (user_id, key, value, updated_at) values ($1, $2, $3::jsonb, $4)', [toOwner, s.key, JSON.stringify(s.value), s.updated_at]);
     }
-    await B.query('insert into audit.sync_log (source, tasks, tasks_hash, settings) values ($1, $2, $3, $4)',
-      ['primary', tasks.length, primarySnap.tasks.sha256, settings.length]);
-    await B.query('commit');
+    if (log) await to.query('insert into audit.sync_log (source, tasks, tasks_hash, settings) values ($1, $2, $3, $4)', [log.source, tasks.length, log.hash, settings.length]);
+    await to.query('commit');
   } catch (e) {
-    await B.query('rollback');
+    await to.query('rollback');
     throw e;
   }
   return { tasks: tasks.length, settings: settings.length };
 }
 
+async function restore(ownerSha) {
+  if (!BACKUP_DB_URL || !RESTORE_TO_DB_URL) {
+    say('Restore needs BACKUP_DB_URL and RESTORE_TO_DB_URL (an admin connection string for the primary).');
+    return 1;
+  }
+  if (CONFIRM !== 'overwrite-primary') {
+    say('Restore replaces every task in the primary with the backup. Run again with CONFIRM=overwrite-primary to go ahead.');
+    return 1;
+  }
+  const B = await connect(BACKUP_DB_URL, 'backup');
+  const T = await connect(RESTORE_TO_DB_URL, 'primary');
+  try {
+    const bs = await snapshot(B);
+    const backupOwner = (await B.query('select audit.owner_id($1) as id', [ownerSha])).rows[0]?.id;
+    const target = (await T.query('select id from auth.users where lower(email) = lower($1)', [OWNER_EMAIL.trim()])).rows[0]?.id;
+    if (!backupOwner) { say('The owner account is missing on the backup.'); return 1; }
+    if (!target) { say('The owner account is missing on the primary. Create it first (same email), then restore.'); return 1; }
+    say(`Restoring ${bs.tasks.count} tasks from the backup (last synced ${bs.last_sync?.synced_at ?? 'never'}).`);
+    const n = await copy(B, backupOwner, T, target, null);
+    const diff = compareData(bs, await snapshot(T));
+    if (diff.length) { for (const d of diff) say(`BLOCK restore:verify         ${d}`); return 1; }
+    say(`OK    restore                primary now holds ${n.tasks} tasks and ${n.settings} settings, matching the backup`);
+    return 0;
+  } finally {
+    await Promise.allSettled([B.end(), T.end()]);
+  }
+}
+
 async function main() {
+  if (mode === 'restore') return restore(OWNER_EMAIL ? createHash('sha256').update(OWNER_EMAIL.trim().toLowerCase()).digest('hex') : '');
   if (!PRIMARY_DB_URL || !BACKUP_DB_URL) {
     say('Backup is not configured yet (PRIMARY_DB_URL / BACKUP_DB_URL secrets are missing). Nothing to do.');
     return 0;
@@ -92,7 +122,9 @@ async function main() {
       say('Not overwriting the backup: a check above BLOCKED it. The backup still holds the last good copy.');
       return 1;
     }
-    const n = await copy(P, B, primaryOwner.id, ownerSha, ps);
+    const backupOwner = (await B.query('select audit.owner_id($1) as id', [ownerSha])).rows[0]?.id;
+    if (!backupOwner) throw new Error('The owner account is missing on the backup project.');
+    const n = await copy(P, primaryOwner.id, B, backupOwner, { source: 'primary', hash: ps.tasks.sha256 });
     const after = await snapshot(B);
     const diff = compareData(ps, after);
     if (diff.length) {
