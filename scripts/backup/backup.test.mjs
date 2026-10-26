@@ -181,6 +181,15 @@ describe('breach checks on real snapshots', () => {
     } finally { await primary.exec('update private.pins set failed = 0'); }
   });
 
+  it('guard against mass edits only when the backup differs', async () => {
+    const [p, b] = [await snap(primary), await snap(backup)];
+    const bulk = { count: 20, open: 20, updated_24h: 20, max_updated_at: 1, sha256: 'same' };
+    const run = (pt, bt) => evaluate({ primary: { ...p, tasks: pt }, backup: { ...b, tasks: bt }, ownerSha: OWNER_SHA }).findings.map(f => f.check);
+    expect(run(bulk, { ...bulk })).not.toContain('data:mass-change');
+    expect(run(bulk, { ...bulk, sha256: 'older' })).toContain('data:mass-change');
+    expect(run({ ...bulk, count: 2, updated_24h: 0, sha256: 'new' }, { ...bulk })).toContain('data:mass-deletion');
+  });
+
   const tampered = async (attack, undo) => {
     await primary.exec(attack);
     try { return evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings.filter(f => f.level === 'block').map(f => f.check); }
