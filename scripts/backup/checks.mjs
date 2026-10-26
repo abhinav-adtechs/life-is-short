@@ -140,8 +140,10 @@ export function evaluate({ primary, backup, ownerSha, force = false }) {
   const lastSync = backup.last_sync ? Date.parse(backup.last_sync.synced_at) : null;
   const guard = (check, detail) => (force ? f.warn(check, `${detail} (overridden with force)`) : f.block(check, detail));
   if (lastSync && Number(B.max_updated_at || 0) > lastSync) guard('data:backup-in-use', 'the backup has edits made after the last sync; promote it or clear it before syncing');
-  if (B.count >= 6 && P.count < B.count * 0.5) guard('data:mass-deletion', `primary has ${P.count} tasks, backup has ${B.count}`);
-  if (B.count >= 6 && P.updated_24h > Math.max(10, P.count * 0.6)) guard('data:mass-change', `${P.updated_24h} of ${P.count} tasks changed in the last 24 hours`);
+  // Nothing to guard when the backup already holds exactly what the primary has.
+  const same = !!P.sha256 && P.sha256 === B.sha256;
+  if (!same && B.count >= 6 && P.count < B.count * 0.5) guard('data:mass-deletion', `primary has ${P.count} tasks, backup has ${B.count}`);
+  if (!same && B.count >= 6 && P.updated_24h > Math.max(10, P.count * 0.6)) guard('data:mass-change', `${P.updated_24h} of ${P.count} tasks changed in the last 24 hours`);
   if (lastSync && (Date.parse(primary.at) || Date.now()) - lastSync > 3 * DAY) f.warn('data:backup-stale', 'the last successful sync was more than 3 days ago');
 
   return { findings, primaryOwner, blocked: findings.some(x => x.level === 'block') };
