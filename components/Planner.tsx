@@ -11,6 +11,8 @@ import { backlogList, doneList, focus, missedList } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
 import { atMinutes, endOf, fromYmd, startOfDay } from '@/lib/time';
 import { sortDump } from '@/lib/api';
+import { mergeExternal } from '@/lib/google';
+import { PENDING_KEY, disconnectGoogle, fetchGoogleItems, startGoogleConnect, type GoogleConn } from '@/lib/google-client';
 import { prefersReducedMotion, useMedia, useNow } from './hooks';
 import { useTaskStore, type Store } from './store';
 import { useDrag, type DragKind } from './drag';
@@ -51,6 +53,11 @@ export interface PlannerApi {
   openEditor: (id: string) => void;
   openSettings: () => void;
   undoable: (msg: string, before: Map<string, Task | null>) => void;
+  google: GoogleConn | null;
+  pullGoogle: (quiet?: boolean) => Promise<void>;
+  connectGoogle: () => Promise<void>;
+  removeGoogle: () => Promise<void>;
+  pulling: boolean;
 }
 
 const Ctx = createContext<PlannerApi | null>(null);
@@ -78,6 +85,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [calMode, setCalModeState] = useState<'day' | 'week'>('week');
   const [phoneView, setPhoneView] = useState<'list' | 'calendar'>('list');
   const lastFocus = useRef<HTMLElement | null>(null);
+  const [google, setGoogle] = useState<GoogleConn | null>(null);
+  const [pulling, setPulling] = useState(false);
 
   useEffect(() => { setMounted(true); setCalModeState(loadView()); }, []);
   const setCalMode = useCallback((m: 'day' | 'week') => { setCalModeState(m); try { localStorage.setItem('ds.view', m); } catch { /* per-device nicety */ } }, []);
@@ -181,11 +190,69 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   // A picked task that disappears (done elsewhere, deleted) can't be placed.
   useEffect(() => { if (picked && !store.get(picked)) setPicked(null); }, [picked, store, store.tasks]);
 
+  const saveGoogle = useCallback(async (conn: GoogleConn | null) => {
+    setGoogle(conn);
+    try { await repo.setSetting('google', conn); } catch (e) { toast(e instanceof Error ? e.message : 'Couldn’t save the Google connection.'); }
+  }, [repo, toast]);
+
+  /** Pull Google Calendar events and Google Tasks into the planner. Quiet pulls only speak up when something changed. */
+  const pullGoogle = useCallback(async (quiet = false, connArg?: GoogleConn) => {
+    const conn = connArg ?? google;
+    if (!conn) return;
+    setPulling(true);
+    const res = await fetchGoogleItems(conn);
+    setPulling(false);
+    if ('error' in res) {
+      if (!quiet || res.revoked) toast(res.error);
+      if (res.revoked) await saveGoogle(null);
+      return;
+    }
+    const m = mergeExternal(store.all(), res.items, Date.now());
+    const before = store.write(m.puts);
+    await saveGoogle({ ...conn, pulledAt: Date.now() });
+    const parts = [m.added && `${m.added} new`, m.updated && `${m.updated} updated`, m.ticked && `${m.ticked} ticked off`].filter(Boolean);
+    if (parts.length) undoable(`From Google · ${parts.join(', ')}`, before);
+    else if (!quiet) toast('Google is up to date');
+  }, [google, store, toast, undoable, saveGoogle]);
+
+  const connectGoogle = useCallback(async () => {
+    const err = await startGoogleConnect();
+    if (err) toast(err);
+  }, [toast]);
+
+  const removeGoogle = useCallback(async () => {
+    if (google) await disconnectGoogle(google);
+    await saveGoogle(null);
+    toast('Google disconnected. Pulled tasks stay.');
+  }, [google, saveGoogle, toast]);
+
+  // Load the Google connection; finish a connect that just came back from Google; pull if it's been a while.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let pending: GoogleConn | null = null;
+      try { const raw = sessionStorage.getItem(PENDING_KEY); if (raw) { sessionStorage.removeItem(PENDING_KEY); pending = JSON.parse(raw); } } catch { pending = null; }
+      if (pending) {
+        await saveGoogle(pending);
+        if (alive) { toast(`Google connected${pending.email ? ' · ' + pending.email : ''}. Pulling…`); pullGoogle(false, pending); }
+        return;
+      }
+      let conn: GoogleConn | null = null;
+      try { conn = await repo.getSetting<GoogleConn>('google'); } catch { conn = null; }
+      if (!alive || !conn) return;
+      setGoogle(conn);
+      if (!conn.pulledAt || Date.now() - conn.pulledAt > 30 * 60000) pullGoogle(true, conn);
+    })();
+    return () => { alive = false; };
+    // Once per planner; pullGoogle reads the connection passed in.
+  }, [repo]);
+
   const api: PlannerApi = {
     store, tasks: store.tasks, now, wide, repo, email, pending, completing, picked, setPicked, drag,
     day, setDay, calMode, setCalMode, phoneView, setPhoneView,
     toast, done, slot, schedule, unslot, place, capture, openEditor,
     openSettings: () => setSettingsOpen(true), undoable,
+    google, pullGoogle, connectGoogle, removeGoogle, pulling,
   };
 
   if (!mounted) return <div className="boot" />;
