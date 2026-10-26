@@ -1,11 +1,12 @@
 import { contrast, ensureContrast, isHex, mix, onColor, rgba } from './color';
+import { DEFAULT_SCENE, LAYERS, SCENES, sceneById, type Scene, type SceneId } from './scenes';
 
 /** How things look and how the calendar behaves. Stored per device and synced through your settings row. */
 export interface Prefs {
   /** Light or dark. Per device: a phone can follow the system while a laptop stays dark. */
   mode: 'system' | 'light' | 'dark';
-  /** The breathing sky behind everything, or a plain page. */
-  scene: 'sky' | 'plain';
+  /** The view out of the window (lib/scenes.ts), or a plain page. */
+  scene: SceneId | 'plain';
   surface: SurfaceId;
   /** An accent preset id, or a custom #RRGGBB. */
   accent: string;
@@ -45,7 +46,7 @@ export type CalView = 'day' | 'work' | 'week' | 'month';
 export const DEVICE_KEYS = ['mode', 'calView'] as const;
 
 export const DEFAULT_PREFS: Prefs = {
-  mode: 'system', scene: 'sky', surface: 'sky', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
+  mode: 'system', scene: DEFAULT_SCENE, surface: 'paper', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
   contrast: false, trueBlack: false, motion: 'system', clock: '12',
   calView: null, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
   colorBy: 'account', showDone: true, shadeWeekends: false, weekNumbers: false,
@@ -58,11 +59,6 @@ export interface Palette { bg: string; ink: string; muted: string; hair: string;
 export interface Surface { id: string; name: string; light: Palette; dark: Palette }
 
 export const SURFACES = [
-  {
-    id: 'sky', name: 'Sky',
-    light: { bg: '#F8FBFD', ink: '#0E1922', muted: '#56636E', hair: '#E1E9EF', hair2: '#EEF3F7', soft: '#EAF1F6', block: '#E3ECF2', blockH: '#D7E3EC' },
-    dark: { bg: '#0A1220', ink: '#EAF0F7', muted: '#8D9AAD', hair: '#1C2638', hair2: '#121A29', soft: '#162033', block: '#1A2438', blockH: '#243049' },
-  },
   {
     id: 'neutral', name: 'Neutral',
     light: { bg: '#FFFFFF', ink: '#0F0F10', muted: '#6B6B70', hair: '#EDEDEF', hair2: '#F6F6F7', soft: '#F4F4F5', block: '#F1F1F3', blockH: '#E8E8EB' },
@@ -117,18 +113,6 @@ export function accentPair(accent: string, light: Palette, dark: Palette) {
   return { ...out, adjusted: { light: out.light !== base.light.toUpperCase(), dark: out.dark !== base.dark.toUpperCase() } };
 }
 
-/* ---------- the sky ---------- */
-
-/** The scene's colours by day and at dusk: sky from the top down to the horizon, the hills, clouds and the lit horizon.
- *  globals.css paints the scene with these values; tests hold text on the panels against every one of them. */
-export const SKY = {
-  light: ['#5F9BD6', '#8DBDE6', '#BFDBEE', '#E6EFEC', '#F3F1E4', '#AFC8BA', '#9DC38C', '#86B56B', '#679A52', '#FFFFFF', '#C7DAEA'],
-  dark: ['#060B1C', '#0E1736', '#1C2752', '#3A3C6A', '#6E5470', '#8E6A70', '#1B2541', '#14222F', '#0D1A1A', '#2A3263'],
-} as const;
-
-/** How much of the page colour a panel keeps over the sky: enough for muted text to stay at 4.5:1 wherever it sits. */
-export const VEIL = { light: 0.86, dark: 0.82 };
-
 /* ---------- fonts ---------- */
 
 export interface Font { id: string; name: string; note: string; stack: string; /** Google Fonts family spec, or null when nothing needs loading. */ gf: string | null }
@@ -170,11 +154,13 @@ export function normalizePrefs(raw: unknown): Prefs {
   let dayStart = Number.isInteger(o.dayStart) ? Math.max(0, Math.min(23, o.dayStart as number)) : d.dayStart;
   let dayEnd = Number.isInteger(o.dayEnd) ? Math.max(1, Math.min(24, o.dayEnd as number)) : d.dayEnd;
   if (dayEnd - dayStart < 2) { dayStart = d.dayStart; dayEnd = d.dayEnd; }
-  // Prefs saved before the sky have no scene; their Neutral was the old default, so they get the sky's own surface.
+  // Prefs saved before the window have no scene; their Neutral was the old default, so they get the window's Paper.
   const surface = o.scene === undefined && o.surface === 'neutral' ? d.surface : oneOf(o.surface, ids(SURFACES), d.surface);
+  // An early build called the only view 'sky'.
+  const scene = o.scene === 'sky' ? d.scene : oneOf(o.scene, [...ids(SCENES), 'plain'] as const, d.scene);
   return {
     mode: oneOf(o.mode, ['system', 'light', 'dark'] as const, d.mode),
-    scene: oneOf(o.scene, ['sky', 'plain'] as const, d.scene),
+    scene,
     surface,
     accent,
     font: oneOf(o.font, ids(FONTS), d.font),
@@ -259,16 +245,16 @@ export function computeLook(p: Prefs): Look {
   vars['--d-on-accent'] = onColor(acc.dark, dark.bg === '#000000' ? '#000000' : '#0B0B0C');
   vars['--d-accent-soft'] = rgba(acc.dark, 0.12);
   vars['--d-accent-line'] = rgba(acc.dark, 0.55);
-  vars['--l-panel'] = rgba(light.bg, VEIL.light);
-  vars['--d-panel'] = rgba(dark.bg, VEIL.dark);
   const font = FONTS.find(f => f.id === p.font) ?? FONTS[0];
   vars['--font'] = font.stack;
   vars['--fs'] = String(p.textSize);
   vars['--round'] = String(CORNERS[p.corners].round);
   vars['--pill'] = CORNERS[p.corners].pill;
   vars['--dens'] = String(DENSITY[p.density]);
-  // The browser bar continues the top of the page: the sky's, or the plain page's.
-  const top = p.scene === 'sky' ? { light: SKY.light[0], dark: SKY.dark[0] } : { light: light.bg, dark: dark.bg };
+  const scene = sceneById(p.scene);
+  if (scene) Object.assign(vars, sceneVars(scene));
+  // The browser bar continues the page: the wall around the window, or the plain page.
+  const top = scene ? { light: scene.wall.light, dark: scene.wall.dark } : { light: light.bg, dark: dark.bg };
   return {
     vars,
     attrs: {
@@ -287,10 +273,33 @@ export function worstTextContrast(pal: Palette) {
   return Math.min(...[pal.bg, pal.soft, pal.block, pal.hair2].flatMap(bg => [contrast(pal.ink, bg), contrast(pal.muted, bg)]));
 }
 
-/** Lowest contrast of text on a panel, wherever over the sky the panel sits. */
-export function worstPanelContrast(pal: Palette, side: 'light' | 'dark') {
-  return Math.min(...SKY[side].flatMap(sky => {
-    const panel = mix(sky, pal.bg, VEIL[side]);
-    return [contrast(pal.ink, panel), contrast(pal.muted, panel)];
-  }));
+/** The window's CSS: its layers, where the light comes from, and the colours around it. */
+export function sceneVars(s: Scene): Record<string, string> {
+  const v: Record<string, string> = {};
+  for (const l of LAYERS) v[`--img-${l}`] = s.layers.includes(l) ? `url("/scenes/${s.id}/${l}.svg")` : 'none';
+  v['--sun'] = `${s.sun[0]}% ${s.sun[1]}%`;
+  v['--band'] = String(s.band);
+  v['--across'] = String(s.across);
+  v['--sky-c'] = s.sky;
+  v['--l-wall'] = s.wall.light;
+  v['--d-wall'] = s.wall.dark;
+  v['--l-wall-ink'] = s.wall.ink;
+  v['--d-wall-ink'] = s.wall.inkDark;
+  v['--wall-art'] = s.wall.texture ?? 'none';
+  v['--frame'] = s.frame;
+  v['--win-r'] = `${s.radius}px`;
+  v['--view-ink'] = s.view.ink;
+  v['--view-shade'] = s.view.shade;
+  v['--paper'] = s.paper.bg;
+  v['--paper-ink'] = s.paper.ink;
+  v['--paper-muted'] = s.paper.muted;
+  v['--paper-line'] = s.paper.line;
+  v['--paper-mark'] = s.paper.mark;
+  v['--cta'] = s.paper.cta;
+  v['--cta-ink'] = s.paper.ctaInk;
+  v['--bird'] = s.bird;
+  v['--mote'] = s.mote ?? 'transparent';
+  v['--motes'] = s.mote ? 'block' : 'none';
+  v['--drips'] = s.layers.includes('drops') ? 'block' : 'none';
+  return v;
 }

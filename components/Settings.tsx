@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { normalizeImport } from '@/lib/importer';
 import { hasSupabase, supabase } from '@/lib/supabase';
-import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, SURFACES, TEXT_SIZES, accentPair, fontHref, palettes, type Prefs } from '@/lib/prefs';
+import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, SURFACES, TEXT_SIZES, accentPair, fontHref, palettes, sceneVars, type Prefs } from '@/lib/prefs';
+import { SCENES } from '@/lib/scenes';
 import { isHex } from '@/lib/color';
 import { fmtHour, fmtRange, fmtTime } from '@/lib/format';
 import { ACCOUNT_COLORS } from '@/lib/google-client';
@@ -13,6 +14,7 @@ import { useMedia, prefersReducedMotion } from './hooks';
 import { BackIcon, CheckIcon, MicIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
+import { View } from './Scene';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
@@ -57,7 +59,7 @@ export function Settings({ section, onClose }: { section: string; onClose: () =>
   return (
     <div ref={page} className="setpage" role="dialog" aria-modal="true" aria-labelledby="set-h" tabIndex={-1}>
       <header className="sp-top">
-        <button type="button" className="ib float" aria-label="Back to the planner" onClick={onClose}><BackIcon /></button>
+        <button type="button" className="ib" aria-label="Back to the planner" onClick={onClose}><BackIcon /></button>
         <h1 id="set-h">Settings</h1>
         <span className="sp-saved">Changes apply as you make them</span>
       </header>
@@ -144,18 +146,10 @@ function Preview() {
   );
 }
 
-const SCENES = [{ value: 'sky', label: 'Sky' }, { value: 'plain', label: 'Plain' }] as const;
-
-/** A small sky for the Background choice: fields, a far hill and two birds. */
-function SkyThumb() {
-  return (
-    <svg viewBox="0 0 320 96" preserveAspectRatio="none">
-      <path className="t-far" d="M0 66C60 58 120 62 180 64 240 66 280 56 320 60V96H0Z" />
-      <path className="t-near" d="M0 78C80 70 160 72 220 78 260 82 290 76 320 77V96H0Z" />
-      <path className="t-bird" d="M58 28C61 25 64 25.4 67 29 70 25.4 73 25 76 28M84 21C86 19.2 88 19.5 90 22 92 19.5 94 19.2 96 21" />
-    </svg>
-  );
-}
+const VIEWS = [
+  ...SCENES.map(sc => ({ value: sc.id, label: sc.name, note: sc.note, style: sceneVars(sc) as CSSProperties })),
+  { value: 'plain' as const, label: 'Plain', note: 'No window. A still, flat page', style: undefined },
+];
 
 function Appearance() {
   const { prefs, setPrefs, toast } = usePlanner();
@@ -177,27 +171,30 @@ function Appearance() {
     <Section id="appearance" title="Appearance" lead="Light or dark is set per device. Everything else follows you to your other devices.">
       <Preview />
 
-      <Opt label="Background" note="A slow, breathing sky over open fields, with birds now and then. Plain keeps the page still and flat." stack>
+      <Opt label="View" note="What you see out of the window, behind Now and on the sign-in screen. It moves slowly: clouds drift, the light breathes, birds pass now and then." stack>
         {({ labelId }) => (
           <div className="scenes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
-            {SCENES.map(sc => (
-              <button key={sc.value} type="button" className="scn" {...radio(prefs.scene === sc.value)} onClick={() => setPrefs({ scene: sc.value })}>
-                <span className={'sp ' + sc.value} aria-hidden="true">{sc.value === 'sky' && <SkyThumb />}</span>
-                <b>{sc.label}</b>
+            {VIEWS.map(v => (
+              <button key={v.value} type="button" className="scn" {...radio(prefs.scene === v.value)} onClick={() => setPrefs({ scene: v.value })}>
+                <span className={'sp' + (v.style ? '' : ' plain')} aria-hidden="true">
+                  {v.style ? <View kind="thumb" style={v.style} /> : <><i style={{ top: '30%' }} /><i style={{ top: '48%', right: '46%' }} /><i style={{ top: '66%' }} /></>}
+                </span>
+                <b>{v.label}</b>
+                <small>{v.note}</small>
               </button>
             ))}
           </div>
         )}
       </Opt>
 
-      <Opt label="Mode" note="This device only. System follows your phone or computer. Dark turns the sky to dusk." stack>
+      <Opt label="Mode" note="This device only. System follows your phone or computer. Dark dims the wall and the panels; the view stays as it is." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.mode} onChange={mode => setPrefs({ mode })}
             options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
         )}
       </Opt>
 
-      <Opt label="Theme" note="The colour of the page, cards and lines. Each has a light and a dark side." stack>
+      <Opt label="Theme" note="The colour of the panels (or of the page, with no view) and their lines. Each has a light and a dark side." stack>
         {({ labelId }) => (
           <div className="themes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
             {SURFACES.map(s => (
@@ -277,7 +274,7 @@ function Appearance() {
       <Opt label="Pure black in dark mode" note="A true black background for OLED screens."
         toggle={{ checked: prefs.trueBlack, onChange: trueBlack => setPrefs({ trueBlack }) }} />
 
-      <Opt label="Motion" note="Reduced turns off animations: the mic’s ripple, and the sky’s breathing, clouds and birds. System follows your device." stack>
+      <Opt label="Motion" note="Reduced turns off animations: the mic’s ripple, and the view’s drifting clouds, birds and passing fields. System follows your device." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.motion} onChange={motion => setPrefs({ motion })}
             options={[{ value: 'system', label: 'System' }, { value: 'full', label: 'On' }, { value: 'reduce', label: 'Reduced' }]} />

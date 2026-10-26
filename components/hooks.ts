@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { DEFAULT_SCENE } from '@/lib/scenes';
 
 /** Current time, re-read every 30 seconds and whenever the page comes back into view. */
 export function useNow(): number {
@@ -22,6 +23,19 @@ export function useMedia(query: string): boolean {
     cb => { const m = window.matchMedia(query); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); },
     () => window.matchMedia(query).matches,
     () => false,
+  );
+}
+
+/** The view on <html data-scene>: set by the startup script from this device's last choice, then by Settings. */
+export function useSceneId(): string {
+  return useSyncExternalStore(
+    cb => {
+      const mo = new MutationObserver(cb);
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-scene'] });
+      return () => mo.disconnect();
+    },
+    () => document.documentElement.getAttribute('data-scene') ?? DEFAULT_SCENE,
+    () => DEFAULT_SCENE,
   );
 }
 

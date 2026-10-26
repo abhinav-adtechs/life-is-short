@@ -2,23 +2,57 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Brand } from './Brand';
+import { PLAIN_COPY, sceneById, type Scene } from '@/lib/scenes';
+import { fmtTime, longDate } from '@/lib/format';
+import { Brand, Mark } from './Brand';
 import { ArrowIcon } from './icons';
+import { useNow, useSceneId } from './hooks';
+import { View } from './Scene';
 
-/** Every sign-in step: the name top left, the step's title on the sky, and its form on a card. The first step gets the big title. */
+/** The paper the form is printed on, for the view: a ticket, a postcard, a balloonist's tag or a boarding pass. */
+function Deco({ card, hero }: { card: Scene['card']; hero?: boolean }) {
+  if (card.kind === 'postcard') {
+    return <span className="deco pstamp" aria-hidden="true"><Mark size={30} /></span>;
+  }
+  if (card.kind === 'tag') return <span className="deco hole" aria-hidden="true" />;
+  if (card.kind === 'pass') {
+    return <span className="deco stub" aria-hidden="true"><span>Seat</span><b>1A</b><span>Today</span><i /></span>;
+  }
+  return hero && card.stamp ? <span className="deco stamp" aria-hidden="true">{card.stamp}</span> : null;
+}
+
+/**
+ * Every sign-in step. With a view: the whole screen is the window, the title is on the view, and the form is on
+ * the view's ticket. Plain: the name, the title and a card. The first step gets the big title.
+ */
 export function Shell({ title, hero, onSubmit, children }: {
   title: string; hero?: boolean; onSubmit?: (e: React.FormEvent) => void; children: React.ReactNode;
 }) {
+  const scene = sceneById(useSceneId());
+  const now = useNow();
+  const card = scene?.card;
+  const inner = (
+    <>
+      {card && <><div className="thead" aria-hidden="true"><span>{card.head[0]}</span><span>{card.head[1]}</span></div><div className="perf" /></>}
+      {children}
+      {card && <Deco card={card} hero={hero} />}
+    </>
+  );
   return (
     <main className="login">
-      <header className="ltop in"><Brand /></header>
+      <View kind="full" />
+      <header className="ltop in"><Brand /><span className="mono">{longDate(now)} · {fmtTime(now)}</span></header>
       <div className="lmid">
-        {hero && <p className="tag in"><span>Dump it</span><i aria-hidden="true" /><span>Slot it</span><i aria-hidden="true" /><span>Live it</span></p>}
-        <h1 className={'in' + (hero ? ' hero' : '')} style={{ animationDelay: '.06s' }}>{title}</h1>
-        {hero && <p className="lead in" style={{ animationDelay: '.12s' }}>Dump a thought the moment it arrives. Slot it into your day. Then go outside.</p>}
-        {onSubmit
-          ? <form className="lcard in" style={{ animationDelay: '.18s' }} onSubmit={onSubmit}>{children}</form>
-          : <div className="lcard in" style={{ animationDelay: '.18s' }}>{children}</div>}
+        {hero && (scene
+          ? <p className="eyebrow in">{scene.eyebrow}</p>
+          : <p className="tag in"><span>Dump it</span><i aria-hidden="true" /><span>Slot it</span><i aria-hidden="true" /><span>Live it</span></p>)}
+        <h1 className={'in' + (hero ? ' hero' : '')} style={{ animationDelay: '.06s' }}>{title}{hero && scene && <><br />{scene.line}</>}</h1>
+        {hero && <p className="lead in" style={{ animationDelay: '.12s' }}>{scene ? scene.lead : PLAIN_COPY.lead}</p>}
+        <div className="tk in" style={{ animationDelay: '.18s' }}>
+          {onSubmit
+            ? <form className="lcard" data-kind={card?.kind} onSubmit={onSubmit}>{inner}</form>
+            : <div className="lcard" data-kind={card?.kind}>{inner}</div>}
+        </div>
       </div>
     </main>
   );

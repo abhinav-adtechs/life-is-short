@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
-import Scene from '@/components/Scene';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -12,10 +11,10 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  // The top of the sky; components/prefs.ts changes it to match Settings.
+  // The wall around the window; components/prefs.ts changes it to match Settings.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#5F9BD6' },
-    { media: '(prefers-color-scheme: dark)', color: '#060B1C' },
+    { media: '(prefers-color-scheme: light)', color: '#1F5E58' },
+    { media: '(prefers-color-scheme: dark)', color: '#0E2826' },
   ],
 };
 
@@ -30,15 +29,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // The CSP nonce from proxy.ts; reading headers also makes every page render per request.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
-    // The sky is the default scene; the startup script swaps in a saved Plain before first paint.
-    <html lang="en" data-scene="sky" suppressHydrationWarning>
+    // Summer meadow is the default view; the startup script swaps in a saved one before first paint.
+    <html lang="en" data-scene="meadow" suppressHydrationWarning>
       <head>
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link rel="stylesheet" nonce={nonce} href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" />
+        <link rel="stylesheet" nonce={nonce} href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" />
       </head>
-      <body><Scene />{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

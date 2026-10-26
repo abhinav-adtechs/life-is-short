@@ -1,8 +1,9 @@
-/** The mark: a bird over open fields, in a soft green square. app/icon.svg is the same drawing. */
+/** The mark: a window with a hill and the sun. app/icon.svg is the same drawing in colour. */
 export const Mark = ({ size = 24 }: { size?: number }) => (
-  <svg className="mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-    <rect width="24" height="24" rx="7" />
-    <path d="M5 11.4C7.3 9.3 9.7 9.6 12 12.8 14.3 9.6 16.7 9.3 19 11.4" />
+  <svg className="mark" width={size} height={size} viewBox="0 0 26 26" aria-hidden="true">
+    <rect x="3" y="3" width="20" height="20" rx="7" />
+    <path d="M3 15c4-2 7-2.4 10-1.2s6 1 10-1" />
+    <circle cx="17" cy="10.5" r="2.2" />
   </svg>
 );
 

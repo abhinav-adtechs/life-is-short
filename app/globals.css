@@ -1,23 +1,24 @@
-/* Life is short. A breathing sky over open fields, with the planner on soft panels in front of it.
+/* Life is short. The view from a window seat, with the planner on panels on the wall around it.
    Only two heavy things per screen: the current task and the orange mic. */
 
 /* Theme tokens. Settings → Appearance overrides the --l-* (light) and --d-* (dark) values inline on <html>;
    these are the defaults. Light or dark is picked here, from the system or a forced data-theme. */
-:root{--l-bg:#F8FBFD;--l-ink:#0E1922;--l-muted:#56636E;--l-hair:#E1E9EF;--l-hair2:#EEF3F7;--l-soft:#EAF1F6;--l-block:#E3ECF2;--l-block-h:#D7E3EC;--l-panel:rgba(248,251,253,0.86);--l-accent:#F04A0C;--l-on-accent:#FFFFFF;--l-accent-soft:rgba(240,74,12,.08);--l-accent-line:rgba(240,74,12,.5);--d-bg:#0A1220;--d-ink:#EAF0F7;--d-muted:#8D9AAD;--d-hair:#1C2638;--d-hair2:#121A29;--d-soft:#162033;--d-block:#1A2438;--d-block-h:#243049;--d-panel:rgba(10,18,32,0.82);--d-accent:#FF6A33;--d-on-accent:#0B0B0C;--d-accent-soft:rgba(255,106,51,.12);--d-accent-line:rgba(255,106,51,.55);--font:'Geist',system-ui,-apple-system,sans-serif;--fs:1;--round:1;--pill:999px;--dens:1}
-:root{--bg:var(--l-bg);--ink:var(--l-ink);--muted:var(--l-muted);--hair:var(--l-hair);--hair2:var(--l-hair2);--soft:var(--l-soft);--block:var(--l-block);--block-h:var(--l-block-h);--accent:var(--l-accent);--on-accent:var(--l-on-accent);--accent-soft:var(--l-accent-soft);--accent-line:var(--l-accent-line);--panel:var(--l-panel);--glass:inset 0 1px 0 rgba(255,255,255,.6),0 30px 60px -32px rgba(28,56,86,.38);--lift:0 1px 2px rgba(0,0,0,.08);--scrim:rgba(15,15,16,.28);--pop:0 30px 70px rgba(0,0,0,.16),0 0 0 1px rgba(0,0,0,.06);--tint:16%;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--panel:var(--d-panel);--glass:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -30px rgba(0,0,0,.6);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--panel:var(--d-panel);--glass:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -30px rgba(0,0,0,.6);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}
+:root{--l-bg:#FBF8F2;--l-ink:#1F1B16;--l-muted:#68604F;--l-hair:#EAE3D6;--l-hair2:#F4EFE6;--l-soft:#F1EBE0;--l-block:#EDE6D8;--l-block-h:#E3DAC8;--l-accent:#F04A0C;--l-on-accent:#FFFFFF;--l-accent-soft:rgba(240,74,12,.08);--l-accent-line:rgba(240,74,12,.5);--d-bg:#14110D;--d-ink:#F3EDE4;--d-muted:#9C9384;--d-hair:#2A241D;--d-hair2:#1A1611;--d-soft:#201B15;--d-block:#251F18;--d-block-h:#302820;--d-accent:#FF6A33;--d-on-accent:#0B0B0C;--d-accent-soft:rgba(255,106,51,.12);--d-accent-line:rgba(255,106,51,.55);--font:'Geist',system-ui,-apple-system,sans-serif;--fs:1;--round:1;--pill:999px;--dens:1}
+:root{--bg:var(--l-bg);--ink:var(--l-ink);--muted:var(--l-muted);--hair:var(--l-hair);--hair2:var(--l-hair2);--soft:var(--l-soft);--block:var(--l-block);--block-h:var(--l-block-h);--accent:var(--l-accent);--on-accent:var(--l-on-accent);--accent-soft:var(--l-accent-soft);--accent-line:var(--l-accent-line);--glass:inset 0 1px 0 rgba(255,255,255,.6),0 30px 60px -32px rgba(28,56,86,.38);--lift:0 1px 2px rgba(0,0,0,.08);--scrim:rgba(15,15,16,.28);--pop:0 30px 70px rgba(0,0,0,.16),0 0 0 1px rgba(0,0,0,.06);--tint:16%;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--glass:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -30px rgba(0,0,0,.6);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--glass:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -30px rgba(0,0,0,.6);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}
 
-/* The scene's colours (lib/prefs.ts SKY): a morning sky by day, dusk in dark mode. */
-:root{--sky-0:#5F9BD6;--sky-1:#8DBDE6;--sky-2:#BFDBEE;--sky-3:#E6EFEC;--sky-4:#F3F1E4;--sky-glow:rgba(255,246,222,.95);--glow-at:80% 6%;--glow-size:60vmax 50vmax;--sky-breath:rgba(255,255,255,.16);--sky-haze:rgba(243,241,228,.55);--cloud:#FFFFFF;--cloud-shade:#C7DAEA;--cloud-o:.94;--hill-far:#AFC8BA;--hill-mid0:#9DC38C;--hill-mid1:#8AB679;--hill-near0:#86B56B;--hill-near1:#679A52;--tree:#55854A;--bird:#2B3A47;--mote:rgba(255,255,255,.9);--stars:0;--brand:#A8D672;--brand-ink:#0E1922}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--sky-0:#060B1C;--sky-1:#0E1736;--sky-2:#1C2752;--sky-3:#3A3C6A;--sky-4:#6E5470;--sky-glow:rgba(255,178,128,.38);--glow-at:70% 78%;--glow-size:70vmax 34vmax;--sky-breath:rgba(150,170,255,.07);--sky-haze:rgba(110,84,112,.18);--cloud:#2A3263;--cloud-shade:#161D40;--cloud-o:.7;--hill-far:#1B2541;--hill-mid0:#14222F;--hill-mid1:#112029;--hill-near0:#0D1A1A;--hill-near1:#0A1515;--tree:#08110F;--bird:#050912;--mote:rgba(255,228,150,.95);--stars:1}}
-:root[data-theme="dark"]{--sky-0:#060B1C;--sky-1:#0E1736;--sky-2:#1C2752;--sky-3:#3A3C6A;--sky-4:#6E5470;--sky-glow:rgba(255,178,128,.38);--glow-at:70% 78%;--glow-size:70vmax 34vmax;--sky-breath:rgba(150,170,255,.07);--sky-haze:rgba(110,84,112,.18);--cloud:#2A3263;--cloud-shade:#161D40;--cloud-o:.7;--hill-far:#1B2541;--hill-mid0:#14222F;--hill-mid1:#112029;--hill-near0:#0D1A1A;--hill-near1:#0A1515;--tree:#08110F;--bird:#050912;--mote:rgba(255,228,150,.95);--stars:1}
+/* The window (lib/scenes.ts). These are Summer meadow's values, for the first paint; Settings → Appearance → View
+   puts the chosen view's values inline on <html> (lib/prefs.ts sceneVars), and lib/prefs.test.ts keeps these in step. */
+:root{--img-sky:url("/scenes/meadow/sky.svg");--img-glow:url("/scenes/meadow/glow.svg");--img-twinkle:none;--img-clouds:url("/scenes/meadow/clouds.svg");--img-land:url("/scenes/meadow/land.svg");--img-float:none;--img-blink:none;--img-near:url("/scenes/meadow/near.svg");--img-wires:url("/scenes/meadow/wires.svg");--img-drops:none;--sun:100% -7%;--band:0.56;--across:0.5;--sky-c:#4F94E4;--l-wall:#1F5E58;--d-wall:#0E2826;--l-wall-ink:#F3EEE2;--d-wall-ink:#E9E4D8;--wall-art:none;--frame:inset 0 0 0 10px #E9E0CC,inset 0 0 0 12px #C8BB9E,inset 0 18px 30px rgba(10,30,30,.45);--win-r:64px;--view-ink:#FFFFFF;--view-shade:rgba(10,40,90,.38);--paper:#FBF6EA;--paper-ink:#14382F;--paper-muted:#476F5A;--paper-line:rgba(20,56,47,.3);--paper-mark:#D9452F;--cta:#14382F;--cta-ink:#FBF6EA;--bird:#16233F;--mote:rgba(255,255,255,.9);--motes:block;--drips:none}
+:root{--wall:var(--l-wall);--wall-ink:var(--l-wall-ink);--panel:var(--bg);--mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--wall:var(--d-wall);--wall-ink:var(--d-wall-ink)}}
+:root[data-theme="dark"]{--wall:var(--d-wall);--wall-ink:var(--d-wall-ink)}
 
-/* Over the sky, pages are clear and panels are a veil of the page colour (lib/prefs.ts VEIL keeps text at 4.5:1 on it).
-   Lines and fills become tints of the ink so they read on the veil. Settings → Background → Plain puts the flat page back. */
-:root[data-scene="sky"]{--page:transparent;--hair:color-mix(in srgb,var(--ink) 10%,transparent);--hair2:color-mix(in srgb,var(--ink) 5%,transparent);--soft:color-mix(in srgb,var(--ink) 6%,transparent);background:var(--sky-2)}
-:root[data-scene="sky"][data-contrast]{--hair:color-mix(in srgb,var(--ink) 20%,transparent);--hair2:color-mix(in srgb,var(--ink) 9%,transparent)}
-:root:not([data-scene="sky"]){--page:var(--bg);--panel:var(--bg);--glass:none}
+/* With a view, the page is the wall around the window and the planner sits on it in panels of the page colour.
+   Settings → Appearance → View → Plain puts the flat page back. */
+:root:not([data-scene="plain"]){--page:var(--wall);--glass:inset 0 1px 0 rgba(255,255,255,.4),0 26px 50px -30px rgba(0,0,0,.55)}
+:root[data-scene="plain"]{--page:var(--bg);--glass:none}
 
 *,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;background:var(--page);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
@@ -31,54 +32,69 @@ button{-webkit-user-select:none;user-select:none}
 .in{animation:fade .6s cubic-bezier(.2,.8,.2,1) both}
 @keyframes fade{from{opacity:0;transform:translateY(8px)}}
 
-/* ---------- the sky (components/Scene.tsx) ---------- */
-/* Everything moves slowly: one breath every 14 seconds, clouds over minutes, a flock now and then.
-   Only transforms and opacity animate, so the page never repaints for it. Reduced motion stops it all where it stands. */
-.scene{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;contain:strict}
-:root:not([data-scene="sky"]) .scene{display:none}
-.scene>*{position:absolute;inset:0}
-.sc-sky{background:linear-gradient(180deg,var(--sky-0) 0%,var(--sky-1) 26%,var(--sky-2) 50%,var(--sky-3) 68%,var(--sky-4) 80%)}
-.sc-stars{width:100%;height:60%;opacity:var(--stars)}
-.sc-stars circle{fill:#FFFFFF}
-.sc-stars .tw{animation:sc-twinkle 7s ease-in-out infinite}
-.sc-glow{background:radial-gradient(var(--glow-size) at var(--glow-at),var(--sky-glow),transparent 60%);transform-origin:var(--glow-at);opacity:.8;animation:sc-breathe 14s ease-in-out infinite;will-change:opacity,transform}
-.sc-clouds{inset:2% -12% auto;height:54%;animation:sc-drift 220s linear infinite alternate;will-change:transform}
-.sc-clouds svg,.sc-land svg{display:block;width:100%;height:100%}
-.sc-cloud{opacity:var(--cloud-o);fill:var(--cloud)}
-.sc-shade{fill:var(--cloud-shade)}
-.sc-land{top:auto;height:38%;animation:sc-swell 14s ease-in-out infinite;will-change:transform}
-.sc-far{fill:var(--hill-far)}
-.sc-tree{fill:var(--tree)}
-.sc-mid0{stop-color:var(--hill-mid0)}.sc-mid1{stop-color:var(--hill-mid1)}.sc-near0{stop-color:var(--hill-near0)}.sc-near1{stop-color:var(--hill-near1)}
-.sc-haze{top:auto;height:40%;background:linear-gradient(transparent,var(--sky-haze) 38%,transparent 70%)}
-.sc-breath{background:var(--sky-breath);opacity:.5;animation:sc-inhale 14s ease-in-out infinite;will-change:opacity}
-.sc-birds{color:var(--bird)}
-/* Still (reduced motion), the sky rests mid-breath and each flock rests where its transform puts it. */
-.flock{position:absolute;left:0;width:64px;height:30px;animation:sc-fly 64s linear infinite;will-change:transform}
-.flock.f1{top:9%;transform:translateX(62vw);animation-delay:-14s}
-.flock.f2{top:34%;width:30px;transform:translateX(22vw) scaleX(-1);animation-name:sc-fly-r;animation-duration:88s;animation-delay:-50s}
-.flock.f3{top:21%;transform:translateX(84vw);animation-duration:120s;animation-delay:-96s}
-.flock i{position:absolute;display:block;animation:sc-bob 3.2s ease-in-out infinite}
+/* ---------- the window (components/Scene.tsx) ---------- */
+/* The view is painted in layers (public/scenes/<view>/). The stage keeps the art's 16:10 shape and covers the window;
+   --across and --band pick which part shows when the window is narrower or shorter than the art. Only transforms and
+   opacity animate, so nothing repaints: clouds drift over minutes, the light breathes every 14 seconds, birds pass
+   now and then. Reduced motion stops it all where it stands. */
+.win{position:absolute;overflow:hidden;container-type:size;border-radius:var(--win-r);background:var(--sky-c);isolation:isolate;pointer-events:none;-webkit-user-select:none;user-select:none}
+.win::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:var(--frame)}
+:root[data-scene="plain"] .win:not(.thumb){display:none}
+.win .stage{position:absolute;width:max(100cqw,160cqh);height:max(62.5cqw,100cqh);left:calc((100cqw - max(100cqw,160cqh))*var(--across));top:calc((100cqh - max(62.5cqw,100cqh))*var(--band))}
+.ly{position:absolute;inset:0;background:no-repeat 0 0/100% 100%}
+.ly.sky{background-image:var(--img-sky)}
+.ly.glow{background-image:var(--img-glow);transform-origin:var(--sun);animation:win-breathe 14s ease-in-out infinite}
+.ly.twinkle{background-image:var(--img-twinkle);animation:win-twinkle 7s ease-in-out infinite}
+/* The clouds' art runs a tenth past each side, so they can drift without showing an edge. */
+.ly.clouds{left:-10%;right:-10%;background-image:var(--img-clouds);animation:win-drift 240s ease-in-out infinite alternate}
+.ly.land{background-image:var(--img-land)}
+.ly.float{background-image:var(--img-float);animation:win-bob 12s ease-in-out infinite}
+.ly.blink{background-image:var(--img-blink);animation:win-blink 2.4s steps(1) infinite}
+/* The near fields are two views wide and repeat, so sliding by one view loops without a seam. */
+.ly.near{right:auto;width:200%;background-image:var(--img-near);animation:win-pass 5s linear infinite}
+.ly.wires{background-image:var(--img-wires);animation:win-dip 3.4s ease-in-out infinite}
+.ly.drops{background-image:var(--img-drops)}
+/* The planner's window is calm: the near fields hold still and the wires stay out of the way. */
+.win.strip .ly.near{animation:none}
+.win.strip .ly.wires{display:none}
+.win.thumb::after{display:none}
+.win.thumb .ly{animation:none}
+.win .flocks,.win .motes,.win .drips,.win .shade,.win .glass{position:absolute;inset:0}
+.win .flocks{color:var(--bird)}
+/* Still (reduced motion), each flock rests where its transform puts it. */
+.flock{position:absolute;left:0;width:60px;height:28px;animation:win-fly 64s linear infinite}
+.flock.f1{top:12%;transform:translateX(62cqw);animation-delay:-14s}
+.flock.f2{top:34%;width:28px;transform:translateX(22cqw) scaleX(-1);animation-name:win-fly-r;animation-duration:88s;animation-delay:-50s}
+.flock.f3{top:22%;transform:translateX(84cqw);animation-duration:120s;animation-delay:-96s}
+.flock i{position:absolute;display:block;animation:win-bird-bob 3.2s ease-in-out infinite}
 .flock svg{display:block;width:100%;height:auto;overflow:visible}
-.flock path{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transform-box:fill-box;transform-origin:50% 90%;animation:sc-flap 7s ease-in-out infinite}
-.sc-motes i{position:absolute;display:block;border-radius:50%;background:var(--mote);box-shadow:0 0 6px var(--mote);opacity:.5;animation:sc-mote 40s linear infinite;will-change:transform,opacity}
-.sc-grain{opacity:.5;mix-blend-mode:soft-light;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E") 0 0/180px}
-@keyframes sc-breathe{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
-@keyframes sc-inhale{0%,100%{opacity:0}50%{opacity:1}}
-@keyframes sc-twinkle{0%,100%{opacity:.2}50%{opacity:1}}
-@keyframes sc-drift{from{transform:translateX(-5%)}to{transform:translateX(5%)}}
-@keyframes sc-swell{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
-@keyframes sc-fly{0%{transform:translate(-14vw,0)}55%{transform:translate(112vw,-7vh)}100%{transform:translate(112vw,-7vh)}}
-@keyframes sc-fly-r{0%{transform:translate(112vw,0) scaleX(-1)}50%{transform:translate(-14vw,-4vh) scaleX(-1)}100%{transform:translate(-14vw,-4vh) scaleX(-1)}}
-@keyframes sc-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
-@keyframes sc-flap{0%,40%,100%{transform:scaleY(1)}5%,15%,25%{transform:scaleY(-.45)}10%,20%,30%{transform:scaleY(1)}}
-@keyframes sc-mote{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.6}100%{transform:translate(4vw,-34vh);opacity:0}}
+.flock path{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transform-box:fill-box;transform-origin:50% 90%;animation:win-flap 7s ease-in-out infinite}
+.win .motes{display:var(--motes)}
+.win .motes i{position:absolute;display:block;border-radius:50%;background:var(--mote);box-shadow:0 0 6px var(--mote);opacity:.55;animation:win-mote 40s linear infinite}
+.win .drips{display:var(--drips)}
+.win .drips i{position:absolute;width:8px;height:10px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:radial-gradient(circle at 40% 35%,rgba(255,255,255,.75),rgba(255,255,255,.1) 60%,rgba(20,50,30,.25));opacity:0;animation:win-slide 9s ease-in infinite}
+.win .glass{background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.08) 38%,transparent 44%,transparent 60%,rgba(255,255,255,.05) 64%,transparent 68%)}
+.win .glass::after{content:"";position:absolute;inset:0;opacity:.35;mix-blend-mode:overlay;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E") 0 0/180px}
+.win.thumb .glass::after{display:none}
+@keyframes win-breathe{0%,100%{opacity:.8;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@keyframes win-twinkle{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes win-drift{from{transform:translateX(-3%)}to{transform:translateX(3%)}}
+@keyframes win-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.6%)}}
+@keyframes win-blink{0%,70%{opacity:1}71%,100%{opacity:.15}}
+@keyframes win-pass{to{transform:translateX(-50%)}}
+@keyframes win-dip{0%,100%{transform:translateY(0)}50%{transform:translateY(2.6%)}}
+@keyframes win-fly{0%{transform:translate(-14cqw,0)}55%{transform:translate(112cqw,-7cqh)}100%{transform:translate(112cqw,-7cqh)}}
+@keyframes win-fly-r{0%{transform:translate(112cqw,0) scaleX(-1)}50%{transform:translate(-14cqw,-4cqh) scaleX(-1)}100%{transform:translate(-14cqw,-4cqh) scaleX(-1)}}
+@keyframes win-bird-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+@keyframes win-flap{0%,40%,100%{transform:scaleY(1)}5%,15%,25%{transform:scaleY(-.45)}10%,20%,30%{transform:scaleY(1)}}
+@keyframes win-mote{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.6}100%{transform:translate(4cqw,-34cqh);opacity:0}}
+@keyframes win-slide{0%{transform:translateY(0);opacity:0}10%{opacity:1}80%{opacity:1}100%{transform:translateY(40cqh);opacity:0}}
 
-/* The mark and name. */
+/* The mark: a window with a hill and the sun. app/icon.svg is the same drawing. */
 .brand{display:inline-flex;align-items:center;gap:10px;font:500 calc(17px*var(--fs))/1 var(--font);letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
 .mark{display:block;flex:none}
-.mark rect{fill:var(--brand)}
-.mark path{fill:none;stroke:var(--brand-ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mark rect,.mark path{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.mark circle{fill:currentColor}
 
 /* ---------- shared pieces ---------- */
 .nl{display:flex;align-items:center;gap:8px;font:500 calc(13px*var(--fs))/1 var(--font);color:var(--muted)}
@@ -179,13 +195,13 @@ button{-webkit-user-select:none;user-select:none}
 .ph .chip[aria-pressed="true"]{background:var(--accent-soft)}
 
 /* ---------- laptop, 860px and wider ---------- */
-.lp{height:100dvh;display:grid;grid-template-columns:380px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);background:var(--page);color:var(--ink);overflow:hidden}
-.lp .top{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 20px 0 26px;border-bottom:1px solid var(--hair)}
+.lp{height:100dvh;display:grid;grid-template-columns:380px minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"top top" "now cal" "side cal";background:var(--page);color:var(--ink);overflow:hidden}
+.lp .top{grid-area:top;display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 20px 0 26px;border-bottom:1px solid var(--hair)}
 .lp .top .end{display:flex;align-items:center;gap:12px;min-width:0}
 .lp .top .ib{width:40px;height:40px}
-.lp .side{min-height:0;display:flex;flex-direction:column;padding:30px 28px 28px;border-right:1px solid var(--hair)}
+.lp .side{grid-area:side;min-height:0;display:flex;flex-direction:column;padding:0 28px 28px;border-right:1px solid var(--hair)}
 .lp .date{font:500 calc(14px*var(--fs))/1 var(--font);color:var(--muted);white-space:nowrap}
-.lp .now{margin-top:0}
+.lp .now{grid-area:now;margin-top:0;padding:30px 28px 0;border-right:1px solid var(--hair)}
 .lp .nt{margin:12px 0 0;font:600 calc(26px*var(--fs))/1.18 var(--font);letter-spacing:-.025em}
 .lp .nm{margin-top:10px}
 .lp .acts{margin-top:20px;gap:8px}
@@ -195,6 +211,16 @@ button{-webkit-user-select:none;user-select:none}
 .lp .next button{all:unset;min-width:0;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-radius:calc(4px*var(--round))}
 .lp .next button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .lp .sh{margin-top:36px}
+/* Next, on a split-flap board. Only with a view; the plain page says it in a line under Now. */
+.board{display:none;flex-direction:column;gap:10px;width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer;border-radius:calc(8px*var(--round))}
+.board:focus-visible{outline:2px solid var(--ink);outline-offset:4px}
+.board .bh{display:flex;justify-content:space-between;align-items:center;gap:10px;font:500 calc(11.5px*var(--fs))/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.flaps{display:flex;flex-wrap:nowrap;gap:2px;min-width:0;overflow:hidden}
+.flap{position:relative;flex:none;width:15px;height:23px;border-radius:3px;background:#1F1E1C;color:#F4EFE4;font:600 12.5px/23px var(--mono);text-align:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);animation:flap .5s cubic-bezier(.3,1.4,.5,1) both}
+.flap::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(0,0,0,.55)}
+.flap.gap{width:7px;background:transparent;box-shadow:none}
+.flap.gap::after{display:none}
+@keyframes flap{from{transform:perspective(60px) rotateX(-90deg);opacity:.3}}
 .lp .rows{flex:1;min-height:0;overflow-y:auto;margin:0 -4px;padding:0 4px}
 .lp .side.drop-ok .rows{background:var(--accent-soft);border-radius:calc(10px*var(--round))}
 .lp .row{grid-template-columns:36px minmax(0,1fr) 36px;gap:4px;padding:calc(6px*var(--dens)) 4px calc(6px*var(--dens)) 0;cursor:grab}
@@ -217,7 +243,7 @@ button{-webkit-user-select:none;user-select:none}
 .lp .field input{height:40px;font:400 calc(15px*var(--fs))/1 var(--font)}
 .lp .mic{width:52px;height:52px}
 
-.lp .cal{min-width:0;min-height:0;display:flex;flex-direction:column;padding:28px 32px 24px;overflow-y:auto}
+.lp .cal{grid-area:cal;min-width:0;min-height:0;display:flex;flex-direction:column;padding:28px 32px 24px;overflow-y:auto}
 .ctop{min-height:44px;flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px}
 .ctitle{display:flex;align-items:baseline;gap:10px;min-width:0}
 .ctitle h2{margin:0;font:600 calc(22px*var(--fs))/1 var(--font);letter-spacing:-.02em;white-space:nowrap}
@@ -317,7 +343,7 @@ button{-webkit-user-select:none;user-select:none}
 .link:hover{color:var(--ink)}
 .link.armed{color:var(--accent)}
 .raw{margin:16px 0 0;padding-top:14px;border-top:1px solid var(--hair);font:400 calc(12.5px*var(--fs))/1.45 var(--font);color:var(--muted)}
-/* Sign-in: the name top left, the step's title on the sky, its form on a card. */
+/* Sign-in, plain: the name top left, the step's title, its form on a card. With a view, see "the window seat" below. */
 .login{min-height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top,0px) 16px max(24px,env(safe-area-inset-bottom,0px));background:var(--page);color:var(--ink)}
 .login .ltop{flex:none;height:64px;display:flex;align-items:center;padding:0 10px}
 .login .lmid{flex:1;display:flex;flex-direction:column;align-items:center;padding:max(16px,6vh) 0 40px;text-align:center}
@@ -326,11 +352,13 @@ button{-webkit-user-select:none;user-select:none}
 .login h1{margin:0;font:600 calc(40px*var(--fs))/1.05 var(--font);letter-spacing:-.04em}
 .login h1.hero{font-size:calc(clamp(52px,7vw,76px)*var(--fs));letter-spacing:-.045em}
 .login .lead{margin:18px 0 0;max-width:30em;font:400 calc(17px*var(--fs))/1.5 var(--font)}
-.login .lcard{width:min(380px,100%);margin-top:32px;padding:26px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass);text-align:left}
+.login .tk{width:min(380px,100%);margin-top:32px}
+.login .lcard{width:100%;padding:26px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass);text-align:left}
 .login .lcard>:first-child{margin-top:0}
 .login .nm{margin-top:10px}
 .login .btn{width:100%;margin-top:22px;display:flex;align-items:center;justify-content:center;gap:8px}
 .login .msg{margin:14px 0 0;font:400 calc(13px*var(--fs))/1.45 var(--font);color:var(--muted)}
+:root[data-scene="plain"] .login :is(.thead,.perf,.deco,.eyebrow,.ltop .mono){display:none}
 
 /* ---------- calendar: views, colours, month ---------- */
 /* Narrow day columns (7 days on a phone, a small laptop) drop the time line and the × to keep the title. */
@@ -465,17 +493,15 @@ button{-webkit-user-select:none;user-select:none}
 .theme:focus-visible .tp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--muted)}
 .theme[aria-checked="true"]:focus-visible .tp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink),0 0 0 6px var(--muted)}
 
-/* Background: the sky or a plain page. The sky's thumbnail follows light and dark like the real one. */
-.scenes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:420px}
+/* View: a still picture of each view, and the plain page. */
+.scenes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
 .scn{min-width:0;padding:0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
-.scn .sp{position:relative;display:block;height:88px;border-radius:calc(12px*var(--round));overflow:hidden;box-shadow:inset 0 0 0 1px var(--hair);transition:box-shadow .2s}
-.scn .sp.sky{background:linear-gradient(180deg,var(--sky-0),var(--sky-2) 55%,var(--sky-4) 72%)}
+.scn .sp{position:relative;display:block;aspect-ratio:16/10;border-radius:calc(12px*var(--round));overflow:hidden;background:var(--bg);box-shadow:inset 0 0 0 1px var(--hair);transition:box-shadow .2s}
+.scn .sp .win{inset:0;border-radius:inherit}
 .scn .sp.plain{background:var(--bg)}
-.scn svg{position:absolute;inset:0;width:100%;height:100%}
-.scn .t-far{fill:var(--hill-far)}
-.scn .t-near{fill:var(--hill-near0)}
-.scn .t-bird{fill:none;stroke:var(--bird);stroke-width:1.4;stroke-linecap:round}
-.scn b{display:block;margin-top:8px;font:500 calc(13px*var(--fs))/1 var(--font)}
+.scn .sp.plain i{position:absolute;left:12%;right:30%;height:6px;border-radius:3px;background:var(--block)}
+.scn b{display:block;margin-top:8px;font:500 calc(13px*var(--fs))/1.2 var(--font)}
+.scn small{display:block;margin-top:3px;font:400 calc(12px*var(--fs))/1.35 var(--font);color:var(--muted)}
 .scn[aria-checked="true"] .sp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink)}
 .scn:focus-visible{outline:0}
 .scn:focus-visible .sp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--muted)}
@@ -539,34 +565,121 @@ button{-webkit-user-select:none;user-select:none}
   .seg.big button{padding:0 6px;font-size:calc(12.5px*var(--fs))}
 }
 
-/* ---------- on the sky ---------- */
-/* Panels float over the scene. Text on the bare sky is always the ink, never the muted grey. */
-[data-scene="sky"] .float{background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .float:hover{background:var(--bg)}
-[data-scene="sky"] .lp{padding:0 16px 16px;column-gap:16px}
-[data-scene="sky"] .lp .top{padding:0 6px 0 10px;border-bottom:0}
-[data-scene="sky"] .lp .date,[data-scene="sky"] .ph .date,[data-scene="sky"] .ph .cvh .ttl span{color:var(--ink)}
-[data-scene="sky"] .lp .side,[data-scene="sky"] .lp .cal{border:0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .ph .now{margin-top:20px;padding:22px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .ph .blist{margin-top:14px;padding:16px 22px 6px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
-/* The phone's capture bar is one capsule over the list, so nothing shows between the field and the mic. */
-[data-scene="sky"] .ph .cap{padding:6px;border-radius:var(--pill);background:color-mix(in srgb,var(--bg) 92%,transparent);box-shadow:var(--glass)}
-[data-scene="sky"] .ph .cvh .navg{padding:2px;border-radius:var(--pill);background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .ph .cvs .seg{background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .ph .daygrid{padding:12px 12px 12px 0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .ph .daygrid:has(.month){padding:4px 8px 8px}
-[data-scene="sky"] .ph .arm{background:linear-gradient(var(--accent-soft),var(--accent-soft)),var(--panel)}
-[data-scene="sky"] .ph .tray{border-top:0;border-radius:calc(22px*var(--round)) calc(22px*var(--round)) 0 0;box-shadow:var(--glass)}
-/* Settings is clear over the sky, so the planner behind it steps out of view. */
-[data-scene="sky"] .lp[inert],[data-scene="sky"] .ph[inert]{visibility:hidden}
-[data-scene="sky"] .sp-top{border-bottom:0}
-[data-scene="sky"] .sp-nav button{color:var(--ink)}
-[data-scene="sky"] .sp-nav button[aria-current="true"]{background:var(--panel);box-shadow:var(--glass)}
-[data-scene="sky"] .sp-main{align-self:start;padding:32px 36px 0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+/* ---------- the window seat: the view, the wall, panels on the wall ---------- */
+/* Everything below applies with a view; Plain keeps the flat layout above. */
+:root:not([data-scene="plain"]) :is(.boot,.lp,.ph,.login,.setpage){background:var(--wall-art),linear-gradient(170deg,var(--wall),color-mix(in srgb,var(--wall) 84%,#000))}
+:root:not([data-scene="plain"]) .ph{background-attachment:fixed}
+/* Text on the view is the view's ink over a soft shade; buttons there are white, or clear with a white ring. */
+:root:not([data-scene="plain"]) :is(.lp>.top,.lp>.now,.ph .hero,.login .ltop,.login .lmid){--ink:var(--view-ink);--muted:color-mix(in srgb,var(--view-ink) 86%,transparent);--soft:rgba(255,255,255,.16);--hair:rgba(255,255,255,.32);--bg:#15181D;--accent:var(--view-ink);color:var(--ink);text-shadow:0 1px 18px var(--view-shade)}
+:root:not([data-scene="plain"]) :is(.lp>.top,.lp>.now,.ph .hero) .btn{text-shadow:none}
+:root:not([data-scene="plain"]) :is(.lp>.now,.ph .hero) .btn.sec{background:rgba(255,255,255,.12);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.75);color:var(--ink)}
+:root:not([data-scene="plain"]) :is(.lp>.now,.ph .hero) .btn.sec:hover{background:rgba(255,255,255,.24)}
+:root:not([data-scene="plain"]) :is(.lp>.top,.ph .hero) .ib:hover{background:rgba(255,255,255,.18)}
+/* Text straight on the wall is the wall's ink. */
+:root:not([data-scene="plain"]) :is(.sp-top,.sp-nav,.ph .cvh){--ink:var(--wall-ink);--muted:color-mix(in srgb,var(--wall-ink) 76%,transparent);--soft:color-mix(in srgb,var(--wall-ink) 14%,transparent);--hair:color-mix(in srgb,var(--wall-ink) 18%,transparent);--hair2:color-mix(in srgb,var(--wall-ink) 8%,transparent);color:var(--ink)}
+/* Labels read like a timetable. */
+:root:not([data-scene="plain"]) :is(.nl,.sh,.gh,.ctitle span,.dh,.mhead span,.lp .date,.ph .date,.sp-saved){font-family:var(--mono);font-size:calc(11.5px*var(--fs));letter-spacing:.08em;text-transform:uppercase}
+:root:not([data-scene="plain"]) .dh b{font-family:var(--font);letter-spacing:-.02em;text-transform:none}
+:root:not([data-scene="plain"]) :is(.gut span,.bm){font-family:var(--mono);font-size:calc(10.5px*var(--fs));letter-spacing:.02em}
+
+/* Laptop: the window across the top with the name, the time and Now on the view; the backlog and the calendar below. */
+:root:not([data-scene="plain"]) .lp{grid-template-rows:64px auto minmax(0,1fr);grid-template-areas:"top top" "now now" "side cal";gap:14px;padding:14px}
+:root:not([data-scene="plain"]) .lp>.win{position:relative;grid-area:1/1/3/-1;border-radius:calc(var(--win-r)*.5)}
+:root:not([data-scene="plain"]) .lp>.win .shade{background:linear-gradient(90deg,var(--view-shade),transparent 64%),linear-gradient(180deg,color-mix(in srgb,var(--view-shade) 70%,transparent),transparent 34%)}
+:root:not([data-scene="plain"]) .lp>.top{position:relative;padding:0 18px 0 30px;border:0}
+:root:not([data-scene="plain"]) .lp>.now{position:relative;max-width:min(820px,72%);padding:0 32px 30px;border:0}
+:root:not([data-scene="plain"]) .lp .nt{font-size:calc(clamp(30px,3.3vw,48px)*var(--fs));line-height:1.04;letter-spacing:-.04em}
+:root:not([data-scene="plain"]) .lp .acts{margin-top:22px}
+:root:not([data-scene="plain"]) .lp .next{display:none}
+:root:not([data-scene="plain"]) .lp :is(.side,.cal){border:0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+:root:not([data-scene="plain"]) .lp .side{padding:26px 26px 24px}
+:root:not([data-scene="plain"]) .lp .board{display:flex}
+:root:not([data-scene="plain"]) .lp .sh{margin-top:26px}
+/* Settings is a page of its own over the wall, so the planner behind it steps out of view. */
+:root:not([data-scene="plain"]) :is(.lp,.ph)[inert]{visibility:hidden}
+
+/* Phone: the window on top with the date and Now; the backlog on a panel below; the capture bar floats. */
+:root:not([data-scene="plain"]) .ph .screen{max-width:600px;padding:0 0 calc(env(safe-area-inset-bottom,0px) + 130px)}
+:root:not([data-scene="plain"]) .ph .hero{position:relative;isolation:isolate;display:flex;flex-direction:column;min-height:min(60dvh,440px);margin:calc(env(safe-area-inset-top,0px) + 10px) 10px 0;padding:14px 20px 26px}
+:root:not([data-scene="plain"]) .ph .hero>.win{inset:0;z-index:-1;border-radius:calc(var(--win-r)*.5)}
+:root:not([data-scene="plain"]) .ph .hero>.win .shade{background:linear-gradient(0deg,var(--view-shade),transparent 70%),linear-gradient(180deg,color-mix(in srgb,var(--view-shade) 80%,transparent),transparent 30%)}
+:root:not([data-scene="plain"]) .ph .hero .now{margin-top:auto;padding-top:48px}
+:root:not([data-scene="plain"]) .ph .hdr .tools{margin-right:-12px}
+:root:not([data-scene="plain"]) .ph .blist{margin:12px 10px 0;padding:16px 22px 6px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+:root:not([data-scene="plain"]) .ph .capwrap{background:transparent}
+:root:not([data-scene="plain"]) .ph .cap{padding:6px;border-radius:var(--pill);background:var(--panel);box-shadow:var(--glass)}
+:root:not([data-scene="plain"]) .ph .cvh .navg{padding:2px;border-radius:var(--pill);background:var(--soft)}
+:root:not([data-scene="plain"]) .ph .cvs .seg{background:var(--panel);box-shadow:var(--glass)}
+:root:not([data-scene="plain"]) .ph .daygrid{padding:12px 12px 12px 0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+:root:not([data-scene="plain"]) .ph .daygrid:has(.month){padding:4px 8px 8px}
+:root:not([data-scene="plain"]) .ph .arm{background:linear-gradient(var(--accent-soft),var(--accent-soft)),var(--panel)}
+:root:not([data-scene="plain"]) .ph .tray{border-top:0;border-radius:calc(22px*var(--round)) calc(22px*var(--round)) 0 0;box-shadow:var(--glass)}
+
+/* Settings: the bar and the sections list on the wall, each section's page on a panel. */
+:root:not([data-scene="plain"]) .sp-top{border-bottom:0;background:color-mix(in srgb,var(--wall) 82%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+:root:not([data-scene="plain"]) .sp-main{align-self:start;padding:32px 36px 0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
 @media (max-width:859px){
-  [data-scene="sky"] .sp-nav{border-bottom:0}
-  [data-scene="sky"] .sp-nav button[aria-current="true"]{background:var(--bg);box-shadow:var(--lift)}
-  [data-scene="sky"] .sp-main{margin-top:16px;padding:0 20px}
+  :root:not([data-scene="plain"]) .sp-nav{border-bottom:0;background:var(--wall)}
+  :root:not([data-scene="plain"]) .sp-nav button{background:transparent}
+  :root:not([data-scene="plain"]) .sp-nav button[aria-current="true"]{background:var(--soft)}
+  :root:not([data-scene="plain"]) .sp-main{margin:16px -10px 0;padding:4px 20px 0}
+}
+
+/* Sign-in: the whole screen is the window, with the title on the view and the form on a ticket. */
+:root:not([data-scene="plain"]) .login{position:relative;isolation:isolate;padding:22px 28px}
+:root:not([data-scene="plain"]) .login>.win{inset:22px 28px;z-index:-1}
+:root:not([data-scene="plain"]) .login>.win .shade{background:radial-gradient(56% 40% at 50% 26%,color-mix(in srgb,var(--view-shade) 80%,transparent),transparent 72%)}
+:root:not([data-scene="plain"]) .login .ltop{justify-content:space-between;gap:16px;height:auto;padding:30px 36px 0}
+:root:not([data-scene="plain"]) .login .ltop .mono{font:500 calc(11.5px*var(--fs))/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;text-align:right}
+:root:not([data-scene="plain"]) .login .lmid{padding:max(16px,4vh) 20px 56px}
+:root:not([data-scene="plain"]) .login .eyebrow{margin:0 0 14px;font:500 calc(11.5px*var(--fs))/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+:root:not([data-scene="plain"]) .login h1{font-size:calc(clamp(36px,4.6vw,56px)*var(--fs))}
+:root:not([data-scene="plain"]) .login h1.hero{font-size:calc(clamp(46px,6.6vw,92px)*var(--fs));line-height:.96}
+:root:not([data-scene="plain"]) .login .lead{margin-top:18px;max-width:31em;font-size:calc(18px*var(--fs))}
+:root:not([data-scene="plain"]) .login .tag{display:none}
+:root:not([data-scene="plain"]) .login .tk{width:min(400px,100%);margin-top:30px;filter:drop-shadow(0 26px 30px rgba(0,0,0,.32))}
+/* The card is printed paper whatever the mode: it carries its own colours. */
+:root:not([data-scene="plain"]) .login .lcard{--bg:var(--paper);--ink:var(--paper-ink);--muted:var(--paper-muted);--hair:var(--paper-line);--soft:transparent;position:relative;width:100%;margin:0;padding:20px 26px 24px;border-radius:14px;background:var(--paper);color:var(--ink);box-shadow:none;text-shadow:none}
+:root:not([data-scene="plain"]) .login .lcard :is(.nm,.msg){color:var(--muted)}
+:root:not([data-scene="plain"]) .login .thead{display:flex;justify-content:space-between;gap:12px;font:500 calc(11.5px*var(--fs))/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+:root:not([data-scene="plain"]) .login .perf{display:block;margin:16px -26px 6px;border-top:1.5px dashed var(--hair)}
+:root:not([data-scene="plain"]) .login .lcard .fld{margin-top:14px;gap:2px}
+:root:not([data-scene="plain"]) .login .lcard .fld>label{font:500 calc(11.5px*var(--fs))/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+:root:not([data-scene="plain"]) .login .lcard .fld input{height:40px;padding:0;border-radius:0;background:transparent;box-shadow:inset 0 -1px 0 var(--hair);font-size:max(16px,calc(16px*var(--fs)))}
+:root:not([data-scene="plain"]) .login .lcard .fld input:focus-visible{box-shadow:inset 0 -2px 0 var(--ink)}
+:root:not([data-scene="plain"]) .login .lcard input.code{text-align:left}
+:root:not([data-scene="plain"]) .login .lcard .btn.pri{height:48px;background:var(--cta);color:var(--cta-ink)}
+:root:not([data-scene="plain"]) .login .lcard .qr{box-shadow:inset 0 0 0 1px var(--hair)}
+/* A train ticket: notches at the tear line, and sometimes a stamp. */
+:root:not([data-scene="plain"]) .login .lcard[data-kind="ticket"]{-webkit-mask:radial-gradient(circle at 0 48px,transparent 10px,#000 10.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 48px,transparent 10px,#000 10.5px) right/51% 100% no-repeat;mask:radial-gradient(circle at 0 48px,transparent 10px,#000 10.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 48px,transparent 10px,#000 10.5px) right/51% 100% no-repeat}
+.login .stamp{position:absolute;right:18px;top:126px;width:62px;height:62px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--paper-mark);color:var(--paper-mark);display:grid;place-items:center;transform:rotate(-14deg);font:500 9px/1.25 var(--mono);letter-spacing:.08em;text-transform:uppercase;text-align:center;opacity:.8;pointer-events:none}
+/* A postcard: a little tilted, with a stamp in the corner. */
+:root:not([data-scene="plain"]) .login .tk:has([data-kind="postcard"]){transform:rotate(-1.2deg)}
+:root:not([data-scene="plain"]) .login .lcard[data-kind="postcard"]{border-radius:6px}
+:root:not([data-scene="plain"]) .login .lcard[data-kind="postcard"] .thead{padding-right:70px}
+.login .pstamp{position:absolute;right:18px;top:14px;width:52px;height:60px;border-radius:2px;background:linear-gradient(160deg,#6FB0E8,#8FD06A);box-shadow:0 0 0 3px var(--paper),0 0 0 4.5px var(--hair);display:grid;place-items:center;color:#FFFFFF;pointer-events:none}
+/* A balloonist's tag: a clipped corner and a hole for the string. */
+:root:not([data-scene="plain"]) .login .tk:has([data-kind="tag"]){transform:rotate(1.2deg)}
+:root:not([data-scene="plain"]) .login .lcard[data-kind="tag"]{border-radius:6px 20px 20px 6px;clip-path:polygon(0 0,calc(100% - 34px) 0,100% 34px,100% 100%,0 100%)}
+.login .hole{position:absolute;right:16px;top:44px;width:12px;height:12px;border-radius:50%;background:var(--sky-c);box-shadow:inset 0 0 0 3px #E2C892;pointer-events:none}
+/* A boarding pass: a stub on the right with the seat and a barcode. */
+:root:not([data-scene="plain"]) .login .tk:has([data-kind="pass"]){width:min(460px,100%)}
+:root:not([data-scene="plain"]) .login .lcard[data-kind="pass"]{padding-right:136px}
+:root:not([data-scene="plain"]) .login .lcard[data-kind="pass"] .perf{margin-right:-136px}
+.login .stub{position:absolute;top:0;right:0;bottom:0;width:110px;padding:20px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;border-left:2px dashed var(--hair);border-radius:0 14px 14px 0;background:color-mix(in srgb,var(--paper) 94%,var(--ink));font:500 calc(11px*var(--fs))/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none}
+.login .stub b{font:600 calc(26px*var(--fs))/1 var(--font);letter-spacing:-.02em;text-transform:none;color:var(--ink)}
+.login .stub i{display:block;height:44px;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 8px,var(--ink) 8px 11px,transparent 11px 13px)}
+@media (max-width:640px){
+  :root:not([data-scene="plain"]) .login{padding:10px}
+  :root:not([data-scene="plain"]) .login>.win{inset:10px;border-radius:calc(var(--win-r)*.5)}
+  :root:not([data-scene="plain"]) .login .ltop{padding:22px 22px 0}
+  :root:not([data-scene="plain"]) .login .ltop .mono{display:none}
+  :root:not([data-scene="plain"]) .login .lmid{padding:28px 14px 28px}
+  :root:not([data-scene="plain"]) .login .lcard[data-kind="pass"]{padding-right:26px}
+  :root:not([data-scene="plain"]) .login .lcard[data-kind="pass"] .perf{margin-right:-26px}
+  :root:not([data-scene="plain"]) .login .stub{display:none}
+  :root:not([data-scene="plain"]) .login .tk:has([data-kind="postcard"]){transform:rotate(-.6deg)}
+  :root:not([data-scene="plain"]) .login .tk:has([data-kind="tag"]){transform:rotate(.6deg)}
 }
 
 /* 2FA */

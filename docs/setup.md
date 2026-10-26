@@ -68,7 +68,7 @@ Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time
 
 Open **Settings** from the `···` button. It's a full page (also reachable at `/#settings`, or `/#settings/calendar` and so on), and changes apply as you make them.
 
-- **Appearance**: background (the breathing sky, or a plain page); light, dark or system (per device), where dark turns the sky to dusk; six themes (Sky, Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced; reduced also holds the sky still); 12- or 24-hour clock. A live preview shows the result.
+- **Appearance**: the view out of the window (Summer meadow, Golden hour, Night train, After the rain, Balloon, Above the clouds, or Plain); light, dark or system (per device), where dark dims the wall and the panels; five themes (Paper, Neutral, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced; reduced also holds the view still); 12- or 24-hour clock. A live preview shows the result.
 - **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
 - **Google accounts**, **Your tasks** (import) and **Account** (password, sign out).
 
@@ -79,8 +79,8 @@ Light/dark and the calendar view stay on each device. Everything else is saved t
 - `lib/`: pure, tested logic ported from the prototype (`localParse`, `cleanItem`, `placeItem`, `findSlot`, `buildPrompt`, `applyCapture`), plus selectors for Now/Next, backlog, missed and done.
 - `lib/repo/`: the storage interface, with a localStorage adapter and a Supabase adapter (RLS on `user_id`, realtime for cross-device sync).
 - `app/api/sort`: Gemini with a JSON schema. A missing key or a failure tells the client to use the keyword parser.
-- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests, including text on a panel anywhere over the sky). `lib/calview.ts`: which days each calendar view shows.
-- `components/Scene.tsx`: the sky behind every screen. Static SVG and CSS, no script; only transforms and opacity animate. `components/Brand.tsx` and `app/icon.svg`: the mark, a bird over open fields in a soft green square.
+- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests, including each view's wall, card and button). `lib/calview.ts`: which days each calendar view shows.
+- `lib/scenes.ts`, `components/Scene.tsx`, `public/scenes/`: the views out of the window. Each is painted in SVG layers (sky, clouds, land, the passing near fields, ...) by `python3 scripts/scenes/scenes.py`, so the browser draws each layer once and CSS moves it with transforms and opacity only; no script runs for it. `components/Brand.tsx` and `app/icon.svg`: the mark, a window with a hill and the sun.
 - `app/api/google/*`: OAuth and pull, one call per account. Each refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
 - `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
 

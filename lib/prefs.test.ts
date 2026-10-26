@@ -1,6 +1,9 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { contrast, ensureContrast, mix, onColor } from './color';
-import { ACCENTS, DEFAULT_PREFS, SKY, SURFACES, computeLook, normalizePrefs, palettes, syncable, worstPanelContrast, worstTextContrast, workHours, type Prefs } from './prefs';
+import { contrast, ensureContrast, isHex, mix, onColor } from './color';
+import { ACCENTS, DEFAULT_PREFS, SURFACES, computeLook, normalizePrefs, palettes, sceneVars, syncable, worstTextContrast, workHours, type Prefs } from './prefs';
+import { SCENES, sceneById } from './scenes';
 
 const p = (o: Partial<Prefs> = {}): Prefs => ({ ...DEFAULT_PREFS, ...o });
 
@@ -25,20 +28,20 @@ describe('colour helpers', () => {
 });
 
 describe('look', () => {
-  it('keeps the design values by default: the sky, its surface and the ember accent', () => {
+  it('keeps the design values by default: the meadow, paper panels and the ember accent', () => {
     const v = computeLook(DEFAULT_PREFS).vars;
-    expect(v['--l-bg']).toBe('#F8FBFD');
-    expect(v['--d-bg']).toBe('#0A1220');
-    expect(v['--l-panel']).toBe('rgba(248,251,253,0.86)');
-    expect(v['--d-panel']).toBe('rgba(10,18,32,0.82)');
+    expect(v['--l-bg']).toBe('#FBF8F2');
+    expect(v['--d-bg']).toBe('#14110D');
+    expect(v['--img-sky']).toBe('url("/scenes/meadow/sky.svg")');
+    expect(v['--img-drops']).toBe('none');
     expect(v['--l-accent']).toBe('#F04A0C');
     expect(v['--l-on-accent']).toBe('#FFFFFF');
     expect(v['--l-accent-soft']).toBe('rgba(240,74,12,0.08)');
     expect(v['--d-accent']).toBe('#FF6A33');
     expect(v['--d-on-accent']).toBe('#0B0B0C');
     expect(v['--font']).toContain('Geist');
-    expect(computeLook(DEFAULT_PREFS).attrs).toEqual({ 'data-theme': null, 'data-motion': null, 'data-contrast': null, 'data-scene': 'sky' });
-    expect(computeLook(DEFAULT_PREFS).themeColor).toEqual({ light: SKY.light[0], dark: SKY.dark[0] });
+    expect(computeLook(DEFAULT_PREFS).attrs).toEqual({ 'data-theme': null, 'data-motion': null, 'data-contrast': null, 'data-scene': 'meadow' });
+    expect(computeLook(DEFAULT_PREFS).themeColor).toEqual({ light: '#1F5E58', dark: '#0E2826' });
   });
 
   it('keeps text readable on every surface, mode and contrast setting', () => {
@@ -46,14 +49,6 @@ describe('look', () => {
       const { light, dark } = palettes(p({ surface: s.id, contrast: contrastOn, trueBlack }));
       expect(worstTextContrast(light), `${s.id} light`).toBeGreaterThanOrEqual(4.5);
       expect(worstTextContrast(dark), `${s.id} dark`).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  it('keeps text readable on a panel anywhere over the sky, on every surface', () => {
-    for (const s of SURFACES) for (const contrastOn of [false, true]) {
-      const { light, dark } = palettes(p({ surface: s.id, contrast: contrastOn }));
-      expect(worstPanelContrast(light, 'light'), `${s.id} by day`).toBeGreaterThanOrEqual(4.5);
-      expect(worstPanelContrast(dark, 'dark'), `${s.id} at dusk`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -78,15 +73,48 @@ describe('look', () => {
     expect(look.vars['--d-bg']).toBe('#000000');
     expect(look.vars['--fs']).toBe('1.25');
     expect(look.vars['--pill']).toBe('5px');
-    expect(look.attrs).toEqual({ 'data-theme': 'dark', 'data-motion': 'reduce', 'data-contrast': 'more', 'data-scene': 'sky' });
+    expect(look.attrs).toEqual({ 'data-theme': 'dark', 'data-motion': 'reduce', 'data-contrast': 'more', 'data-scene': 'meadow' });
     expect(look.font).toContain('family=Lexend');
-    expect(look.themeColor).toEqual({ light: SKY.dark[0], dark: SKY.dark[0] });
+    expect(look.themeColor).toEqual({ light: '#0E2826', dark: '#0E2826' });
   });
 
   it('gives a plain page its own colour in the browser bar', () => {
     const look = computeLook(p({ scene: 'plain', mode: 'dark', trueBlack: true }));
     expect(look.attrs['data-scene']).toBe('plain');
     expect(look.themeColor).toEqual({ light: '#000000', dark: '#000000' });
+  });
+});
+
+describe('views', () => {
+  it('keeps text readable on each wall, card and button', () => {
+    for (const sc of SCENES) {
+      expect(contrast(sc.wall.ink, sc.wall.light), `${sc.id} wall`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(sc.wall.inkDark, sc.wall.dark), `${sc.id} wall, dark`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(sc.paper.ink, sc.paper.bg), `${sc.id} card`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(sc.paper.muted, sc.paper.bg), `${sc.id} card labels`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(sc.paper.ctaInk, sc.paper.cta), `${sc.id} button`).toBeGreaterThanOrEqual(4.5);
+      for (const c of [sc.sky, sc.wall.light, sc.wall.dark, sc.paper.bg, sc.paper.cta]) expect(isHex(c), `${sc.id} ${c}`).toBe(true);
+    }
+  });
+
+  it('has exactly the art each view lists', () => {
+    for (const sc of SCENES) {
+      const files = readdirSync(join(__dirname, '..', 'public', 'scenes', sc.id)).sort();
+      expect(files, sc.id).toEqual(sc.layers.map(l => `${l}.svg`).sort());
+    }
+  });
+
+  it('starts the page with the default view and theme, so the first paint matches', () => {
+    const css = readFileSync(join(__dirname, '..', 'app', 'globals.css'), 'utf8');
+    const look = computeLook(DEFAULT_PREFS).vars;
+    const palette = Object.entries(look).filter(([k]) => /^--[ld]-(bg|ink|muted|hair|hair2|soft|block|block-h|accent)$/.test(k));
+    for (const [k, v] of [...palette, ...Object.entries(sceneVars(sceneById(DEFAULT_PREFS.scene)!))]) {
+      expect(css.includes(`${k}:${v};`) || css.includes(`${k}:${v}}`), `${k}:${v}`).toBe(true);
+    }
+  });
+
+  it('gives a plain page no window colours', () => {
+    expect(computeLook(p({ scene: 'plain' })).vars).not.toHaveProperty('--img-sky');
   });
 });
 
@@ -101,12 +129,14 @@ describe('normalizePrefs', () => {
     expect(n).toMatchObject({ accent: '#12AB34', surface: 'paper', calView: 'month', weekStart: 0, dayStart: 7, dayEnd: 23, clock: '24' });
   });
 
-  it('moves prefs saved before the sky onto it, keeping a surface chosen since', () => {
-    expect(normalizePrefs({ surface: 'neutral', accent: 'teal' })).toMatchObject({ scene: 'sky', surface: 'sky', accent: 'teal' });
-    expect(normalizePrefs({ surface: 'paper' })).toMatchObject({ scene: 'sky', surface: 'paper' });
-    expect(normalizePrefs({ scene: 'sky', surface: 'neutral' })).toMatchObject({ scene: 'sky', surface: 'neutral' });
+  it('moves prefs saved before the window onto the meadow, keeping a surface chosen since', () => {
+    expect(normalizePrefs({ surface: 'neutral', accent: 'teal' })).toMatchObject({ scene: 'meadow', surface: 'paper', accent: 'teal' });
+    expect(normalizePrefs({ surface: 'slate' })).toMatchObject({ scene: 'meadow', surface: 'slate' });
+    expect(normalizePrefs({ scene: 'night', surface: 'neutral' })).toMatchObject({ scene: 'night', surface: 'neutral' });
     expect(normalizePrefs({ scene: 'plain', surface: 'neutral' })).toMatchObject({ scene: 'plain', surface: 'neutral' });
-    expect(normalizePrefs({ scene: 'meadow' }).scene).toBe('sky');
+    // An early build's only view, and its own surface.
+    expect(normalizePrefs({ scene: 'sky', surface: 'sky' })).toMatchObject({ scene: 'meadow', surface: 'paper' });
+    expect(normalizePrefs({ scene: 'beach' }).scene).toBe('meadow');
   });
 
   it('rejects a day shorter than two hours', () => {

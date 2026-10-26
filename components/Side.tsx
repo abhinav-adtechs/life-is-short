@@ -9,6 +9,7 @@ import { usePlanner, useLists } from './Planner';
 import { useVoice } from './hooks';
 import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon, StopIcon } from './icons';
 import { Brand, Mark } from './Brand';
+import { View } from './Scene';
 
 /** Rows fade up in a stagger on first load; rows added later appear straight away. */
 function useStagger(base: number, step: number) {
@@ -25,6 +26,13 @@ function Due({ t }: { t: Task }) {
 
 /* ---------- Now ---------- */
 
+/** When the next task is: "in 5 min" within the hour, its time after that, or Backlog when it has none. */
+function whenLabel(t: Task, now: number) {
+  if (t.start == null) return 'Backlog';
+  if (t.start - now < 3600000) return `in ${Math.max(1, Math.round((t.start - now) / MIN))} min`;
+  return fmtTime(t.start);
+}
+
 export function NowBlock({ phone }: { phone?: boolean }) {
   const { store, now, done, schedule, openEditor } = usePlanner();
   const { focus: f } = useLists();
@@ -34,12 +42,7 @@ export function NowBlock({ phone }: { phone?: boolean }) {
   else if (cur) {
     meta = <>{PRI[cur.priority]} · {fmtDur(cur.minutes)}{f.live ? ` · until ${fmtTime(endOf(cur))}` : <Due t={cur} />}</>;
   }
-  let nextWhen = '';
-  if (f.next) {
-    if (f.next.start == null) nextWhen = 'Backlog';
-    else if (f.next.start - now < 3600000) nextWhen = `in ${Math.max(1, Math.round((f.next.start - now) / MIN))} min`;
-    else nextWhen = fmtTime(f.next.start);
-  }
+  const nextWhen = f.next ? whenLabel(f.next, now) : '';
   return (
     <section className="now in" aria-label="Now" aria-live="polite" style={{ animationDelay: phone ? '.08s' : '.06s' }}>
       <div className="nl"><i aria-hidden="true" />Now</div>
@@ -61,6 +64,34 @@ export function NowBlock({ phone }: { phone?: boolean }) {
         <div className="next"><span>Next · {nextWhen}</span><button type="button" onClick={() => openEditor(f.next!.id)}>{f.next.title}</button></div>
       )}
     </section>
+  );
+}
+
+/* ---------- Next, on a split-flap board (laptop, with a view) ---------- */
+
+function Flaps({ text, max }: { text: string; max: number }) {
+  const t = text.length > max ? text.slice(0, max - 1).trimEnd() + '…' : text;
+  // Keyed by the text, so a change flips every tile in.
+  return (
+    <span className="flaps" key={t} aria-hidden="true">
+      {[...t.toUpperCase()].map((c, i) => (
+        <span key={i} className={'flap' + (c === ' ' ? ' gap' : '')} style={{ animationDelay: `${(i * 0.03).toFixed(2)}s` }}>{c === ' ' ? '' : c}</span>
+      ))}
+    </span>
+  );
+}
+
+export function NextBoard() {
+  const { now, openEditor } = usePlanner();
+  const { focus: f } = useLists();
+  const next = f.next;
+  const when = next ? whenLabel(next, now) : '';
+  return (
+    <button type="button" className="board in" disabled={!next} aria-label={next ? `Next, ${when}: ${next.title}` : 'Nothing next'}
+      onClick={() => next && openEditor(next.id)}>
+      <span className="bh"><span>Next</span>{next && <Flaps text={when} max={9} />}</span>
+      <Flaps text={next ? next.title : 'Nothing next'} max={18} />
+    </button>
   );
 }
 
@@ -230,14 +261,17 @@ export function PhoneScreen() {
   return (
     <>
       <div className="screen">
-        <header className="hdr in">
-          <span className="date"><Mark size={22} />{longDate(now)}</span>
-          <div className="tools">
-            <button type="button" className="ib quiet float" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
-            <button type="button" className="ib float" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
-          </div>
-        </header>
-        <NowBlock phone />
+        <div className="hero">
+          <View kind="strip" />
+          <header className="hdr in">
+            <span className="date"><Mark size={22} />{longDate(now)}</span>
+            <div className="tools">
+              <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
+              <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
+            </div>
+          </header>
+          <NowBlock phone />
+        </div>
         <section className="blist in" aria-label="Backlog" style={{ animationDelay: '.16s' }}>
           <div className="sh"><span>Backlog</span><span>{backlog.length}</span></div>
           <BacklogRows phone />
@@ -256,7 +290,7 @@ export function LaptopTop() {
       <Brand />
       <div className="end">
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
-        <button type="button" className="ib float" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
+        <button type="button" className="ib" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
       </div>
     </header>
   );
@@ -267,8 +301,8 @@ export function LaptopSide() {
   const { backlog } = useLists();
   const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
   return (
-    <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label="Now and backlog" data-backlog="">
-      <NowBlock />
+    <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label="Backlog" data-backlog="">
+      <NextBoard />
       <div className="sh in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><em>Drag onto the calendar</em></div>
       <div className="rows"><BacklogRows /></div>
       <CaptureBar />

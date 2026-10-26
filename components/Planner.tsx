@@ -25,7 +25,8 @@ import { useDrag, type DragKind } from './drag';
 import { Toast, type ToastState } from './Toast';
 import { Editor } from './Editor';
 import { Settings } from './Settings';
-import { PhoneScreen, LaptopSide, LaptopTop } from './Side';
+import { NowBlock, PhoneScreen, LaptopSide, LaptopTop } from './Side';
+import { View } from './Scene';
 import { LaptopCalendar, PhoneCalendar } from './Calendar';
 
 export interface Pending { id: string; text: string }
@@ -440,7 +441,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     <Ctx.Provider value={api}>
       {wide ? (
         <div className="lp" inert={!!settings}>
+          <View kind="strip" />
           <LaptopTop />
+          <NowBlock />
           <LaptopSide />
           <LaptopCalendar />
         </div>
