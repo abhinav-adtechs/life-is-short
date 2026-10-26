@@ -9,7 +9,7 @@ import { buildPrompt } from '@/lib/prompt';
 import { findSlot } from '@/lib/place';
 import { backlogList, doneList, focus, missedList } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
-import { atMinutes, endOf, fromYmd, minsOf, startOfDay } from '@/lib/time';
+import { atMinutes, ceil15, endOf, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
 import { sortDump } from '@/lib/api';
 import { calendarOf, mergeExternal } from '@/lib/google';
 import {
@@ -69,6 +69,10 @@ export interface PlannerApi {
   accounts: GoogleAccount[];
   /** Account and calendar of a pulled event. */
   sourceOf: (t: Task) => Source | null;
+  /** From a calendar you switched off: kept, but not shown, not Now, and not busy time. */
+  isOff: (t: Task) => boolean;
+  /** Every task except switched-off events, for slotting. */
+  liveTasks: () => Task[];
   /** Whether a scheduled task shows on the calendar (hidden accounts and calendars, done tasks). */
   onCalendar: (t: Task) => boolean;
   /** Block colour from Settings → Calendar → Colour events by, or null for the plain block. */
@@ -116,6 +120,11 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const view: CalView = prefs.calView ?? (wide ? 'week' : 'day');
   const setView = useCallback((v: CalView) => setPrefs({ calView: v }), [setPrefs]);
 
+  const sources = useMemo(() => sourceIndex(accounts), [accounts]);
+  const srcOf = useCallback((t: Task) => sourceOf(sources, t.externalId), [sources]);
+  const isOff = useCallback((t: Task) => { const src = srcOf(t); return !!src?.calendar && !src.calendar.pull; }, [srcOf]);
+  const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
+
   useEffect(() => { setMounted(true); }, []);
 
   const undoable = useCallback((msg: string, before: Map<string, Task | null>) => {
@@ -147,20 +156,20 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slot = useCallback((id: string) => {
     const t = store.get(id);
     if (!t) return;
-    const s = findSlot(store.all(), t.minutes, { exclude: id, hours });
+    const s = findSlot(liveTasks(), t.minutes, { exclude: id, hours });
     if (s == null) { toast('No free slot in the next two weeks. Pick a time instead.'); openEditor(id); return; }
     undoable(`Slotted for ${fmtWhen(s)}`, store.patch(id, { start: s }));
     if (picked === id) setPicked(null);
-  }, [store, toast, undoable, openEditor, picked, hours]);
+  }, [store, liveTasks, toast, undoable, openEditor, picked, hours]);
 
   /** The Now block's Schedule: a live task is pushed past its end, a backlog task gets the next free slot. */
   const schedule = useCallback((id: string) => {
     const t = store.get(id);
     if (!t) return;
     if (t.start == null) { slot(id); return; }
-    const s = findSlot(store.all(), t.minutes, { exclude: id, after: endOf(t), hours });
+    const s = findSlot(liveTasks(), t.minutes, { exclude: id, after: endOf(t), hours });
     undoable(s != null ? `Pushed to ${fmtWhen(s)}` : 'Moved to the backlog', store.patch(id, { start: s }));
-  }, [store, slot, undoable, hours]);
+  }, [store, liveTasks, slot, undoable, hours]);
 
   const unslot = useCallback((id: string) => {
     undoable('Moved to the backlog', store.patch(id, { start: null }));
@@ -178,22 +187,24 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     const t = store.get(id);
     if (!t) return;
     const d = fromYmd(dayKey);
+    // No free slot that day: the start of your day, or for today the next quarter hour rather than a time already gone.
+    const fallback = Math.max(atMinutes(d, hours.start), ymd(d) === ymd(Date.now()) ? ceil15(Date.now()) : 0);
     const start = t.start != null
       ? atMinutes(d, minsOf(t.start))
-      : findSlot(store.all(), t.minutes, { onDate: d, sameDay: true, exclude: id, hours }) ?? atMinutes(d, hours.start);
+      : findSlot(liveTasks(), t.minutes, { onDate: d, sameDay: true, exclude: id, hours }) ?? fallback;
     place(id, start);
-  }, [store, place, hours]);
+  }, [store, liveTasks, place, hours]);
 
   const capture = useCallback(async (text: string) => {
     const pid = newId();
     setPending(p => [...p, { id: pid, text }]);
-    const { refs, ctx } = promptContext(store.all());
+    const { refs, ctx } = promptContext(liveTasks());
     const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours));
     setPending(p => p.filter(x => x.id !== pid));
-    const out = applyCapture({ text, tasks: store.all(), refs, result, via, hours });
+    const out = applyCapture({ text, tasks: liveTasks(), refs, result, via, hours });
     store.write(out.puts);
     toast(out.summary, out.puts.length ? () => store.restore(out.before) : undefined);
-  }, [store, toast, hours]);
+  }, [store, liveTasks, toast, hours]);
 
   const drag = useDrag({
     lengthOf: id => store.get(id)?.minutes ?? 30,
@@ -267,7 +278,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const storedRef = useRef<GoogleAccount[]>([]);
   const pendingFns = useRef<AccountsFn[]>([]);
   const gQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const showAccounts = useCallback(() => setAccountsState(pendingFns.current.reduce((l, f) => f(l), storedRef.current)), []);
+  const accountsNow = useCallback(() => pendingFns.current.reduce((l, f) => f(l), storedRef.current), []);
+  const showAccounts = useCallback(() => setAccountsState(accountsNow()), [accountsNow]);
 
   const enqueue = useCallback(<T,>(job: () => Promise<T>) => {
     const run = gQueue.current.then(job);
@@ -278,23 +290,33 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const readAccounts = useCallback(() => enqueue(async () => {
     try { storedRef.current = normalizeAccounts(await repo.getSetting('google')); } catch { /* keep what we have */ }
     showAccounts();
-    return storedRef.current;
-  }), [repo, enqueue, showAccounts]);
+    return accountsNow();
+  }), [repo, enqueue, showAccounts, accountsNow]);
 
+  // Every change is a pure function of the list, so a save that fails keeps it pending and the next save retries it.
   const changeAccounts = useCallback((fn: AccountsFn) => {
     pendingFns.current.push(fn);
     showAccounts();
     return enqueue(async () => {
+      const fns = [...pendingFns.current];
+      if (!fns.length) return storedRef.current;
       let base = storedRef.current;
       try { base = normalizeAccounts(await repo.getSetting('google')); } catch { /* offline: build on what we have */ }
-      const next = fn(base);
-      try { await repo.setSetting('google', storedAccounts(next)); } catch (e) { toast(e instanceof Error ? e.message : 'Couldn’t save the Google accounts.'); }
+      const next = fns.reduce((l, f) => f(l), base);
+      try {
+        await repo.setSetting('google', storedAccounts(next));
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'Couldn’t save the Google accounts. Trying again with your next change.');
+        storedRef.current = base;
+        showAccounts();
+        return accountsNow();
+      }
       storedRef.current = next;
-      pendingFns.current.shift();
+      pendingFns.current = pendingFns.current.slice(fns.length);
       showAccounts();
       return next;
     });
-  }, [repo, enqueue, showAccounts, toast]);
+  }, [repo, enqueue, showAccounts, accountsNow, toast]);
 
   /** Pull every connected account (or one) and merge them into the planner in one go. Quiet pulls only speak up when something changed. */
   const pullGoogle = useCallback(async (quiet = false, onlyId?: string) => {
@@ -305,10 +327,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
       const list = await readAccounts();
       const targets = list.filter(a => (onlyId ? a.id === onlyId : !a.error));
       if (!targets.length) return;
-      const results = new Map<string, PullResult>(await Promise.all(targets.map(async a => [a.id, await fetchGoogleItems(a)] as const)));
+      const fetched = await Promise.all(targets.map(async a => [a.id, await fetchGoogleItems(a)] as const));
+      // An account disconnected while this pull was out: drop what it brought back, or its removed events return.
+      const live = new Set(accountsNow().map(a => a.id));
+      const results = new Map<string, PullResult>(fetched.filter(([id]) => live.has(id)));
       const items = [...results.values()].flatMap(r => ('items' in r ? r.items : []));
       const errors = [...results.values()].filter((r): r is Extract<PullResult, { error: string }> => 'error' in r);
-      const m = mergeExternal(store.all(), items, Date.now());
+      const unread = [...results.values()].flatMap(r => ('calendars' in r ? r.calendars.filter(c => c.failed).map(c => c.name) : []));
+      const m = mergeExternal(store.all(), items, Date.now(), undefined, t => !isOff(t));
       const before = store.write(m.puts);
       const at = Date.now();
       await changeAccounts(l => l.map(a => {
@@ -318,15 +344,16 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
         return { ...a, pulledAt: at, error: null, calendars: mergeCalendars(a.calendars, r.calendars) };
       }));
       const parts = [m.added && `${m.added} new`, m.updated && `${m.updated} updated`, m.ticked && `${m.ticked} ticked off`].filter(Boolean);
-      const problem = errors.find(e => e.revoked) ?? errors[0];
-      if (parts.length) undoable(`From Google · ${parts.join(', ')}${problem ? ` · ${problem.error}` : ''}`, before);
-      else if (problem && (!quiet || problem.revoked)) toast(problem.error);
+      const problem = errors.find(e => e.revoked)?.error ?? errors[0]?.error
+        ?? (unread.length ? `Couldn’t read ${unread.length === 1 ? unread[0] : `${unread.length} calendars`} from Google` : null);
+      if (parts.length) undoable(`From Google · ${parts.join(', ')}${problem ? ` · ${problem}` : ''}`, before);
+      else if (problem && (!quiet || errors.some(e => e.revoked))) toast(problem);
       else if (!quiet) toast(targets.length > 1 ? `All ${targets.length} Google accounts are up to date` : 'Google is up to date');
     } finally {
       pullingRef.current = false;
       setPulling(false);
     }
-  }, [readAccounts, changeAccounts, store, toast, undoable]);
+  }, [readAccounts, changeAccounts, accountsNow, isOff, store, toast, undoable]);
 
   const connectGoogle = useCallback(async (hint?: string | null) => {
     if (!hint && storedRef.current.length >= MAX_ACCOUNTS) { toast(`You can connect up to ${MAX_ACCOUNTS} Google accounts.`); return; }
@@ -366,8 +393,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
       let pending: GoogleConn | null = null;
       try { const raw = sessionStorage.getItem(PENDING_KEY); if (raw) { sessionStorage.removeItem(PENDING_KEY); pending = JSON.parse(raw); } } catch { pending = null; }
       const list = await readAccounts();
-      if (!alive) return;
       if (pending) {
+        // Saved even if this effect was torn down meanwhile: the token was taken out of sessionStorage already.
         const conn = pending;
         let added: GoogleAccount | null = null;
         await changeAccounts(l => { const r = addAccount(l, conn); added = r.account; return r.list; });
@@ -378,7 +405,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
         pullRef.current(false, acct.id);
         return;
       }
-      if (list.some(a => !a.error && (!a.pulledAt || Date.now() - a.pulledAt > 30 * 60000))) pullRef.current(true);
+      if (alive && list.some(a => !a.error && (!a.pulledAt || Date.now() - a.pulledAt > 30 * 60000))) pullRef.current(true);
     })();
     // Then again every 30 minutes while the app is open and in view.
     const timer = window.setInterval(() => { if (!document.hidden && storedRef.current.some(a => !a.error)) pullRef.current(true); }, 30 * 60000);
@@ -386,13 +413,11 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     // Once per planner.
   }, [repo]);
 
-  const sources = useMemo(() => sourceIndex(accounts), [accounts]);
-  const srcOf = useCallback((t: Task) => sourceOf(sources, t.externalId), [sources]);
   const onCalendar = useCallback((t: Task) => {
     if (!prefs.showDone && t.status === 'done') return false;
     const src = srcOf(t);
-    return !src || (src.account.show && (!src.calendar || src.calendar.pull));
-  }, [prefs.showDone, srcOf]);
+    return !src || (src.account.show && !isOff(t));
+  }, [prefs.showDone, srcOf, isOff]);
   const colorOf = useCallback((t: Task): string | null => {
     if (prefs.colorBy === 'priority') return t.priority === 1 ? 'var(--accent)' : t.priority === 2 ? 'var(--muted)' : null;
     if (prefs.colorBy === 'none') return null;
@@ -405,7 +430,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     store, tasks: store.tasks, now, wide, repo, email, pending, completing, picked, setPicked, drag,
     day, setDay, view, setView, prefs, setPrefs, hours, phoneView, setPhoneView,
     toast, done, slot, schedule, unslot, place, placeOnDay, capture, openEditor, openSettings, undoable,
-    accounts, sourceOf: srcOf, onCalendar, colorOf, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
+    accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
   };
 
   if (!mounted) return <div className="boot" />;
@@ -438,10 +463,11 @@ function Ghost({ id, x, y }: { id: string; x: number; y: number }) {
 
 /** Backlog sections, shared by phone and laptop. */
 export function useLists() {
-  const { tasks, now } = usePlanner();
+  const { tasks: all, now, isOff } = usePlanner();
   return useMemo(() => {
+    const tasks = all.filter(t => !isOff(t));
     const f = focus(tasks, now);
     const backlog = backlogList(tasks).filter(t => t.id !== f.now?.id);
     return { focus: f, backlog, missed: missedList(tasks, now), done: doneList(tasks).slice(0, 50) };
-  }, [tasks, now]);
+  }, [all, now, isOff]);
 }

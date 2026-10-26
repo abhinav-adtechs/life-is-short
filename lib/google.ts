@@ -77,22 +77,20 @@ const fingerprint = (title: string, start: number | null, due: string | null) =>
 
 /**
  * One meeting on calendars in two connected accounts arrives twice with different externalIds.
- * Within a pull, copies share a uid: keep the one already in the planner if there is one, so a task never swaps sources; else the first.
- * Across pulls (accounts connected one at a time, or one account's pull failed), a new copy whose title and time match an event
- * already pulled from another calendar is the same meeting, and is dropped.
+ * Copies already in the planner always come through, so each keeps updating. A new copy is dropped when its twin
+ * is already here: in this pull (same uid), or stored from an earlier one (same title and time; accounts connected
+ * one at a time, or one account's pull failed). `blocks` says which stored events count: a calendar you switched off
+ * shouldn't hide a meeting another account still shows.
  */
-export function dedupeItems(items: ExternalItem[], tasks: Task[]): ExternalItem[] {
+export function dedupeItems(items: ExternalItem[], tasks: Task[], blocks: (t: Task) => boolean = () => true): ExternalItem[] {
   const known = new Set(tasks.map(t => t.externalId).filter(Boolean));
-  const pulled = new Set(tasks.filter(t => t.externalId?.startsWith('gcal:')).map(t => fingerprint(t.title, t.start, t.due)));
-  const pick = new Map<string, ExternalItem>();
-  for (const it of items) {
-    if (!it.uid) continue;
-    const cur = pick.get(it.uid);
-    if (!cur || (!known.has(cur.externalId) && known.has(it.externalId))) pick.set(it.uid, it);
-  }
+  const pulled = new Set(tasks.filter(t => t.externalId?.startsWith('gcal:') && blocks(t)).map(t => fingerprint(t.title, t.start, t.due)));
+  const seen = new Set(items.filter(it => it.uid && known.has(it.externalId)).map(it => it.uid));
   return items.filter(it => {
-    if (!it.uid || known.has(it.externalId)) return !it.uid || pick.get(it.uid) === it;
-    return pick.get(it.uid) === it && !pulled.has(fingerprint(it.title, it.start, it.due));
+    if (known.has(it.externalId) || !it.uid) return true;
+    if (seen.has(it.uid) || pulled.has(fingerprint(it.title, it.start, it.due))) return false;
+    seen.add(it.uid);
+    return true;
   });
 }
 
@@ -100,11 +98,15 @@ export function dedupeItems(items: ExternalItem[], tasks: Task[]): ExternalItem[
  * One-way pull: new items are added; items pulled before take Google's title, time and length.
  * Your priority, notes and done state stay yours, except a Google Task completed in Google is ticked off here.
  */
-export function mergeExternal(tasks: Task[], items: ExternalItem[], now: number, makeId: () => string = defaultNewId) {
+export function mergeExternal(tasks: Task[], items: ExternalItem[], now: number, makeId: () => string = defaultNewId, blocks?: (t: Task) => boolean) {
   const byExt = new Map(tasks.filter(t => t.externalId).map(t => [t.externalId as string, t]));
   const puts: Task[] = [];
+  // A calendar shared by two accounts comes back once per account: handle each externalId once.
+  const done = new Set<string>();
   let added = 0, updated = 0, ticked = 0;
-  dedupeItems(items, tasks).forEach((it, i) => {
+  dedupeItems(items, tasks, blocks).forEach((it, i) => {
+    if (done.has(it.externalId)) return;
+    done.add(it.externalId);
     const cur = byExt.get(it.externalId);
     if (cur) {
       const patch: Partial<Task> = {};
@@ -118,7 +120,6 @@ export function mergeExternal(tasks: Task[], items: ExternalItem[], now: number,
       return;
     }
     if (it.done && it.source === 'gtask') return; // finished before we ever saw it
-    byExt.set(it.externalId, {} as Task);
     puts.push({
       id: makeId(), title: it.title, raw: '', notes: it.notes, priority: 2, minutes: it.minutes,
       start: it.start, due: it.due, status: it.done ? 'done' : 'open', created: now, order: now + i,

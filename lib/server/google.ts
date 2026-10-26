@@ -71,8 +71,8 @@ async function get<T>(url: string, accessToken: string): Promise<T> {
 
 interface CalEntry { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; selected?: boolean; primary?: boolean; accessRole: string }
 
-/** A calendar in the account, and whether its events were pulled. */
-export interface PulledCalendar { id: string; name: string; color: string | null; role: string; primary: boolean; pulled: boolean }
+/** A calendar in the account, whether its events were asked for, and whether Google refused to list them. */
+export interface PulledCalendar { id: string; name: string; color: string | null; role: string; primary: boolean; pulled: boolean; failed?: boolean }
 
 /** Pulled unless you said otherwise: your own calendars (owner/writer) that are ticked in Google. Subscribed ones like holidays are off. */
 const pullByDefault = (c: CalEntry) => (c.accessRole === 'owner' || c.accessRole === 'writer') && c.selected !== false;
@@ -92,14 +92,19 @@ export async function pull(blob: string, timeMin: string, timeMax: string, choic
     id: c.id, name: c.summaryOverride || c.summary || c.id, color: /^#[0-9a-f]{6}$/i.test(c.backgroundColor || '') ? c.backgroundColor as string : null,
     role: c.accessRole, primary: c.primary === true, pulled: choices[c.id] ?? pullByDefault(c),
   }));
-  await Promise.all(calendars.filter(c => c.pulled).map(async cal => {
-    const q = new URLSearchParams({ timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
-    try {
-      const evs = await get<{ items?: GEvent[] }>(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${q}`, at);
-      for (const ev of evs.items || []) { const it = mapEvent(ev, cal.id, now); if (it) items.push(it); }
-    } catch (e) {
-      // One unreadable calendar (a stale subscription, say) shouldn't stop the rest.
-      console.error('google calendar skipped:', e instanceof Error ? e.message : e);
+  // A few at a time, so an account with many calendars doesn't trip Google's rate limit.
+  const queue = calendars.filter(c => c.pulled);
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+    for (let cal = queue.shift(); cal; cal = queue.shift()) {
+      const q = new URLSearchParams({ timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
+      try {
+        const evs = await get<{ items?: GEvent[] }>(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${q}`, at);
+        for (const ev of evs.items || []) { const it = mapEvent(ev, cal.id, now); if (it) items.push(it); }
+      } catch (e) {
+        // One unreadable calendar (a stale subscription, say) shouldn't stop the rest; the app says which.
+        cal.failed = true;
+        console.error('google calendar skipped:', e instanceof Error ? e.message : e);
+      }
     }
   }));
 

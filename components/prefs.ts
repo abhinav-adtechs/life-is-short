@@ -52,6 +52,10 @@ export function usePrefs(repo: TaskRepo) {
   const [prefs, setPrefsState] = useState<Prefs>(() => (typeof window === 'undefined' ? DEFAULT_PREFS : loadLocal()));
   const ref = useRef(prefs);
   const timer = useRef(0);
+  // Nothing is sent until this device has read what's stored: a fresh device's defaults must never overwrite it.
+  const ready = useRef(false);
+  /** Synced keys changed here and not yet sent. */
+  const dirty = useRef(new Set<keyof Prefs>());
 
   // Labels read the clock setting while rendering, so set it before children render.
   setClock24(prefs.clock === '24');
@@ -59,24 +63,44 @@ export function usePrefs(repo: TaskRepo) {
 
   const set = useCallback((next: Prefs) => { ref.current = next; saveLocal(next); setPrefsState(next); }, []);
 
+  const send = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = 0;
+    const keys = [...dirty.current];
+    repo.setSetting('prefs', syncable(ref.current))
+      .then(() => keys.forEach(k => dirty.current.delete(k)))
+      .catch(() => { /* still dirty: the next read sends it again */ });
+  }, [repo]);
+
   // Another device may have changed them: check on load and whenever this tab comes back.
+  // If this device's copy is the newer one (a send that never went out), send it now.
   useEffect(() => {
     if (repo.kind === 'local') return;
     let alive = true;
     const pull = async () => {
       let raw: unknown = null;
       try { raw = await repo.getSetting('prefs'); } catch { return; }
-      if (!alive || !raw) return;
-      const remote = normalizePrefs(raw);
-      if (remote.updatedAt <= ref.current.updatedAt) return;
+      if (!alive) return;
+      ready.current = true;
+      const remote = raw ? normalizePrefs(raw) : null;
       const device = Object.fromEntries(DEVICE_KEYS.map(k => [k, ref.current[k]]));
-      set({ ...remote, ...device });
+      if (remote && dirty.current.size) {
+        // Changes made here before this read go on top of what's stored, key by key.
+        const mine = Object.fromEntries([...dirty.current].map(k => [k, ref.current[k]]));
+        set(normalizePrefs({ ...remote, ...mine, ...device, updatedAt: Math.max(remote.updatedAt, ref.current.updatedAt) }));
+        send();
+      } else if (remote && remote.updatedAt > ref.current.updatedAt) {
+        set({ ...remote, ...device });
+      } else if (ref.current.updatedAt > (remote?.updatedAt ?? 0)) send();
     };
     pull();
-    const vis = () => { if (!document.hidden) pull(); };
+    const vis = () => { if (!document.hidden) pull(); else if (timer.current) send(); };
+    // Leaving the page with a change still waiting to go: send it now.
+    const hide = () => { if (timer.current) send(); };
     document.addEventListener('visibilitychange', vis);
-    return () => { alive = false; document.removeEventListener('visibilitychange', vis); };
-  }, [repo, set]);
+    window.addEventListener('pagehide', hide);
+    return () => { alive = false; hide(); document.removeEventListener('visibilitychange', vis); window.removeEventListener('pagehide', hide); };
+  }, [repo, set, send]);
 
   // Other tabs on this device.
   useEffect(() => {
@@ -86,15 +110,15 @@ export function usePrefs(repo: TaskRepo) {
   }, []);
 
   const update = useCallback((patch: Partial<Prefs>) => {
-    const synced = Object.keys(patch).some(k => !(DEVICE_KEYS as readonly string[]).includes(k));
+    const keys = (Object.keys(patch) as (keyof Prefs)[]).filter(k => !(DEVICE_KEYS as readonly string[]).includes(k));
+    const synced = keys.length > 0;
+    keys.forEach(k => dirty.current.add(k));
     const next = normalizePrefs({ ...ref.current, ...patch, updatedAt: synced ? Date.now() : ref.current.updatedAt });
     set(next);
-    if (!synced || repo.kind === 'local') return;
+    if (!synced || repo.kind === 'local' || !ready.current) return;
     clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => { repo.setSetting('prefs', syncable(ref.current)).catch(() => { /* next change retries */ }); }, 700);
-  }, [repo, set]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
+    timer.current = window.setTimeout(send, 700);
+  }, [repo, set, send]);
 
   return { prefs, update };
 }

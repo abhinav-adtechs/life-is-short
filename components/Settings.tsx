@@ -193,8 +193,9 @@ function Appearance() {
       <Opt label="Accent colour" note={<>The mic, the current-time line, today’s date and drop targets.{nudged ? ' Your colour is adjusted slightly here so it stays readable.' : ''}</>} stack>
         {({ labelId }) => (
           <div className="swatches" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
-            {ACCENTS.map(a => (
-              <button key={a.id} type="button" className="swatch" {...radio(prefs.accent === a.id)} aria-label={a.name} title={a.name}
+            {ACCENTS.map((a, i) => (
+              <button key={a.id} type="button" className="swatch" {...radio(prefs.accent === a.id)} tabIndex={prefs.accent === a.id || (custom && i === 0) ? 0 : -1}
+                aria-label={a.name} title={a.name}
                 style={{ '--c': dark ? a.dark : a.light } as React.CSSProperties} onClick={() => setPrefs({ accent: a.id })}>
                 <CheckIcon size={14} />
               </button>

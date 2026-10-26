@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { calendarOf } from '@/lib/google';
 import { ACCOUNT_COLORS, MAX_ACCOUNTS, ownCalendars, type GoogleAccount } from '@/lib/google-client';
 import { usePlanner } from './Planner';
@@ -16,6 +16,24 @@ const ago = (ms: number) => {
 };
 
 const ROLE: Record<string, string> = { owner: 'Yours', writer: 'Can edit', reader: 'Read-only' };
+
+/** The colour input fires on every move while dragging: show it at once, save once it settles. */
+function CustomColour({ value, onSave }: { value: string; onSave: (c: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const timer = useRef(0);
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <label className={'swatch custom' + (draft !== value ? ' on' : '')} title="Your own colour" style={{ '--c': draft } as React.CSSProperties}>
+      <input type="color" aria-label="Your own colour" value={draft.toLowerCase()} onChange={e => {
+        const c = e.target.value.toUpperCase();
+        setDraft(c);
+        clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => onSave(c), 400);
+      }} />
+    </label>
+  );
+}
 
 function AccountCard({ a }: { a: GoogleAccount }) {
   const { accounts, tasks, changeAccount, changeCalendar, removeGoogle, pullGoogle, connectGoogle, pulling } = usePlanner();
@@ -47,9 +65,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
             <button key={c} type="button" className="swatch" {...radio(a.color === c)} aria-label={c} style={{ '--c': c } as React.CSSProperties}
               onClick={() => changeAccount(a.id, { color: c })}><CheckIcon size={12} /></button>
           ))}
-          <label className="swatch custom" title="Your own colour">
-            <input type="color" aria-label="Your own colour" value={a.color.toLowerCase()} onChange={e => changeAccount(a.id, { color: e.target.value.toUpperCase() })} />
-          </label>
+          <CustomColour value={a.color} onSave={color => changeAccount(a.id, { color })} />
         </div>
       )}
 
@@ -58,7 +74,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
       <Opt label="Google Tasks" note="Pull this account’s Google Tasks into the backlog."
         toggle={{ checked: a.tasks, onChange: t => changeAccount(a.id, { tasks: t }) }} />
 
-      <div className="gh cals-h" aria-expanded={calsOpen}>
+      <div className="gh cals-h">
         <button type="button" aria-expanded={calsOpen} onClick={() => setCalsOpen(o => !o)}><CaretIcon /> Calendars</button>
         <span>{a.calendars.length ? `${on} on` : ''}</span>
       </div>
@@ -82,8 +98,9 @@ function AccountCard({ a }: { a: GoogleAccount }) {
         {confirm ? (
           <>
             <span>Disconnect {who}?</span>
-            <button type="button" className="btn sec" onClick={() => removeGoogle(a.id, false)}>Keep its events</button>
-            {events > 0 && <button type="button" className="btn sec" onClick={() => removeGoogle(a.id, true)}>Remove its {events} event{events === 1 ? '' : 's'}</button>}
+            <button type="button" className="btn sec" disabled={pulling} onClick={() => removeGoogle(a.id, false)}>Keep its events</button>
+            {events > 0 && <button type="button" className="btn sec" disabled={pulling} onClick={() => removeGoogle(a.id, true)}>Remove its {events} event{events === 1 ? '' : 's'}</button>}
+            {pulling && <span className="note">Waiting for the pull to finish…</span>}
             <button type="button" className="link" onClick={() => setConfirm(false)}>Cancel</button>
           </>
         ) : <button type="button" className="link" onClick={() => setConfirm(true)}>Disconnect</button>}
