@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -19,14 +20,16 @@ export const viewport: Viewport = {
 // Apply the saved theme before first paint so there's no flash.
 const themeScript = `try{var t=localStorage.getItem('ds.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // The CSP nonce from proxy.ts; reading headers also makes every page render per request.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" />
+        <link rel="stylesheet" nonce={nonce} href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" />
       </head>
       <body>{children}</body>
     </html>
