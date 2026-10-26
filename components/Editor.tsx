@@ -32,7 +32,7 @@ export function useTrap(ref: React.RefObject<HTMLElement | null>) {
 }
 
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf } = usePlanner();
+  const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf, liveTasks } = usePlanner();
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
   const [date, setDate] = useState(t.start != null ? ymd(t.start) : '');
@@ -57,7 +57,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
       const day = date ? fromYmd(date) : startOfDay(Date.now());
       if (time) { const [h, m] = time.split(':').map(Number); start = atMinutes(day, h * 60 + m); }
       else if (t.start != null && ymd(t.start) === ymd(day)) start = t.start;
-      else start = findSlot(store.all(), v.minutes, { onDate: day, sameDay: true, exclude: t.id, hours }) ?? atMinutes(day, hours.start);
+      else start = findSlot(liveTasks(), v.minutes, { onDate: day, sameDay: true, exclude: t.id, hours }) ?? atMinutes(day, hours.start);
     }
     const before = store.write([{ ...t, ...v, start }]);
     onClose();
@@ -66,7 +66,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
 
   const nextSlot = () => {
     const v = values();
-    const s = findSlot(store.all(), v.minutes, { exclude: t.id, hours });
+    const s = findSlot(liveTasks(), v.minutes, { exclude: t.id, hours });
     if (s == null) { toast('No free slot in the next two weeks.'); return; }
     const before = store.write([{ ...t, ...v, start: s }]);
     onClose();

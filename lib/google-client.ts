@@ -102,8 +102,8 @@ export function addAccount(list: GoogleAccount[], conn: GoogleConn): { list: Goo
   return { list: [...list, account], account };
 }
 
-/** A calendar as the pull route reports it. `pulled` is whether its events came back this time. */
-export interface ServerCalendar { id: string; name: string; color: string | null; role: string; primary: boolean; pulled: boolean }
+/** A calendar as the pull route reports it. `pulled` is whether it was asked for; `failed` that Google wouldn't list its events. */
+export interface ServerCalendar { id: string; name: string; color: string | null; role: string; primary: boolean; pulled: boolean; failed?: boolean }
 
 /** Google's latest calendar list, keeping your on/off choice for calendars you already had. */
 export function mergeCalendars(mine: GoogleCalendar[], fromGoogle: ServerCalendar[]): GoogleCalendar[] {
@@ -116,10 +116,17 @@ export function mergeCalendars(mine: GoogleCalendar[], fromGoogle: ServerCalenda
 
 export interface Source { account: GoogleAccount; calendar: GoogleCalendar | null }
 
-/** Which account (and calendar) each pulled calendar id belongs to. The first account listing a shared calendar owns it. */
+/**
+ * Which account (and calendar) each pulled calendar id belongs to. When accounts share a calendar,
+ * the one pulling it wins, then the one it's the main calendar of, then the first.
+ */
 export function sourceIndex(accounts: GoogleAccount[]): Map<string, Source> {
   const m = new Map<string, Source>();
-  for (const account of accounts) for (const calendar of account.calendars) if (!m.has(calendar.id)) m.set(calendar.id, { account, calendar });
+  const rank = (a: GoogleAccount, c: GoogleCalendar) => (c.pull ? 2 : 0) + (c.primary || c.id === a.email ? 1 : 0);
+  for (const account of accounts) for (const calendar of account.calendars) {
+    const cur = m.get(calendar.id);
+    if (!cur?.calendar || rank(account, calendar) > rank(cur.account, cur.calendar)) m.set(calendar.id, { account, calendar });
+  }
   // Before an account's first pull its calendar list is empty; its primary calendar's id is its email.
   for (const account of accounts) if (account.email && !m.has(account.email)) m.set(account.email, { account, calendar: null });
   return m;
@@ -130,11 +137,14 @@ export const sourceOf = (index: Map<string, Source>, externalId: string | null |
   return cal ? index.get(cal) ?? null : null;
 };
 
-/** Calendar ids only this account has, so removing its events never touches another account's. */
+/** Calendars whose events go when this account is removed: its own, unless another account still pulls them. */
 export function ownCalendars(accounts: GoogleAccount[], id: string): Set<string> {
-  const others = new Set(accounts.filter(a => a.id !== id).flatMap(a => [...a.calendars.map(c => c.id), a.email || '']));
   const me = accounts.find(a => a.id === id);
-  return new Set([...(me?.calendars.map(c => c.id) ?? []), me?.email || ''].filter(c => c && !others.has(c)));
+  if (!me) return new Set();
+  // An account that hasn't pulled yet will pull its main calendar, whose id is its email.
+  const others = new Set(accounts.filter(a => a.id !== id)
+    .flatMap(a => (a.calendars.length ? a.calendars.filter(c => c.pull).map(c => c.id) : a.email ? [a.email] : [])));
+  return new Set([...me.calendars.map(c => c.id), ...(me.email ? [me.email] : [])].filter(c => !others.has(c)));
 }
 
 /** Send you to Google's consent screen. `hint` pre-picks an account when reconnecting one. */

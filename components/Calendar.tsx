@@ -209,7 +209,7 @@ function MonthView({ compact }: { compact?: boolean }) {
               + (prefs.shadeWeekends && isWeekend(d) ? ' wkend' : '') + (over ? ' drop-day' : '');
             return (
               <div key={key} className={cls} data-day={key} data-month=""
-                onClick={() => (picked ? placeOnDay(picked, key) : open(d))}>
+                onClick={() => { if (drag.ignoreClick()) return; if (picked) placeOnDay(picked, key); else open(d); }}>
                 <button type="button" className="mnum" aria-label={`Open ${DOWL[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}${list.length ? `, ${list.length} on the calendar` : ''}`}
                   onClick={e => { e.stopPropagation(); if (picked) placeOnDay(picked, key); else open(d); }}>{d.getDate()}</button>
                 {compact ? (

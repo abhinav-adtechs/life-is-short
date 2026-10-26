@@ -99,6 +99,27 @@ describe('several accounts', () => {
     expect(mergeExternal([had], [other], NOW2, ids).added).toBe(1);
   });
 
+  it('keeps updating every copy already stored, so none is left at the old time', () => {
+    const a = mergeExternal([], [meeting('work@x.com')], NOW2, ids).puts[0];
+    const b = { ...a, id: 'b2', externalId: 'gcal:me@gmail.com:m1' };
+    const moved = (cal: string) => ({ ...meeting(cal), start: (a.start as number) + 3600000, uid: `abc@google.com|${(a.start as number) + 3600000}` });
+    const r = mergeExternal([a, b], [moved('work@x.com'), moved('me@gmail.com')], NOW2, ids);
+    expect(r.puts.map(t => [t.id, t.start])).toEqual([[a.id, (a.start as number) + 3600000], ['b2', (a.start as number) + 3600000]]);
+  });
+
+  it('lets a meeting in when its stored twin is on a calendar you switched off', () => {
+    const off = mergeExternal([], [meeting('me@gmail.com')], NOW2, ids).puts[0];
+    const blocks = (t: Task) => !t.externalId?.startsWith('gcal:me@gmail.com:');
+    expect(mergeExternal([off], [meeting('work@x.com')], NOW2, ids, blocks).added).toBe(1);
+  });
+
+  it('handles an id that comes back twice in one pull once', () => {
+    const t = { externalId: 'gtask:9', source: 'gtask' as const, title: 'Pay rent', notes: '', start: null, minutes: 30, due: null, done: false };
+    const r = mergeExternal([], [t, { ...t }], NOW2, ids);
+    expect(r.added).toBe(1);
+    expect(r.puts.every(p => p.id)).toBe(true);
+  });
+
   it('keeps different instances of a repeating meeting apart', () => {
     const a = meeting('work@x.com');
     const b = { ...a, externalId: 'gcal:work@x.com:m1_2', start: (a.start as number) + 7 * 864e5, uid: `abc@google.com|${(a.start as number) + 7 * 864e5}` };

@@ -166,7 +166,7 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
       )}
       {done.length > 0 && (
         <>
-          <div className="gh" aria-expanded={doneOpen}>
+          <div className="gh">
             <button type="button" aria-expanded={doneOpen} onClick={() => setDoneOpen(o => !o)}><CaretIcon /> Done</button>
             <span>{done.length}</span>
           </div>

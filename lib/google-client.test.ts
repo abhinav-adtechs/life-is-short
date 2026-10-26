@@ -65,4 +65,17 @@ describe('calendars', () => {
     expect(sourceOf(idx, 'gtask:1')).toBeNull();
     expect([...ownCalendars(accts, 'b')]).toEqual(['b@x']);
   });
+
+  it('credits a shared calendar to the account that pulls it, and its owner, not whoever is listed first', () => {
+    // Work (connected first) can read the personal calendar; the personal account owns and pulls it.
+    const accts = normalizeAccounts({ accounts: [
+      { id: 'work', email: 'w@x', blob: '1', calendars: [cal('w@x', { primary: true }), cal('me@gmail.com', { role: 'reader', pull: false })] },
+      { id: 'me', email: 'me@gmail.com', blob: '2', calendars: [cal('me@gmail.com', { primary: true })] },
+    ] });
+    const src = sourceOf(sourceIndex(accts), 'gcal:me@gmail.com:e1');
+    expect(src?.account.id).toBe('me');
+    expect(src?.calendar?.pull).toBe(true);
+    expect([...ownCalendars(accts, 'me')]).toEqual(['me@gmail.com']);
+    expect([...ownCalendars(accts, 'work')]).toEqual(['w@x']);
+  });
 });
