@@ -41,3 +41,13 @@ Thumbs.db
 node_modules/
 __pycache__/
 *.log
+
+# --- Build output ---
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+test-results/
+playwright-report/
