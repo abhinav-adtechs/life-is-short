@@ -15,7 +15,9 @@ import { SharedView } from './SharedView';
 
 const PROBLEMS: Record<string, string> = {
   'server-key': 'Sharing isn’t set up on the server yet: SHARE_SERVER_KEY is missing. Links work once it’s added.',
-  email: 'There’s no email service on the server (RESEND_API_KEY and SHARE_EMAIL_FROM), so nobody can get a sign-in code yet.',
+  email: 'There’s no email service on the server, so nobody can get a sign-in code yet. Add a Gmail app password (SHARE_SMTP_USER and SHARE_SMTP_PASS) or Resend (RESEND_API_KEY and SHARE_EMAIL_FROM). See docs/setup.md.',
+  'email-login': 'The mail server didn’t accept SHARE_SMTP_USER and SHARE_SMTP_PASS, so nobody can get a sign-in code. For Gmail, use an app password, not your normal password.',
+  'email-unreachable': 'The server couldn’t reach the mail server (SHARE_SMTP_HOST), so sign-in codes may not go out.',
   'no-key': 'The database doesn’t know the server’s key yet. Run private.set_share_key_hash in the SQL editor (see docs/setup.md).',
   'wrong-key': 'SHARE_SERVER_KEY doesn’t match the key the database holds, so nobody can sign in. See docs/setup.md.',
   unreachable: 'Couldn’t check the sharing setup on the server.',

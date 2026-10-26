@@ -68,11 +68,15 @@ Settings → Sharing lets someone see your planner, view only: you pick their em
    ```
 
    Then in the Supabase SQL editor: `select private.set_share_key_hash('<the 64 hex characters>');`
-3. Email for the codes: create a [Resend](https://resend.com) account, verify a domain you own, and make an API key with sending access only.
-4. In Vercel add `SHARE_SERVER_KEY`, `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (for example `Life is short <share@yourdomain.com>`), then redeploy.
-5. Open Settings → Sharing. If anything is missing it says what; otherwise create a share and open the link in a private window to try it.
+3. Email for the codes, one of:
+   - **Gmail, no domain needed.** Best with a Gmail account made just for this (say `lifeisshort.codes@gmail.com`): an app password can read and send that account's mail, so keep it away from your personal inbox. In that account, turn on 2-Step Verification (myaccount.google.com → Security), then create an app password (myaccount.google.com/apppasswords). Gmail sends up to about 500 emails a day.
+   - **Resend, with a domain you own.** Create a [Resend](https://resend.com) account, verify the domain there, and make an API key with sending access only. Resend can't send from a Gmail address.
+4. In Vercel add `SHARE_SERVER_KEY`, then for Gmail `SHARE_SMTP_USER` (the Gmail address) and `SHARE_SMTP_PASS` (the 16-letter app password), or for Resend `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (for example `Life is short <share@yourdomain.com>`). Redeploy.
+5. Open Settings → Sharing. If anything is missing, or the mail server refuses the login, it says what. Otherwise create a share and open the link in a private window to try it.
 
-Locally you can skip Resend: without it, `npm run dev` prints each code to the terminal. To change the key later, repeat steps 1, 2 and 4: viewers stay signed in, and new codes use the new key.
+When the Gmail settings are there they're used, even if Resend's are too. With Gmail, leave `SHARE_EMAIL_FROM` unset (codes come from the Gmail address, as "Life is short") or set it to that same address; Gmail won't send as anyone else. Another mail server works the same way with `SHARE_SMTP_HOST` and `SHARE_SMTP_PORT` (465 for TLS, 587 for STARTTLS).
+
+Locally you can skip email: without it, `npm run dev` prints each code to the terminal. To change the key later, repeat steps 1, 2 and 4: viewers stay signed in, and new codes use the new key.
 
 ### 6. Vercel
 
@@ -84,7 +88,7 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `GEMINI_API_KEY` | Gemini key |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
-| `SHARE_SERVER_KEY`, `RESEND_API_KEY`, `SHARE_EMAIL_FROM` | Sharing, from step 5 (optional) |
+| `SHARE_SERVER_KEY`, plus `SHARE_SMTP_USER` and `SHARE_SMTP_PASS` (Gmail) or `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (Resend) | Sharing, from step 5 (optional) |
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
 

@@ -1,5 +1,5 @@
 import { denyUnlessSignedIn } from '@/lib/server/auth';
-import { canSendCodes, pingDatabase, shareConfigured } from '@/lib/server/share';
+import { canSendCodes, checkMailer, pingDatabase, shareConfigured } from '@/lib/server/share';
 
 export const runtime = 'nodejs';
 
@@ -11,8 +11,10 @@ export async function POST(req: Request) {
   if (!canSendCodes()) return Response.json({ problem: 'email' });
   try {
     const db = await pingDatabase();
-    return Response.json({ problem: db === 'ok' ? null : db });
+    if (db !== 'ok') return Response.json({ problem: db });
   } catch {
     return Response.json({ problem: 'unreachable' });
   }
+  const mail = await checkMailer();
+  return Response.json({ problem: mail === 'ok' ? null : mail === 'login-failed' ? 'email-login' : 'email-unreachable' });
 }
