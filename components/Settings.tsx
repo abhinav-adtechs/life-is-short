@@ -13,11 +13,13 @@ import { useMedia, prefersReducedMotion } from './hooks';
 import { BackIcon, CheckIcon, MicIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
+import { SharingSection } from './SharingSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
   { id: 'calendar', name: 'Calendar' },
   { id: 'google', name: 'Google accounts' },
+  { id: 'sharing', name: 'Sharing', needsSupabase: true },
   { id: 'tasks', name: 'Your tasks' },
   { id: 'account', name: 'Account', needsSupabase: true },
 ];
@@ -71,6 +73,7 @@ export function Settings({ section, onClose }: { section: string; onClose: () =>
           <Appearance />
           <CalendarPrefs />
           <GoogleSection />
+          {hasSupabase() && <SharingSection />}
           <TasksSection />
           {hasSupabase() && <AccountSection />}
         </div>

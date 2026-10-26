@@ -37,19 +37,36 @@ export function focus(tasks: Task[], now: number): Focus {
   return { now: cur, live: !!live, next };
 }
 
+/** Anything with a place on the calendar: a task, or an item someone shared with you. */
+type Timed = Pick<Task, 'start' | 'minutes'>;
+
 /** Tasks that overlap the given day. */
-export const tasksOn = (tasks: Task[], d: Date | number) => {
+export const tasksOn = <T extends Timed>(tasks: T[], d: Date | number) => {
   const s = startOfDay(d).getTime(), e = addDays(d, 1).getTime();
   return tasks.filter(t => t.start != null && t.start < e && endOf(t) > s);
 };
 
-export interface Laid { task: Task; lane: number; lanes: number }
+/** Visible hour range: your day, stretched to fit anything scheduled outside it. */
+export function hourRange(days: Date[], sched: Timed[], base: [number, number]) {
+  let [h0, h1] = base;
+  for (const d of days) {
+    const ds = startOfDay(d).getTime(), de = addDays(d, 1).getTime();
+    for (const t of tasksOn(sched, d)) {
+      const s = Math.max(t.start as number, ds), e = Math.min(endOf(t), de);
+      h0 = Math.min(h0, Math.floor((s - ds) / 3600000));
+      h1 = Math.max(h1, Math.ceil((e - ds) / 3600000));
+    }
+  }
+  return [h0, Math.min(24, h1)] as const;
+}
+
+export interface Laid<T extends Timed = Task> { task: T; lane: number; lanes: number }
 
 /** Side-by-side lanes for overlapping blocks within one day. */
-export function layoutDay(events: Task[]): Laid[] {
+export function layoutDay<T extends Timed>(events: T[]): Laid<T>[] {
   const sorted = [...events].sort((a, b) => ((a.start as number) - (b.start as number)) || (b.minutes - a.minutes));
-  const out: Laid[] = [];
-  let cluster: Laid[] = [];
+  const out: Laid<T>[] = [];
+  let cluster: Laid<T>[] = [];
   let clusterEnd = -Infinity;
   const flush = () => {
     const lanes: number[] = [];

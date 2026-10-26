@@ -6,7 +6,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 
 1. Create a project. Pick a region near you (Mumbai, `ap-south-1`) and a strong database password, and keep that password in your password manager.
 2. SQL editor, in order:
-   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, then `supabase/roles/primary_backup_reader.sql`.
+   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, then `supabase/roles/primary_backup_reader.sql`.
 3. Authentication settings:
    - Sign In / Providers → Email: **Allow new users to sign up: off**. Minimum password length 16.
    - Multi-Factor: TOTP **enabled** (enroll and verify).
@@ -17,7 +17,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 ## 2. Backup database *(account: Supabase, ideally a separate organization)*
 
 1. Create a second project.
-2. SQL editor: `0001` to `0004`, then `supabase/roles/backup_writer.sql`.
+2. SQL editor: `0001` to `0005`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
 3. Same auth settings as above. Add the same email as a user, with its **own** password. Nobody signs in to the backup; the user only owns the copied rows.
 
 ## 3. Logins for the backup job *(account: Supabase)*
@@ -52,7 +52,11 @@ Repo → Settings → Secrets and variables → Actions:
 `PRIMARY_DB_URL`, `BACKUP_DB_URL` (from step 3), `OWNER_EMAIL`, and optionally `SUPABASE_CA_CERT` (Supabase → Database → SSL certificate).
 Then Actions → **Backup sync** → Run workflow, and confirm it's green.
 
-## 7. First sign-in
+## 7. Sharing *(optional; account: Resend)*
+
+Only if you want to share view-only links. Follow [setup.md → Sharing](setup.md#5-sharing-optional-view-only-links): make `SHARE_SERVER_KEY`, put its sha256 in the database with `private.set_share_key_hash`, and add `SHARE_SERVER_KEY`, `RESEND_API_KEY` and `SHARE_EMAIL_FROM` to Vercel. Settings → Sharing says if anything is missing.
+
+## 8. First sign-in
 
 Open the app → email + password → scan the QR code with an authenticator app → enter the code → choose a PIN. From then on you sign in with the PIN and an authenticator code, once a day.
 
@@ -63,3 +67,4 @@ Open the app → email + password → scan the QR code with an authenticator app
 - In another browser, sign in with the password only: no tasks load.
 - The task you add on your phone shows on the laptop within a few seconds.
 - Actions → Weekly security check → Run workflow: green.
+- If you share: open a share link in a private window, sign in with the emailed code, and check you see only what you picked. Stop sharing, reload: it asks for the code again.
