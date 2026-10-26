@@ -35,7 +35,7 @@ function ssl(url) {
 }
 
 async function connect(url, name) {
-  const c = new pg.Client({ connectionString: url.replace(/[?&]sslmode=[^&]*/, ''), ssl: ssl(url), application_name: `dump-and-slot-${mode}` });
+  const c = new pg.Client({ connectionString: url.replace(/[?&]sslmode=[^&]*/, ''), ssl: ssl(url), application_name: `life-is-short-${mode}` });
   try { await c.connect(); } catch (e) {
     const cert = /certificate|self[- ]signed/i.test(e.message);
     throw new Error(`Can't connect to the ${name} database${cert ? ': its certificate isn’t trusted. Add Supabase’s CA as the SUPABASE_CA_CERT secret.' : '.'}`);
@@ -115,7 +115,7 @@ async function main() {
   try {
     const [ps, bs] = await Promise.all([snapshot(P), snapshot(B)]);
     const { findings, primaryOwner, blocked } = evaluate({ primary: ps, backup: bs, ownerSha, force: FORCE === 'true' });
-    say(`Dump & Slot backup ${mode} · primary ${ps.tasks.count} tasks · backup ${bs.tasks.count} tasks`);
+    say(`Life is short backup ${mode} · primary ${ps.tasks.count} tasks · backup ${bs.tasks.count} tasks`);
     for (const x of findings) say(`${x.level.toUpperCase().padEnd(5)} ${x.check.padEnd(22)} ${x.detail}`);
     if (blocked) {
       say('');
