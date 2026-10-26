@@ -30,7 +30,7 @@ export async function postJson<T>(path: string, body: unknown, timeoutMs = 20000
 /** Ask the AI route to sort a dump. Never throws: a missing key or failure tells the caller to use the keyword parser. */
 export async function sortDump(prompt: string): Promise<{ result: AiResult | null; via: Via }> {
   try {
-    const { status, data } = await postJson<{ add?: unknown; update?: unknown; reason?: string }>('/api/sort', { prompt }, 15000);
+    const { status, data } = await postJson<{ add?: unknown; update?: unknown; reason?: string }>('/api/sort', { prompt }, 28000);
     if (status === 200 && data) {
       return { result: { add: Array.isArray(data.add) ? data.add : [], update: Array.isArray(data.update) ? data.update : [] }, via: 'ai' };
     }

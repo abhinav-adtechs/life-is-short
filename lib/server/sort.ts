@@ -2,8 +2,14 @@ import 'server-only';
 import { GoogleGenAI } from '@google/genai';
 import { parseReply } from '../reply';
 
-/** Cheapest Gemini model with a free tier at the time of writing; override with GEMINI_MODEL. */
-export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+/**
+ * Free-tier Flash-Lite models, fastest first. Checked against a free-tier key in Oct 2026:
+ * 3.1 Flash-Lite answered in 1.5-8 s (4-8 s with a full task list); 3.5 Flash-Lite was often overloaded (503) or took ~19 s;
+ * 2.5 Flash-Lite is closed to new accounts (404). Override with GEMINI_MODEL, comma-separated.
+ */
+export const DEFAULT_MODELS = 'gemini-3.1-flash-lite,gemini-flash-lite-latest';
+const PER_MODEL_MS = 12000;
+const TOTAL_MS = 24000;
 
 const nullable = (type: string) => ({ anyOf: [{ type }, { type: 'null' }] });
 const fields = {
@@ -36,14 +42,44 @@ export const RESPONSE_SCHEMA = {
   required: ['add', 'update'],
 };
 
-export async function sortWithGemini(prompt: string, apiKey: string, model = process.env.GEMINI_MODEL || DEFAULT_MODEL) {
+/**
+ * Ask each model in turn until one answers within the time budget. A busy model (429/503) gets one
+ * quick retry first, since free-tier spikes are short. Bad requests (400) aren't retried.
+ */
+export async function sortWithGemini(prompt: string, apiKey: string, models = process.env.GEMINI_MODEL || DEFAULT_MODELS) {
   // GEMINI_BASE_URL is only for pointing tests at a local stand-in.
   const baseUrl = process.env.GEMINI_BASE_URL;
-  const ai = new GoogleGenAI({ apiKey, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) });
-  const res = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: { responseMimeType: 'application/json', responseJsonSchema: RESPONSE_SCHEMA },
-  });
-  return parseReply(res.text);
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { ...(baseUrl ? { baseUrl } : {}), retryOptions: { attempts: 1 } } });
+  const deadline = Date.now() + TOTAL_MS;
+  let lastError: unknown = null;
+  const attempts = models.split(',').map(m => m.trim()).filter(Boolean).map(model => ({ model, retried: false }));
+  for (let i = 0; i < attempts.length; i++) {
+    const { model } = attempts[i];
+    const left = deadline - Date.now();
+    if (left < 1500) break;
+    try {
+      const res = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseJsonSchema: RESPONSE_SCHEMA,
+          abortSignal: AbortSignal.timeout(Math.min(PER_MODEL_MS, left)),
+        },
+      });
+      return parseReply(res.text);
+    } catch (e) {
+      lastError = e;
+      const status = (e as { status?: number }).status;
+      if (status === 400) throw e;
+      if ((status === 429 || status === 503) && !attempts[i].retried) {
+        attempts[i].retried = true;
+        i--;
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+      console.warn(`gemini ${model} failed, trying the next model:`, e instanceof Error ? e.message.slice(0, 160) : e);
+    }
+  }
+  throw lastError ?? new Error('No Gemini model answered in time');
 }

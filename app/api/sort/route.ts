@@ -2,6 +2,7 @@ import { denyUnlessSignedIn } from '@/lib/server/auth';
 import { sortWithGemini } from '@/lib/server/sort';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 /** Sort a dump with Gemini. No key, or any failure, tells the client to fall back to the keyword parser. */
 export async function POST(req: Request) {
