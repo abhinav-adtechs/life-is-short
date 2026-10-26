@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { compareData, evaluate } from './checks.mjs';
+import { compareData, countLost, evaluate } from './checks.mjs';
 
 const root = new URL('../../supabase/', import.meta.url);
 const sql = f => readFileSync(new URL(f, root), 'utf8');
@@ -181,6 +181,23 @@ describe('breach checks on real snapshots', () => {
     } finally { await primary.exec('update private.pins set failed = 0'); }
   });
 
+  it('count what a sync would lose by comparing the rows, not timestamps', () => {
+    const b = [{ id: 'a', title: 'A', notes: '', raw: 'a' }, { id: 'b', title: 'B', notes: null, raw: null }, { id: 'c', title: 'C', notes: 'n', raw: '' }];
+    expect(countLost(b.map(t => ({ ...t, status: 'done', start: 1 })), b)).toBe(0);
+    expect(countLost([{ ...b[0], title: 'A!' }, { ...b[1], notes: '' }, b[2]], b)).toBe(1);
+    expect(countLost([b[0], { id: 'new', title: 'N' }], b)).toBe(2);
+  });
+  it('guard against mass rewrites only when the backup differs', async () => {
+    const [p, b] = [await snap(primary), await snap(backup)];
+    const bulk = { count: 20, open: 20, updated_24h: 20, max_updated_at: 1, sha256: 'same' };
+    const run = (pt, bt, lost) => evaluate({ primary: { ...p, tasks: pt }, backup: { ...b, tasks: bt }, ownerSha: OWNER_SHA, lost }).findings.map(f => f.check);
+    expect(run(bulk, { ...bulk }, 20)).not.toContain('data:mass-change');
+    expect(run(bulk, { ...bulk, sha256: 'older' }, 20)).toContain('data:mass-change');
+    // Everything edited today, but only ticks and moves: nothing would be lost.
+    expect(run(bulk, { ...bulk, sha256: 'older' }, 0)).not.toContain('data:mass-change');
+    expect(run({ ...bulk, count: 2, updated_24h: 0, sha256: 'new' }, { ...bulk })).toContain('data:mass-deletion');
+  });
+
   const tampered = async (attack, undo) => {
     await primary.exec(attack);
     try { return evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings.filter(f => f.level === 'block').map(f => f.check); }
@@ -257,6 +274,27 @@ describe('backup job end to end', () => {
     expect(forced.code).toBe(0);
     expect((await backup.query('select count(*)::int n from public.tasks')).rows[0].n).toBe(2);
   }, 30000);
+
+  it('lets a busy day through but refuses a mass rewrite, even backdated', async () => {
+    const old = 1793001600000;
+    const extra = Array.from({ length: 11 }, (_, i) => `('${P_OWNER}', 'x${i}', 'Extra ${i}', 2, 30, ${old}, ${old}, ${old})`);
+    await primary.exec(`insert into public.tasks (user_id, id, title, priority, minutes, created, sort_order, updated_at) values ${extra.join(',')}`);
+    try {
+      expect((await runJob('sync')).code).toBe(0);
+      await primary.exec(`update public.tasks set status = 'done', done_at = ${old}, updated_at = (extract(epoch from now()) * 1000)::bigint`);
+      const busy = await runJob('sync');
+      expect(busy.out).not.toMatch(/mass-change/);
+      expect(busy.code).toBe(0);
+      await primary.exec(`update public.tasks set title = 'scrambled', updated_at = ${old} where id like 'x%'`);
+      const r = await runJob('sync');
+      expect(r.code).toBe(1);
+      expect(r.out).toMatch(/BLOCK data:mass-change\s+11 of the backup's 13 tasks would be deleted or rewritten/);
+      expect((await backup.query(`select count(*)::int n from public.tasks where title = 'scrambled'`)).rows[0].n).toBe(0);
+    } finally {
+      await primary.exec(`delete from public.tasks where id like 'x%'; update public.tasks set status = 'open', done_at = null`);
+      expect((await runJob('sync', { FORCE: 'true' })).code).toBe(0);
+    }
+  }, 60000);
 
   it('weekly verify fails on warnings and passes once they are cleared', async () => {
     await primary.exec('update private.pins set failed = 1');

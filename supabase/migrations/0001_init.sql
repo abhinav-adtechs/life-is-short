@@ -1,4 +1,4 @@
--- Dump & Slot schema. Run once in the Supabase SQL editor (or `supabase db push`).
+-- Life is short schema. Run once in the Supabase SQL editor (or `supabase db push`).
 
 create table if not exists public.tasks (
   user_id     uuid   not null default auth.uid() references auth.users (id) on delete cascade,
