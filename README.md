@@ -17,6 +17,8 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 
 ## Set up for real (phone + laptop)
 
+The full ordered checklist, including the backup and GitHub secrets, is in [`docs/go-live.md`](docs/go-live.md).
+
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
