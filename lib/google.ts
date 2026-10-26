@@ -12,10 +12,13 @@ export interface ExternalItem {
   minutes: number;
   due: string | null;
   done: boolean;
+  /** The same meeting seen from two connected accounts shares this (iCalUID plus start), so it lands once. */
+  uid?: string | null;
 }
 
 export interface GEvent {
   id: string;
+  iCalUID?: string;
   status?: string;
   summary?: string;
   description?: string;
@@ -41,13 +44,13 @@ export function mapEvent(ev: GEvent, calendarId: string, now: number): ExternalI
     const s = Date.parse(ev.start.dateTime);
     const e = Date.parse(ev.end?.dateTime || '') || s + 30 * MIN;
     if (!isFinite(s)) return null;
-    return { ...base, start: s, minutes: len(e - s), due: null, done: e <= now };
+    return { ...base, start: s, minutes: len(e - s), due: null, done: e <= now, uid: ev.iCalUID ? `${ev.iCalUID}|${s}` : null };
   }
   if (ev.start?.date) {
     // A one-day all-day event reads as a deadline; multi-day ones (trips, leave) are skipped.
     const days = ev.end?.date ? (Date.parse(ev.end.date) - Date.parse(ev.start.date)) / DAY_MS : 1;
     if (days > 1) return null;
-    return { ...base, start: null, minutes: 30, due: ev.start.date, done: false };
+    return { ...base, start: null, minutes: 30, due: ev.start.date, done: false, uid: ev.iCalUID ? `${ev.iCalUID}|${ev.start.date}` : null };
   }
   return null;
 }
@@ -62,6 +65,37 @@ export function mapTask(t: GTask): ExternalItem | null {
   };
 }
 
+/** Calendar id of a pulled event, from its externalId "gcal:<calendar>:<event>". */
+export function calendarOf(externalId: string | null | undefined): string | null {
+  if (!externalId || !externalId.startsWith('gcal:')) return null;
+  const rest = externalId.slice(5), i = rest.lastIndexOf(':');
+  return i > 0 ? rest.slice(0, i) : null;
+}
+
+/** A calendar event's title and time, to spot one meeting pulled from two accounts. */
+const fingerprint = (title: string, start: number | null, due: string | null) => `${title}|${start ?? due}`;
+
+/**
+ * One meeting on calendars in two connected accounts arrives twice with different externalIds.
+ * Within a pull, copies share a uid: keep the one already in the planner if there is one, so a task never swaps sources; else the first.
+ * Across pulls (accounts connected one at a time, or one account's pull failed), a new copy whose title and time match an event
+ * already pulled from another calendar is the same meeting, and is dropped.
+ */
+export function dedupeItems(items: ExternalItem[], tasks: Task[]): ExternalItem[] {
+  const known = new Set(tasks.map(t => t.externalId).filter(Boolean));
+  const pulled = new Set(tasks.filter(t => t.externalId?.startsWith('gcal:')).map(t => fingerprint(t.title, t.start, t.due)));
+  const pick = new Map<string, ExternalItem>();
+  for (const it of items) {
+    if (!it.uid) continue;
+    const cur = pick.get(it.uid);
+    if (!cur || (!known.has(cur.externalId) && known.has(it.externalId))) pick.set(it.uid, it);
+  }
+  return items.filter(it => {
+    if (!it.uid || known.has(it.externalId)) return !it.uid || pick.get(it.uid) === it;
+    return pick.get(it.uid) === it && !pulled.has(fingerprint(it.title, it.start, it.due));
+  });
+}
+
 /**
  * One-way pull: new items are added; items pulled before take Google's title, time and length.
  * Your priority, notes and done state stay yours, except a Google Task completed in Google is ticked off here.
@@ -70,7 +104,7 @@ export function mergeExternal(tasks: Task[], items: ExternalItem[], now: number,
   const byExt = new Map(tasks.filter(t => t.externalId).map(t => [t.externalId as string, t]));
   const puts: Task[] = [];
   let added = 0, updated = 0, ticked = 0;
-  items.forEach((it, i) => {
+  dedupeItems(items, tasks).forEach((it, i) => {
     const cur = byExt.get(it.externalId);
     if (cur) {
       const patch: Partial<Task> = {};

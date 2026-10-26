@@ -5,7 +5,7 @@ import type { Priority, Task } from '@/lib/model';
 import { findSlot } from '@/lib/place';
 import { fmtWhen, shortTitle } from '@/lib/format';
 import { gcalUrl } from '@/lib/links';
-import { WORK_START, atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
+import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
 import { XIcon } from './icons';
 
@@ -32,7 +32,7 @@ export function useTrap(ref: React.RefObject<HTMLElement | null>) {
 }
 
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, toast, undoable, setPicked, setPhoneView } = usePlanner();
+  const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf } = usePlanner();
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
   const [date, setDate] = useState(t.start != null ? ymd(t.start) : '');
@@ -57,7 +57,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
       const day = date ? fromYmd(date) : startOfDay(Date.now());
       if (time) { const [h, m] = time.split(':').map(Number); start = atMinutes(day, h * 60 + m); }
       else if (t.start != null && ymd(t.start) === ymd(day)) start = t.start;
-      else start = findSlot(store.all(), v.minutes, { onDate: day, sameDay: true, exclude: t.id }) ?? atMinutes(day, WORK_START);
+      else start = findSlot(store.all(), v.minutes, { onDate: day, sameDay: true, exclude: t.id, hours }) ?? atMinutes(day, hours.start);
     }
     const before = store.write([{ ...t, ...v, start }]);
     onClose();
@@ -66,7 +66,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
 
   const nextSlot = () => {
     const v = values();
-    const s = findSlot(store.all(), v.minutes, { exclude: t.id });
+    const s = findSlot(store.all(), v.minutes, { exclude: t.id, hours });
     if (s == null) { toast('No free slot in the next two weeks.'); return; }
     const before = store.write([{ ...t, ...v, start: s }]);
     onClose();
@@ -103,6 +103,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
   const lengths = LENGTHS.includes(minutes) ? LENGTHS : [...LENGTHS, minutes].sort((a, b) => a - b);
   const draft = { ...t, ...values(), start: date && time ? atMinutes(fromYmd(date), Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))) : t.start };
   const raw = (t.raw || '').trim();
+  const src = sourceOf(t);
 
   return (
     <>
@@ -158,6 +159,11 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
             <button type="button" className={'link' + (armedDelete ? ' armed' : '')} onClick={remove}>{armedDelete ? 'Tap again to delete' : 'Delete'}</button>
           </div>
           {raw && raw !== t.title && <p className="raw">From your dump: “{raw}”</p>}
+          {src && (
+            <p className="raw src"><i aria-hidden="true" style={{ background: src.account.color }} />
+              From Google Calendar{src.calendar && !src.calendar.primary ? ` · ${src.calendar.name}` : ''}{src.account.email ? ` · ${src.account.email}` : ''}
+            </p>
+          )}
         </form>
       </div>
     </>

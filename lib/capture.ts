@@ -1,6 +1,6 @@
 import type { ParsedItem, Priority, Task } from './model';
 import { PRI, newId as defaultNewId } from './model';
-import { cleanItem, placeItem } from './place';
+import { cleanItem, placeItem, type WorkHours } from './place';
 import { localParse } from './parse';
 import type { PromptTask } from './prompt';
 import { byBacklog } from './select';
@@ -50,6 +50,7 @@ export function applyCapture(args: {
   via: Via;
   now?: number;
   newId?: () => string;
+  hours?: WorkHours;
 }): CaptureOutcome {
   const now = args.now ?? Date.now();
   const makeId = args.newId ?? defaultNewId;
@@ -91,7 +92,7 @@ export function applyCapture(args: {
         time: typeof u.time === 'string' ? u.time : null,
         deadline: u.deadline === true,
       };
-      const pl = placeItem(c, current().filter(t => t.id !== tid), now);
+      const pl = placeItem(c, current().filter(t => t.id !== tid), now, args.hours);
       if (c.deadline) patch.due = pl.due;
       else if (pl.start != null) patch.start = pl.start;
       else if (pl.due) patch.due = pl.due;
@@ -107,7 +108,7 @@ export function applyCapture(args: {
   adds.slice(0, 25).forEach((item, i) => {
     const c: ParsedItem = cleanItem(item, text);
     const id = makeId();
-    const pl = placeItem(c, current(), now);
+    const pl = placeItem(c, current(), now, args.hours);
     const task: Task = {
       id, title: c.title, raw, notes: c.notes, priority: c.priority, minutes: c.minutes,
       start: pl.start, due: pl.due, status: 'open', created: now, order: now + i, doneAt: null, updatedAt: now,

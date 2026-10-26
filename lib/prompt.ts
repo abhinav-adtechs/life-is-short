@@ -10,16 +10,17 @@ export interface PromptTask {
 }
 
 /** The prompt sent to the AI route. It answers {add: [...], update: [...]} so a dump can add tasks and change existing ones. */
-export function buildPrompt(text: string, nowArg?: number | Date, open: PromptTask[] = []): string {
+export function buildPrompt(text: string, nowArg?: number | Date, open: PromptTask[] = [], hours = { start: 9 * 60, end: 21 * 60 }): string {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
   const days = Array.from({ length: 14 }, (_, i) => { const d = addDays(today, i); return `${DOWL[d.getDay()]} ${ymd(d)}`; });
+  const hm = (m: number) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
   const list = open.length
     ? open.map(t => `${t.ref} | P${t.priority} | ${String(t.title).replace(/\s+/g, ' ').slice(0, 140)} | ${t.start || 'backlog'} | ${t.due ? 'due ' + t.due : '-'}`).join('\n')
     : '(none yet)';
   return [
     'You are the planning assistant inside a personal day planner. Read what the user just said and update their task list.',
-    `Right now it is ${DOWL[now.getDay()]} ${ymd(now)}, ${pad(now.getHours())}:${pad(now.getMinutes())} local time. Working hours are 09:00 to 21:00.`,
+    `Right now it is ${DOWL[now.getDay()]} ${ymd(now)}, ${pad(now.getHours())}:${pad(now.getMinutes())} local time. Working hours are ${hm(hours.start)} to ${hm(hours.end)}.`,
     `Dates for the next 14 days: ${days.join(', ')}.`,
     '',
     'Their open tasks right now (ref | priority | task | scheduled | due):',

@@ -22,5 +22,20 @@ export const ceil15 = (ms: number) => {
   return extra ? ms - extra + 15 * MIN : ms;
 };
 export const endOf = (t: { start: number | null; minutes: number }) => (t.start ?? 0) + t.minutes * MIN;
-/** Monday of the week containing d. */
-export const weekStart = (d: DateLike) => addDays(startOfDay(d), -((new Date(d).getDay() + 6) % 7));
+/** First day of the week containing d. `first` is 0 for Sunday, 1 for Monday (the default), 6 for Saturday. */
+export const weekStart = (d: DateLike, first = 1) => addDays(startOfDay(d), -((new Date(d).getDay() - first + 7) % 7));
+/** Same day of the month n months away, clamped to the month's last day. */
+export const addMonths = (d: DateLike, n: number) => {
+  const x = startOfDay(d), day = x.getDate();
+  x.setDate(1); x.setMonth(x.getMonth() + n);
+  x.setDate(Math.min(day, new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate()));
+  return x;
+};
+/** ISO 8601 week number (weeks start Monday; week 1 holds the first Thursday). */
+export const isoWeek = (d: DateLike) => {
+  const x = startOfDay(d);
+  x.setDate(x.getDate() + 3 - ((x.getDay() + 6) % 7));
+  const jan4 = new Date(x.getFullYear(), 0, 4);
+  return 1 + Math.round(((x.getTime() - jan4.getTime()) / DAY_MS - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+};
+export const isWeekend = (d: DateLike) => { const g = new Date(d).getDay(); return g === 0 || g === 6; };

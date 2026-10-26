@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+/** Default pixels per hour. Each column says its own in data-hour (Settings → Calendar → Hour height). */
 export const HOUR = 56;
 const snap15 = (m: number) => Math.round(m / 15) * 15;
 
@@ -12,7 +13,7 @@ export interface DragView {
   id: string;
   x: number;
   y: number;
-  /** Snapped start under the pointer, for row and block drags. */
+  /** Snapped start under the pointer, for row and block drags. min is -1 over a month-view day: no time picked. */
   target: { day: string; min: number } | null;
   overBacklog: boolean;
   /** New length while resizing. */
@@ -44,7 +45,7 @@ export interface DragHandlers {
   onResize: (id: string, minutes: number) => void;
 }
 
-/** Column under a point: an element with data-day, data-h0 and data-h1 (visible hour range). */
+/** Column under a point: an element with data-day, data-h0, data-h1 (visible hour range) and data-hour; or a month-view day with data-month. */
 function columnAt(x: number, y: number) {
   for (const el of document.elementsFromPoint(x, y)) {
     const col = (el as HTMLElement).closest?.('[data-day]') as HTMLElement | null;
@@ -57,10 +58,13 @@ function overBacklogAt(x: number, y: number) {
 }
 
 /** Minutes from midnight at a y position inside a column, snapped to 15 and kept inside the visible hours. */
+export const hourOf = (col: HTMLElement) => Number(col.dataset.hour || HOUR);
+
 export function minuteAt(col: HTMLElement, clientY: number, grabY: number, length: number) {
+  if (col.dataset.month != null) return -1;
   const r = col.getBoundingClientRect();
   const h0 = Number(col.dataset.h0 || 9), h1 = Number(col.dataset.h1 || 21);
-  const m = h0 * 60 + snap15(((clientY - grabY - r.top) / HOUR) * 60);
+  const m = h0 * 60 + snap15(((clientY - grabY - r.top) / hourOf(col)) * 60);
   return Math.max(h0 * 60, Math.min(h1 * 60 - 15, 24 * 60 - Math.max(15, Math.min(length, 60)), m));
 }
 
@@ -108,7 +112,7 @@ export function useDrag(h: DragHandlers) {
       if (col) {
         const r = col.getBoundingClientRect();
         const h0 = Number(col.dataset.h0 || 9);
-        const endMin = h0 * 60 + snap15(((y - r.top) / HOUR) * 60);
+        const endMin = h0 * 60 + snap15(((y - r.top) / hourOf(col)) * 60);
         cur.view.minutes = Math.max(15, Math.min(480, endMin - cur.startMin, 24 * 60 - cur.startMin));
       }
     } else {

@@ -25,8 +25,12 @@ export function useMedia(query: string): boolean {
   );
 }
 
-export const prefersReducedMotion = () =>
-  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** Settings → Motion wins; otherwise the system setting. */
+export const prefersReducedMotion = () => {
+  if (typeof window === 'undefined') return false;
+  const m = document.documentElement.dataset.motion;
+  return m === 'reduce' || (m !== 'full' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+};
 
 type SR = {
   lang: string; interimResults: boolean; continuous: boolean;

@@ -17,7 +17,8 @@ export default function GoogleCallback() {
     postJson<{ blob?: string; email?: string | null; message?: string }>('/api/google/exchange', { code }).then(({ status, data }) => {
       if (status !== 200 || !data?.blob) { setMsg(data?.message || 'Could not connect Google. Try again from Settings.'); return; }
       sessionStorage.setItem(PENDING_KEY, JSON.stringify({ blob: data.blob, email: data.email ?? null, connectedAt: Date.now() }));
-      window.location.replace('/');
+      // Back to the Google section of Settings, where the new account shows up.
+      window.location.replace('/#settings/google');
     }).catch(() => setMsg('Could not reach the server. Try again from Settings.'));
   }, []);
   return (

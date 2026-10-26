@@ -9,11 +9,17 @@ import { buildPrompt } from '@/lib/prompt';
 import { findSlot } from '@/lib/place';
 import { backlogList, doneList, focus, missedList } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
-import { atMinutes, endOf, fromYmd, startOfDay } from '@/lib/time';
+import { atMinutes, endOf, fromYmd, minsOf, startOfDay } from '@/lib/time';
 import { sortDump } from '@/lib/api';
-import { mergeExternal } from '@/lib/google';
-import { PENDING_KEY, disconnectGoogle, fetchGoogleItems, startGoogleConnect, type GoogleConn } from '@/lib/google-client';
+import { calendarOf, mergeExternal } from '@/lib/google';
+import {
+  MAX_ACCOUNTS, PENDING_KEY, addAccount, disconnectGoogle, fetchGoogleItems, mergeCalendars, normalizeAccounts, ownCalendars,
+  sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
+} from '@/lib/google-client';
+import { workHours, type CalView, type Prefs } from '@/lib/prefs';
+import type { WorkHours } from '@/lib/place';
 import { prefersReducedMotion, useMedia, useNow } from './hooks';
+import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useDrag, type DragKind } from './drag';
 import { Toast, type ToastState } from './Toast';
@@ -39,8 +45,13 @@ export interface PlannerApi {
   /** Day the calendar is showing. */
   day: Date;
   setDay: (d: Date) => void;
-  calMode: 'day' | 'week';
-  setCalMode: (m: 'day' | 'week') => void;
+  /** Calendar view on this device. */
+  view: CalView;
+  setView: (v: CalView) => void;
+  prefs: Prefs;
+  setPrefs: (patch: Partial<Prefs>) => void;
+  /** Your day, for slotting. */
+  hours: WorkHours;
   phoneView: 'list' | 'calendar';
   setPhoneView: (v: 'list' | 'calendar') => void;
   toast: (msg: string, undo?: () => void) => void;
@@ -49,14 +60,24 @@ export interface PlannerApi {
   schedule: (id: string) => void;
   unslot: (id: string) => void;
   place: (id: string, start: number) => void;
+  /** Put a task on a day without a time: a moved event keeps its time, a backlog task gets that day's first free slot. */
+  placeOnDay: (id: string, dayKey: string) => void;
   capture: (text: string) => void;
   openEditor: (id: string) => void;
-  openSettings: () => void;
+  openSettings: (section?: string) => void;
   undoable: (msg: string, before: Map<string, Task | null>) => void;
-  google: GoogleConn | null;
-  pullGoogle: (quiet?: boolean) => Promise<void>;
-  connectGoogle: () => Promise<void>;
-  removeGoogle: () => Promise<void>;
+  accounts: GoogleAccount[];
+  /** Account and calendar of a pulled event. */
+  sourceOf: (t: Task) => Source | null;
+  /** Whether a scheduled task shows on the calendar (hidden accounts and calendars, done tasks). */
+  onCalendar: (t: Task) => boolean;
+  /** Block colour from Settings → Calendar → Colour events by, or null for the plain block. */
+  colorOf: (t: Task) => string | null;
+  pullGoogle: (quiet?: boolean, onlyId?: string) => Promise<void>;
+  connectGoogle: (hint?: string | null) => Promise<void>;
+  removeGoogle: (id: string, removeEvents: boolean) => Promise<void>;
+  changeAccount: (id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => void;
+  changeCalendar: (accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => void;
   pulling: boolean;
 }
 
@@ -67,7 +88,8 @@ export const usePlanner = () => {
   return v;
 };
 
-const loadView = (): 'day' | 'week' => { try { return localStorage.getItem('ds.view') === 'day' ? 'day' : 'week'; } catch { return 'week'; } };
+const SETTINGS_HASH = /^#settings(?:\/([a-z]+))?$/;
+type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 
 export default function Planner({ repo, email }: { repo: TaskRepo; email: string | null }) {
   const [toastState, setToast] = useState<ToastState | null>(null);
@@ -80,16 +102,21 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [completing, setCompleting] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<string | null>(null);
   const [editorId, setEditorId] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Open settings section, from the URL hash (#settings/calendar), or null. */
+  const [settings, setSettings] = useState<string | null>(null);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
-  const [calMode, setCalModeState] = useState<'day' | 'week'>('week');
   const [phoneView, setPhoneView] = useState<'list' | 'calendar'>('list');
   const lastFocus = useRef<HTMLElement | null>(null);
-  const [google, setGoogle] = useState<GoogleConn | null>(null);
+  const settingsOpenedHere = useRef(false);
+  const [accounts, setAccountsState] = useState<GoogleAccount[]>([]);
   const [pulling, setPulling] = useState(false);
+  const pullingRef = useRef(false);
+  const { prefs, update: setPrefs } = usePrefs(repo);
+  const hours = useMemo(() => workHours(prefs), [prefs]);
+  const view: CalView = prefs.calView ?? (wide ? 'week' : 'day');
+  const setView = useCallback((v: CalView) => setPrefs({ calView: v }), [setPrefs]);
 
-  useEffect(() => { setMounted(true); setCalModeState(loadView()); }, []);
-  const setCalMode = useCallback((m: 'day' | 'week') => { setCalModeState(m); try { localStorage.setItem('ds.view', m); } catch { /* per-device nicety */ } }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   const undoable = useCallback((msg: string, before: Map<string, Task | null>) => {
     toast(msg, before.size ? () => store.restore(before) : undefined);
@@ -120,20 +147,20 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slot = useCallback((id: string) => {
     const t = store.get(id);
     if (!t) return;
-    const s = findSlot(store.all(), t.minutes, { exclude: id });
+    const s = findSlot(store.all(), t.minutes, { exclude: id, hours });
     if (s == null) { toast('No free slot in the next two weeks. Pick a time instead.'); openEditor(id); return; }
     undoable(`Slotted for ${fmtWhen(s)}`, store.patch(id, { start: s }));
     if (picked === id) setPicked(null);
-  }, [store, toast, undoable, openEditor, picked]);
+  }, [store, toast, undoable, openEditor, picked, hours]);
 
   /** The Now block's Schedule: a live task is pushed past its end, a backlog task gets the next free slot. */
   const schedule = useCallback((id: string) => {
     const t = store.get(id);
     if (!t) return;
     if (t.start == null) { slot(id); return; }
-    const s = findSlot(store.all(), t.minutes, { exclude: id, after: endOf(t) });
+    const s = findSlot(store.all(), t.minutes, { exclude: id, after: endOf(t), hours });
     undoable(s != null ? `Pushed to ${fmtWhen(s)}` : 'Moved to the backlog', store.patch(id, { start: s }));
-  }, [store, slot, undoable]);
+  }, [store, slot, undoable, hours]);
 
   const unslot = useCallback((id: string) => {
     undoable('Moved to the backlog', store.patch(id, { start: null }));
@@ -147,20 +174,30 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     setPicked(null);
   }, [store, undoable]);
 
+  const placeOnDay = useCallback((id: string, dayKey: string) => {
+    const t = store.get(id);
+    if (!t) return;
+    const d = fromYmd(dayKey);
+    const start = t.start != null
+      ? atMinutes(d, minsOf(t.start))
+      : findSlot(store.all(), t.minutes, { onDate: d, sameDay: true, exclude: id, hours }) ?? atMinutes(d, hours.start);
+    place(id, start);
+  }, [store, place, hours]);
+
   const capture = useCallback(async (text: string) => {
     const pid = newId();
     setPending(p => [...p, { id: pid, text }]);
     const { refs, ctx } = promptContext(store.all());
-    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx));
+    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours));
     setPending(p => p.filter(x => x.id !== pid));
-    const out = applyCapture({ text, tasks: store.all(), refs, result, via });
+    const out = applyCapture({ text, tasks: store.all(), refs, result, via, hours });
     store.write(out.puts);
     toast(out.summary, out.puts.length ? () => store.restore(out.before) : undefined);
-  }, [store, toast]);
+  }, [store, toast, hours]);
 
   const drag = useDrag({
     lengthOf: id => store.get(id)?.minutes ?? 30,
-    onDrop: (id: string, dayKey: string, min: number, _kind: DragKind) => place(id, atMinutes(fromYmd(dayKey), min)),
+    onDrop: (id: string, dayKey: string, min: number, _kind: DragKind) => (min < 0 ? placeOnDay(id, dayKey) : place(id, atMinutes(fromYmd(dayKey), min))),
     onDropBacklog: id => unslot(id),
     onResize: (id, minutes) => {
       const t = store.get(id);
@@ -175,84 +212,200 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     if (el && document.contains(el)) { try { el.focus({ preventScroll: true }); } catch { /* gone */ } }
   }, []);
 
+  /* ---------- settings page, routed by the URL hash so Back closes it ---------- */
+
+  useEffect(() => {
+    const read = () => { const m = SETTINGS_HASH.exec(window.location.hash); setSettings(m ? m[1] || 'appearance' : null); };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []);
+
+  const openSettings = useCallback((section?: string) => {
+    lastFocus.current = document.activeElement as HTMLElement | null;
+    settingsOpenedHere.current = true;
+    window.location.hash = section ? `settings/${section}` : 'settings';
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    // Opened from the app: step back. Landed on it (e.g. back from Google): drop the hash without leaving.
+    if (settingsOpenedHere.current) { settingsOpenedHere.current = false; history.back(); return; }
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    setSettings(null);
+  }, []);
+
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !settings) {
+      // Back where you opened it from; after a trip to Google there's nothing to go back to, so the Settings button.
+      const prev = lastFocus.current;
+      const el = prev && document.contains(prev) ? prev : document.querySelector<HTMLElement>('[data-settings-button]');
+      try { el?.focus({ preventScroll: true }); } catch { /* gone */ }
+    }
+    wasOpen.current = !!settings;
+  }, [settings]);
+
   // Esc: close the editor or settings first, then cancel a pick.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (editorId) { e.preventDefault(); closeEditor(); return; }
-      if (settingsOpen) { e.preventDefault(); setSettingsOpen(false); return; }
+      if (settings) { e.preventDefault(); closeSettings(); return; }
       if (picked) { e.preventDefault(); setPicked(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editorId, settingsOpen, picked, closeEditor]);
+  }, [editorId, settings, picked, closeEditor, closeSettings]);
 
   // A picked task that disappears (done elsewhere, deleted) can't be placed.
   useEffect(() => { if (picked && !store.get(picked)) setPicked(null); }, [picked, store, store.tasks]);
 
-  const saveGoogle = useCallback(async (conn: GoogleConn | null) => {
-    setGoogle(conn);
-    try { await repo.setSetting('google', conn); } catch (e) { toast(e instanceof Error ? e.message : 'Couldn’t save the Google connection.'); }
-  }, [repo, toast]);
+  /* ---------- Google accounts ---------- */
 
-  /** Pull Google Calendar events and Google Tasks into the planner. Quiet pulls only speak up when something changed. */
-  const pullGoogle = useCallback(async (quiet = false, connArg?: GoogleConn) => {
-    const conn = connArg ?? google;
-    if (!conn) return;
+  // What's stored, plus changes still on their way there. Settings aren't realtime, so every change re-reads
+  // the stored list and re-applies itself: an account added on the phone survives the laptop's next pull.
+  const storedRef = useRef<GoogleAccount[]>([]);
+  const pendingFns = useRef<AccountsFn[]>([]);
+  const gQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const showAccounts = useCallback(() => setAccountsState(pendingFns.current.reduce((l, f) => f(l), storedRef.current)), []);
+
+  const enqueue = useCallback(<T,>(job: () => Promise<T>) => {
+    const run = gQueue.current.then(job);
+    gQueue.current = run.catch(() => undefined);
+    return run;
+  }, []);
+
+  const readAccounts = useCallback(() => enqueue(async () => {
+    try { storedRef.current = normalizeAccounts(await repo.getSetting('google')); } catch { /* keep what we have */ }
+    showAccounts();
+    return storedRef.current;
+  }), [repo, enqueue, showAccounts]);
+
+  const changeAccounts = useCallback((fn: AccountsFn) => {
+    pendingFns.current.push(fn);
+    showAccounts();
+    return enqueue(async () => {
+      let base = storedRef.current;
+      try { base = normalizeAccounts(await repo.getSetting('google')); } catch { /* offline: build on what we have */ }
+      const next = fn(base);
+      try { await repo.setSetting('google', storedAccounts(next)); } catch (e) { toast(e instanceof Error ? e.message : 'Couldn’t save the Google accounts.'); }
+      storedRef.current = next;
+      pendingFns.current.shift();
+      showAccounts();
+      return next;
+    });
+  }, [repo, enqueue, showAccounts, toast]);
+
+  /** Pull every connected account (or one) and merge them into the planner in one go. Quiet pulls only speak up when something changed. */
+  const pullGoogle = useCallback(async (quiet = false, onlyId?: string) => {
+    if (pullingRef.current) return;
+    pullingRef.current = true;
     setPulling(true);
-    const res = await fetchGoogleItems(conn);
-    setPulling(false);
-    if ('error' in res) {
-      if (!quiet || res.revoked) toast(res.error);
-      if (res.revoked) await saveGoogle(null);
-      return;
+    try {
+      const list = await readAccounts();
+      const targets = list.filter(a => (onlyId ? a.id === onlyId : !a.error));
+      if (!targets.length) return;
+      const results = new Map<string, PullResult>(await Promise.all(targets.map(async a => [a.id, await fetchGoogleItems(a)] as const)));
+      const items = [...results.values()].flatMap(r => ('items' in r ? r.items : []));
+      const errors = [...results.values()].filter((r): r is Extract<PullResult, { error: string }> => 'error' in r);
+      const m = mergeExternal(store.all(), items, Date.now());
+      const before = store.write(m.puts);
+      const at = Date.now();
+      await changeAccounts(l => l.map(a => {
+        const r = results.get(a.id);
+        if (!r) return a;
+        if ('error' in r) return r.revoked ? { ...a, error: 'revoked' } : a;
+        return { ...a, pulledAt: at, error: null, calendars: mergeCalendars(a.calendars, r.calendars) };
+      }));
+      const parts = [m.added && `${m.added} new`, m.updated && `${m.updated} updated`, m.ticked && `${m.ticked} ticked off`].filter(Boolean);
+      const problem = errors.find(e => e.revoked) ?? errors[0];
+      if (parts.length) undoable(`From Google · ${parts.join(', ')}${problem ? ` · ${problem.error}` : ''}`, before);
+      else if (problem && (!quiet || problem.revoked)) toast(problem.error);
+      else if (!quiet) toast(targets.length > 1 ? `All ${targets.length} Google accounts are up to date` : 'Google is up to date');
+    } finally {
+      pullingRef.current = false;
+      setPulling(false);
     }
-    const m = mergeExternal(store.all(), res.items, Date.now());
-    const before = store.write(m.puts);
-    await saveGoogle({ ...conn, pulledAt: Date.now() });
-    const parts = [m.added && `${m.added} new`, m.updated && `${m.updated} updated`, m.ticked && `${m.ticked} ticked off`].filter(Boolean);
-    if (parts.length) undoable(`From Google · ${parts.join(', ')}`, before);
-    else if (!quiet) toast('Google is up to date');
-  }, [google, store, toast, undoable, saveGoogle]);
+  }, [readAccounts, changeAccounts, store, toast, undoable]);
 
-  const connectGoogle = useCallback(async () => {
-    const err = await startGoogleConnect();
+  const connectGoogle = useCallback(async (hint?: string | null) => {
+    if (!hint && storedRef.current.length >= MAX_ACCOUNTS) { toast(`You can connect up to ${MAX_ACCOUNTS} Google accounts.`); return; }
+    const err = await startGoogleConnect(hint);
     if (err) toast(err);
   }, [toast]);
 
-  const removeGoogle = useCallback(async () => {
-    if (google) await disconnectGoogle(google);
-    await saveGoogle(null);
-    toast('Google disconnected. Pulled tasks stay.');
-  }, [google, saveGoogle, toast]);
+  const removeGoogle = useCallback(async (id: string, removeEvents: boolean) => {
+    const acct = storedRef.current.find(a => a.id === id);
+    if (!acct) return;
+    let before = new Map<string, Task | null>();
+    if (removeEvents) {
+      const own = ownCalendars(storedRef.current, id);
+      before = store.remove(store.all().filter(t => own.has(calendarOf(t.externalId) || '')).map(t => t.id));
+    }
+    await changeAccounts(l => l.filter(a => a.id !== id));
+    disconnectGoogle(acct);
+    const who = acct.email || 'Google account';
+    if (removeEvents) undoable(`Disconnected ${who} · removed ${before.size} event${before.size === 1 ? '' : 's'}`, before);
+    else toast(`Disconnected ${who}. Its events stay.`);
+  }, [store, changeAccounts, toast, undoable]);
 
-  // Load the Google connection; finish a connect that just came back from Google; pull if it's been a while.
+  const changeAccount = useCallback((id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => {
+    changeAccounts(l => l.map(a => (a.id === id ? { ...a, ...patch } : a)));
+  }, [changeAccounts]);
+
+  const changeCalendar = useCallback((accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => {
+    changeAccounts(l => l.map(a => (a.id === accountId ? { ...a, calendars: a.calendars.map(c => (c.id === calendarId ? { ...c, ...patch } : c)) } : a)));
+  }, [changeAccounts]);
+
+  // Load the accounts; finish a connect that just came back from Google; pull if it's been a while.
+  const pullRef = useRef(pullGoogle);
+  pullRef.current = pullGoogle;
   useEffect(() => {
     let alive = true;
     (async () => {
       let pending: GoogleConn | null = null;
       try { const raw = sessionStorage.getItem(PENDING_KEY); if (raw) { sessionStorage.removeItem(PENDING_KEY); pending = JSON.parse(raw); } } catch { pending = null; }
+      const list = await readAccounts();
+      if (!alive) return;
       if (pending) {
-        await saveGoogle(pending);
-        if (alive) { toast(`Google connected${pending.email ? ' · ' + pending.email : ''}. Pulling…`); pullGoogle(false, pending); }
+        const conn = pending;
+        let added: GoogleAccount | null = null;
+        await changeAccounts(l => { const r = addAccount(l, conn); added = r.account; return r.list; });
+        if (!alive) return;
+        const acct = added as GoogleAccount | null;
+        if (!acct) { toast(`You can connect up to ${MAX_ACCOUNTS} Google accounts. Disconnect one first.`); disconnectGoogle(conn); return; }
+        toast(`Google connected${acct.email ? ' · ' + acct.email : ''}. Pulling…`);
+        pullRef.current(false, acct.id);
         return;
       }
-      let conn: GoogleConn | null = null;
-      try { conn = await repo.getSetting<GoogleConn>('google'); } catch { conn = null; }
-      if (!alive || !conn) return;
-      setGoogle(conn);
-      if (!conn.pulledAt || Date.now() - conn.pulledAt > 30 * 60000) pullGoogle(true, conn);
+      if (list.some(a => !a.error && (!a.pulledAt || Date.now() - a.pulledAt > 30 * 60000))) pullRef.current(true);
     })();
-    return () => { alive = false; };
-    // Once per planner; pullGoogle reads the connection passed in.
+    // Then again every 30 minutes while the app is open and in view.
+    const timer = window.setInterval(() => { if (!document.hidden && storedRef.current.some(a => !a.error)) pullRef.current(true); }, 30 * 60000);
+    return () => { alive = false; clearInterval(timer); };
+    // Once per planner.
   }, [repo]);
+
+  const sources = useMemo(() => sourceIndex(accounts), [accounts]);
+  const srcOf = useCallback((t: Task) => sourceOf(sources, t.externalId), [sources]);
+  const onCalendar = useCallback((t: Task) => {
+    if (!prefs.showDone && t.status === 'done') return false;
+    const src = srcOf(t);
+    return !src || (src.account.show && (!src.calendar || src.calendar.pull));
+  }, [prefs.showDone, srcOf]);
+  const colorOf = useCallback((t: Task): string | null => {
+    if (prefs.colorBy === 'priority') return t.priority === 1 ? 'var(--accent)' : t.priority === 2 ? 'var(--muted)' : null;
+    if (prefs.colorBy === 'none') return null;
+    const src = srcOf(t);
+    if (!src) return null;
+    return prefs.colorBy === 'calendar' ? src.calendar?.color ?? src.account.color : src.account.color;
+  }, [prefs.colorBy, srcOf]);
 
   const api: PlannerApi = {
     store, tasks: store.tasks, now, wide, repo, email, pending, completing, picked, setPicked, drag,
-    day, setDay, calMode, setCalMode, phoneView, setPhoneView,
-    toast, done, slot, schedule, unslot, place, capture, openEditor,
-    openSettings: () => setSettingsOpen(true), undoable,
-    google, pullGoogle, connectGoogle, removeGoogle, pulling,
+    day, setDay, view, setView, prefs, setPrefs, hours, phoneView, setPhoneView,
+    toast, done, slot, schedule, unslot, place, placeOnDay, capture, openEditor, openSettings, undoable,
+    accounts, sourceOf: srcOf, onCalendar, colorOf, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
   };
 
   if (!mounted) return <div className="boot" />;
@@ -261,16 +414,16 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   return (
     <Ctx.Provider value={api}>
       {wide ? (
-        <div className="lp">
+        <div className="lp" inert={!!settings}>
           <LaptopSide />
           <LaptopCalendar />
         </div>
       ) : (
-        <div className="ph">{phoneView === 'list' ? <PhoneScreen /> : <PhoneCalendar />}</div>
+        <div className="ph" inert={!!settings}>{phoneView === 'list' ? <PhoneScreen /> : <PhoneCalendar />}</div>
       )}
       {drag.view?.kind === 'row' && <Ghost id={drag.view.id} x={drag.view.x} y={drag.view.y} />}
       {editing && <Editor key={editing.id} task={editing} onClose={closeEditor} />}
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {settings && <Settings section={settings} onClose={closeSettings} />}
       {toastState && <Toast state={toastState} wide={wide} onDone={() => setToast(null)} />}
     </Ctx.Provider>
   );

@@ -1,11 +1,26 @@
 import { DAY_MS, DOW, DOWL, MIN, MON, MONL, fromYmd, pad, startOfDay } from './time';
 
+// Display setting from Settings → Appearance. Module-level so every label follows it without threading it through.
+let clock24 = false;
+export const setClock24 = (on: boolean) => { clock24 = on; };
+
 export function fmtTime(ms: number, period = true) {
   const d = new Date(ms), h = d.getHours();
+  if (clock24) return `${pad(h)}:${pad(d.getMinutes())}`;
   return `${h % 12 || 12}:${pad(d.getMinutes())}${period ? (h < 12 ? ' AM' : ' PM') : ''}`;
 }
 
-/** "2:00 – 2:30 PM", or "11:30 AM – 12:30 PM" across noon. */
+/** Compact time for month-view chips: "9a", "2:30p", or "14:30" on the 24-hour clock. */
+export function fmtShort(ms: number) {
+  const d = new Date(ms), h = d.getHours(), m = d.getMinutes();
+  if (clock24) return `${pad(h)}:${pad(m)}`;
+  return `${h % 12 || 12}${m ? ':' + pad(m) : ''}${h < 12 ? 'a' : 'p'}`;
+}
+
+/** Hour label for the calendar gutter: "9 AM", or "09:00" on the 24-hour clock. */
+export const fmtHour = (h: number) => (clock24 ? `${pad(h % 24)}:00` : `${h % 12 || 12} ${h < 12 || h === 24 ? 'AM' : 'PM'}`);
+
+/** "2:00 – 2:30 PM", or "11:30 AM – 12:30 PM" across noon. "14:00 – 14:30" on the 24-hour clock. */
 export function fmtRange(s: number, mins: number) {
   const e = s + mins * MIN;
   const same = (new Date(s).getHours() < 12) === (new Date(e).getHours() < 12);

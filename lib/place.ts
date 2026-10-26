@@ -13,9 +13,13 @@ export interface SlotOpts {
   sameDay?: boolean;
   /** Task id to ignore (the one being moved). */
   exclude?: string;
+  /** Your day in minutes from midnight. Defaults to 9:00–21:00. */
+  hours?: WorkHours;
 }
 
-/** First gap of `mins` inside working hours that no open scheduled task covers, on the 15-minute grid. */
+export interface WorkHours { start: number; end: number }
+
+/** First gap of `mins` inside your working hours that no open scheduled task covers, on the 15-minute grid. */
 export function findSlot(tasks: Slottable[], mins: number, opts: SlotOpts = {}): number | null {
   const now = opts.now ?? Date.now();
   const after = Math.max(now, opts.after ?? 0);
@@ -24,8 +28,8 @@ export function findSlot(tasks: Slottable[], mins: number, opts: SlotOpts = {}):
   const busy = tasks.filter(t => t.id !== opts.exclude && t.status === 'open' && t.start != null)
     .map(t => [t.start as number, endOf(t)] as const).sort((a, b) => a[0] - b[0]);
   for (let i = 0; i < span; i++, day = addDays(day, 1)) {
-    const end = atMinutes(day, WORK_END);
-    let cursor = ceil15(Math.max(atMinutes(day, WORK_START), after));
+    const end = atMinutes(day, opts.hours?.end ?? WORK_END);
+    let cursor = ceil15(Math.max(atMinutes(day, opts.hours?.start ?? WORK_START), after));
     if (cursor >= end) continue;
     for (const [s, e] of busy) {
       if (e <= cursor) continue;
@@ -61,6 +65,7 @@ export function placeItem(
   c: Pick<ParsedItem, 'date' | 'time' | 'deadline' | 'minutes'>,
   tasks: Slottable[],
   nowArg?: number,
+  hours?: WorkHours,
 ): { start: number | null; due: string | null } {
   const now = nowArg ?? Date.now();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(c.date || '') ? c.date : null;
@@ -72,6 +77,6 @@ export function placeItem(
   if (!date && mins != null && mins <= minsOf(now)) day = addDays(day, 1);
   if (day.getTime() < startOfDay(now).getTime()) return { start: null, due: date };
   if (mins != null && mins < 24 * 60) return { start: atMinutes(day, mins), due: null };
-  const slot = findSlot(tasks, c.minutes, { onDate: day, sameDay: true, now });
+  const slot = findSlot(tasks, c.minutes, { onDate: day, sameDay: true, now, hours });
   return slot != null ? { start: slot, due: null } : { start: null, due: date };
 }
