@@ -321,7 +321,7 @@ function CalendarPrefs() {
         )}
       </Opt>
 
-      <Opt label="Hour height" note="How tall an hour is on the day and week grids." stack>
+      <Opt label="Hour height" note="The least an hour gets on the day and week grids. On a laptop, your day stretches to fill the screen." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.hourHeight} onChange={hourHeight => setPrefs({ hourHeight })}
             options={HOUR_HEIGHTS.map(h => ({ value: h.value, label: h.label }))} />
