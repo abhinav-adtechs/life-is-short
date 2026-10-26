@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Task } from '@/lib/model';
 import type { CalView } from '@/lib/prefs';
 import { hourRange, layoutDay, tasksOn } from '@/lib/select';
@@ -36,13 +36,15 @@ function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; 
   const lines = Math.max(1, Math.min(3, Math.floor((h - (mid ? 8 : 14) - 15.5 * fs) / (16.25 * fs))));
   const w = 100 / lanes;
   const live = t.status === 'open' && (t.start as number) <= now && endOf(t) > now;
+  // Over and not done: the same tasks the side lists under Missed.
+  const missed = t.status === 'open' && endOf(t) <= now;
   const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
   const color = colorOf(t);
   const cls = 'block' + (small ? ' small' : '') + (mid ? ' mid' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '')
-    + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (color ? ' tint' : '');
+    + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (missed ? ' missed' : '') + (color ? ' tint' : '');
   const range = fmtRange(t.start as number, minutes);
   return (
-    <div className={cls} data-block={t.id} role="button" tabIndex={0} aria-label={`${t.title}, ${range}. Press Enter to edit.`}
+    <div className={cls} data-block={t.id} role="button" tabIndex={0} aria-label={`${t.title}, ${range}${missed ? ', missed' : ''}. Press Enter to edit.`}
       style={{ ...tint(color), top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 4px)`, width: `calc(${w.toFixed(3)}% - 8px)` }}
       onPointerDown={e => {
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -55,7 +57,7 @@ function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; 
         if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); unslot(t.id); }
       }}>
       <div className="bt" style={small ? undefined : { WebkitLineClamp: lines }}>{t.title}</div>
-      <div className="bm">{range}</div>
+      <div className="bm">{missed && !small && <span className="bmx">Missed · </span>}{range}</div>
       <button type="button" className="bx" aria-label={`Remove from calendar: ${t.title}`}
         onPointerDown={e => e.stopPropagation()}
         onClick={e => { e.stopPropagation(); unslot(t.id); }}>
@@ -120,12 +122,15 @@ function DayCol({ d, h0, h1, sched, hour }: { d: Date; h0: number; h1: number; s
   );
 }
 
-/** The time grid: a gutter plus one column per day. Shared by the day, 5-day and week views on phone and laptop. */
-function Grid({ days, gutter }: { days: Date[]; gutter: number }) {
+/**
+ * The time grid: a gutter plus one column per day. Shared by the day, 5-day and week views on phone and laptop.
+ * Given `fit`, the pixels free under it, hours stretch so your day fills them; Settings → Hour height is the least an hour gets.
+ */
+function Grid({ days, gutter, fit = 0 }: { days: Date[]; gutter: number; fit?: number }) {
   const { tasks, now, drag, picked, prefs, onCalendar } = usePlanner();
   const sched = tasks.filter(t => t.start != null && onCalendar(t));
-  const hour = prefs.hourHeight;
   const [h0, h1] = hourRange(days, sched, [prefs.dayStart, prefs.dayEnd]);
+  const hour = Math.max(prefs.hourHeight, Math.floor(fit / (h1 - h0)));
   const height = (h1 - h0) * hour;
   const showsToday = days.some(d => ymd(d) === ymd(now));
   const nowMin = minsOf(now);
@@ -152,11 +157,12 @@ function Grid({ days, gutter }: { days: Date[]; gutter: number }) {
 function DayHeads({ days, gutter }: { days: Date[]; gutter: number }) {
   const { now, setDay, setView } = usePlanner();
   const todayKey = ymd(now);
+  const today = startOfDay(now).getTime();
   return (
     <div className="whead in" style={{ animationDelay: '.14s', gridTemplateColumns: `${gutter}px repeat(${days.length}, minmax(0, 1fr))` }}>
       <span />
       {days.map(d => (
-        <div key={ymd(d)} className={'dh' + (ymd(d) === todayKey ? ' today' : '')}>
+        <div key={ymd(d)} className={'dh' + (ymd(d) === todayKey ? ' today' : d.getTime() < today ? ' past' : '')}>
           <button type="button" aria-label={`Open ${DOWL[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`}
             onClick={() => { setDay(d); setView('day'); }}>
             <span>{DOW[d.getDay()].toUpperCase()}</span> <b>{d.getDate()}</b>
@@ -304,12 +310,34 @@ function Legend() {
   );
 }
 
+/** Pixels left under the grid's top edge inside the scrolling calendar, so the grid can fill the screen. */
+function useFit() {
+  const cal = useRef<HTMLElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(0);
+  const measure = useCallback(() => {
+    const c = cal.current, g = grid.current;
+    if (!c || !g) return;
+    // offsetTop, not the bounding box: the grid fades up with a transform as it opens.
+    setFit(Math.max(0, c.clientHeight - g.offsetTop - (parseFloat(getComputedStyle(c).paddingBottom) || 0)));
+  }, []);
+  // The header over the grid changes height with the view, accounts and the pick banner, so measure after every render.
+  useLayoutEffect(measure);
+  useEffect(() => {
+    const ro = new ResizeObserver(measure);
+    if (cal.current) ro.observe(cal.current);
+    return () => ro.disconnect();
+  }, [measure]);
+  return { cal, grid, fit };
+}
+
 export function LaptopCalendar() {
   const { day, view, prefs } = usePlanner();
   const nav = useNav();
   const days = viewDays(view, day, prefs);
+  const { cal, grid, fit } = useFit();
   return (
-    <section className="cal" aria-label="Calendar">
+    <section className="cal" aria-label="Calendar" ref={cal}>
       <div className="ctop in" style={{ animationDelay: '.08s' }}>
         <div className="ctitle"><h2>{nav.title}</h2><span>{nav.sub}</span></div>
         <div className="tools">
@@ -324,8 +352,8 @@ export function LaptopCalendar() {
       ) : (
         <>
           <DayHeads days={days} gutter={56} />
-          <div className="in" style={{ animationDelay: '.2s' }}>
-            <Grid days={days} gutter={56} />
+          <div className="in" style={{ animationDelay: '.2s' }} ref={grid}>
+            <Grid days={days} gutter={56} fit={fit} />
           </div>
         </>
       )}
