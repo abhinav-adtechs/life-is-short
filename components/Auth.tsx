@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-/** Step 1: email and password. Accounts are created in the Supabase dashboard; there's no sign-up or email link. */
-export function SignIn() {
+/** First sign-in on a device: email and password. There's no sign-up or email link. */
+export function SignIn({ notice }: { notice?: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -24,6 +24,7 @@ export function SignIn() {
       <form onSubmit={submit} className="in">
         <h1>Dump &amp; Slot</h1>
         <div className="nm">Sign in. You’ll confirm with your authenticator app next.</div>
+        {notice && <p className="msg" role="alert">{notice}</p>}
         <div className="fld">
           <label htmlFor="em">Email</label>
           <input id="em" type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} />
@@ -39,9 +40,9 @@ export function SignIn() {
   );
 }
 
-function CodeField({ code, setCode, onCode, busy }: { code: string; setCode: (v: string) => void; onCode: (code: string) => void; busy: boolean }) {
+function CodeField({ code, setCode, onCode, busy, focus = true }: { code: string; setCode: (v: string) => void; onCode: (code: string) => void; busy: boolean; focus?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { input.current?.focus(); }, []);
+  useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
   return (
     <>
       <div className="fld">
@@ -112,7 +113,7 @@ export function EnrollTotp({ onSignOut }: { onSignOut: () => void }) {
   );
 }
 
-/** Every 24 hours: only the authenticator code, not the password. */
+/** Right after a password sign-in: the authenticator code. */
 export function CodeCheck({ factorId, email, onSignOut }: { factorId: string; email: string | null; onSignOut: () => void }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -129,10 +130,101 @@ export function CodeCheck({ factorId, email, onSignOut }: { factorId: string; em
     <main className="login">
       <form className="in" onSubmit={e => { e.preventDefault(); verify(code); }}>
         <h1>Enter your code</h1>
-        <div className="nm">Open your authenticator app. A code is needed once every 24 hours{email ? ` for ${email}` : ''}.</div>
+        <div className="nm">Open your authenticator app and enter the 6-digit code{email ? ` for ${email}` : ''}.</div>
         <CodeField code={code} setCode={setCode} onCode={verify} busy={busy} />
         {msg && <p className="msg" role="alert">{msg}</p>}
         <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
+      </form>
+    </main>
+  );
+}
+
+function PinField({ id, label, value, onChange, autoFocus }: { id: string; label: string; value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
+  return (
+    <div className="fld">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} className="code" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{6,12}" minLength={6} maxLength={12}
+        required autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 12))} />
+    </div>
+  );
+}
+
+/** Once, after the first password sign-in: choose the PIN used for every sign-in after this. */
+export function CreatePin({ onDone, onSignOut }: { onDone: () => void; onSignOut: () => void }) {
+  const [pin, setPin] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (pin.length < 6) { setMsg('Use at least 6 digits.'); return; }
+    if (pin !== again) { setMsg('The two PINs don’t match.'); return; }
+    setBusy(true); setMsg('');
+    const { data, error } = await supabase().rpc('set_pin', { new_pin: pin });
+    setBusy(false);
+    if (error || data !== 'ok') {
+      setMsg(data === 'password-required' ? 'For safety, choose the PIN within 10 minutes of signing in with your password. Sign out and sign in again.' : 'Couldn’t save the PIN. Try again.');
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <main className="login">
+      <form className="in" onSubmit={save}>
+        <h1>Choose a PIN</h1>
+        <div className="nm">From now on you’ll sign in with this PIN and your authenticator code, instead of your password. 6 to 12 digits.</div>
+        <PinField id="pin1" label="PIN" value={pin} onChange={setPin} autoFocus />
+        <PinField id="pin2" label="PIN again" value={again} onChange={setAgain} />
+        <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Save PIN'}</button>
+        {msg && <p className="msg" role="alert">{msg}</p>}
+        <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
+      </form>
+    </main>
+  );
+}
+
+/** Every sign-in after the first: the PIN and an authenticator code. `codeDone` skips the code when one was just given. */
+export function PinUnlock({ factorId, email, codeDone, onDone, onLocked, onSignOut }: {
+  factorId: string; email: string | null; codeDone: boolean; onDone: () => void; onLocked: () => void; onSignOut: () => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function unlock(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (pin.length < 6 || (!codeDone && code.length !== 6) || busy) return;
+    setBusy(true); setMsg('');
+    const sb = supabase();
+    if (!codeDone) {
+      const { error } = await sb.auth.mfa.challengeAndVerify({ factorId, code });
+      if (error) { setMsg(codeError(error)); setCode(''); setBusy(false); return; }
+    }
+    const { data, error } = await sb.rpc('unlock_with_pin', { pin });
+    setBusy(false);
+    if (data === 'ok') { onDone(); return; }
+    setPin('');
+    if (data === 'locked') { onLocked(); return; }
+    if (data === 'wrong') { setMsg('Wrong PIN. After 5 wrong tries you’ll need your password.'); onDone(); return; }
+    setMsg(error ? 'Couldn’t check the PIN. Try again.' : 'Something changed; try again.');
+    onDone();
+  }
+
+  return (
+    <main className="login">
+      <form className="in" onSubmit={unlock}>
+        <h1>Unlock</h1>
+        <div className="nm">{codeDone ? 'Enter your PIN.' : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
+        <PinField id="pin" label="PIN" value={pin} onChange={setPin} autoFocus />
+        {!codeDone && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
+        {codeDone && <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>{busy ? 'Checking…' : 'Unlock'}</button>}
+        {msg && <p className="msg" role="alert">{msg}</p>}
+        <div className="minor">
+          <button type="button" className="link" onClick={onSignOut}>Forgot your PIN? Sign in with your password</button>
+        </div>
       </form>
     </main>
   );

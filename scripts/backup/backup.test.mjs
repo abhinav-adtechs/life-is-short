@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { compareData, evaluate } from './checks.mjs';
 
@@ -18,6 +19,7 @@ const nowS = () => Math.floor(Date.now() / 1000);
 
 // What Supabase provides that the migrations rely on.
 const STUB = `
+  create schema extensions;
   create schema auth;
   create table auth.users (id uuid primary key, email text, created_at timestamptz default now(), last_sign_in_at timestamptz);
   create table auth.mfa_factors (id uuid primary key default gen_random_uuid(), user_id uuid, factor_type text, status text,
@@ -34,9 +36,9 @@ const STUB = `
 `;
 
 async function project(which) {
-  const db = new PGlite();
+  const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(STUB);
-  for (const f of ['migrations/0001_init.sql', 'migrations/0002_require_fresh_2fa.sql', 'migrations/0003_audit_snapshot.sql']) await db.exec(sql(f));
+  for (const f of ['migrations/0001_init.sql', 'migrations/0002_require_fresh_2fa.sql', 'migrations/0003_audit_snapshot.sql', 'migrations/0004_pin_unlock.sql']) await db.exec(sql(f));
   await db.exec(sql(which === 'primary' ? 'roles/primary_backup_reader.sql' : 'roles/backup_writer.sql'));
   const owner = which === 'primary' ? P_OWNER : B_OWNER;
   await db.exec(`insert into auth.users (id, email) values ('${owner}', '${EMAIL}')`);
@@ -81,29 +83,76 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => { await Promise.allSettled([pServer?.stop(), bServer?.stop()]); });
 
-describe('2FA in the database', () => {
-  const fresh = { sub: P_OWNER, role: 'authenticated', aal: 'aal2', amr: [{ method: 'password', timestamp: nowS() - 60 }, { method: 'totp', timestamp: nowS() - 30 }] };
-  const count = async claims => (await as(primary, 'authenticated', claims, 'select count(*)::int n from public.tasks')).rows[0].n;
+describe('sign-in rule in the database', () => {
+  const S1 = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const S2 = 'aaaaaaaa-0000-0000-0000-000000000002';
+  // A session's claims: seconds since the password and since the last authenticator code.
+  const session = (sid, pwAgo, codeAgo, extra = {}) => ({
+    sub: P_OWNER, role: 'authenticated', session_id: sid, aal: codeAgo == null ? 'aal1' : 'aal2',
+    amr: [...(pwAgo == null ? [] : [{ method: 'password', timestamp: nowS() - pwAgo }]), ...(codeAgo == null ? [] : [{ method: 'totp', timestamp: nowS() - codeAgo }])],
+    ...extra,
+  });
+  const count = async c => (await as(primary, 'authenticated', c, 'select count(*)::int n from public.tasks')).rows[0].n;
+  const rpc = async (c, q) => Object.values((await as(primary, 'authenticated', c, q)).rows[0])[0];
 
-  it('shows tasks to the owner after a code in the last 24 hours', async () => {
-    expect(await count(fresh)).toBe(3);
+  it('first sign-in: password and a code show your tasks', async () => {
+    expect(await count(session(S1, 60, 30))).toBe(3);
   });
-  it('shows nothing with the password alone', async () => {
-    expect(await count({ ...fresh, aal: 'aal1', amr: [{ method: 'password', timestamp: nowS() }] })).toBe(0);
+  it('the password alone shows nothing', async () => {
+    expect(await count(session(S1, 5, null))).toBe(0);
   });
-  it('shows nothing once the code is more than 24 hours old', async () => {
-    expect(await count({ ...fresh, amr: [{ method: 'totp', timestamp: nowS() - 86400 - 5 }] })).toBe(0);
+  it('a PIN can only be chosen right after a password sign-in and a code', async () => {
+    expect(await rpc(session(S1, 5, null), `select public.set_pin('123456')`)).toBe('code-required');
+    expect(await rpc(session(S1, 3600, 10), `select public.set_pin('123456')`)).toBe('password-required');
+    expect(await rpc(session(S1, 60, 30), `select public.set_pin('12')`)).toBe('invalid');
+    expect(await rpc(session(S1, 60, 30), `select public.set_pin('482915')`)).toBe('ok');
+    const stored = (await primary.query('select pin_hash from private.pins')).rows[0].pin_hash;
+    expect(stored).toMatch(/^\$2[ab]\$10\$/);
+    expect(stored).not.toContain('482915');
   });
-  it('shows nothing to someone else, even with fresh 2FA', async () => {
-    expect(await count({ ...fresh, sub: B_OWNER })).toBe(0);
+  it('the next day, the code alone is not enough', async () => {
+    expect(await count(session(S2, 90000, 20))).toBe(0);
   });
-  it('refuses writes with a stale code', async () => {
-    const stale = { ...fresh, amr: [{ method: 'totp', timestamp: nowS() - 90000 }] };
-    await expect(as(primary, 'authenticated', stale,
-      `insert into public.tasks (user_id, id, title, priority, minutes, created, sort_order) values ('${P_OWNER}', 'zz', 'x', 2, 30, 0, 0)`)).rejects.toThrow();
+  it('the next day, PIN + code unlocks; a wrong PIN does not, and counts', async () => {
+    const s = session(S2, 90000, 20);
+    expect(await rpc(s, `select public.unlock_with_pin('000000')`)).toBe('wrong');
+    expect((await primary.query('select failed from private.pins')).rows[0].failed).toBe(1);
+    expect(await count(s)).toBe(0);
+    expect(await rpc(s, `select public.unlock_with_pin('482915')`)).toBe('ok');
+    expect((await primary.query('select failed from private.pins')).rows[0].failed).toBe(0);
+    expect(await count(s)).toBe(3);
+  });
+  it('an unlock is for that session only', async () => {
+    expect(await count(session('aaaaaaaa-0000-0000-0000-000000000003', 90000, 20))).toBe(0);
+  });
+  it('a PIN without a fresh code unlocks nothing', async () => {
+    expect(await rpc(session(S2, 90000, 90000), `select public.unlock_with_pin('482915')`)).toBe('code-required');
+    expect(await count(session(S2, 90000, 90000))).toBe(0);
+  });
+  it('reports where a session stands', async () => {
+    const st = await rpc(session(S2, 90000, 20), 'select public.pin_status()');
+    expect(st).toMatchObject({ signed_in: true, has_pin: true, unlocked: true });
+    expect(st.seconds_left).toBeGreaterThan(86000);
+    expect(await rpc(session('aaaaaaaa-0000-0000-0000-000000000009', 90000, 20), 'select public.pin_status()')).toMatchObject({ has_pin: true, unlocked: false, seconds_left: 0 });
+  });
+  it('five wrong PINs erase it, and only the password can set a new one', async () => {
+    const s = session('aaaaaaaa-0000-0000-0000-000000000004', 90000, 20);
+    for (let i = 0; i < 4; i++) expect(await rpc(s, `select public.unlock_with_pin('111111')`)).toBe('wrong');
+    expect(await rpc(s, `select public.unlock_with_pin('111111')`)).toBe('locked');
+    expect((await primary.query('select count(*)::int n from private.pins')).rows[0].n).toBe(0);
+    expect(await count(session(S2, 90000, 20))).toBe(0);
+    expect(await rpc(s, `select public.unlock_with_pin('482915')`)).toBe('no-pin');
+    expect(await rpc(session(S1, 30, 10), `select public.set_pin('482915')`)).toBe('ok');
+  });
+  it('the PIN table is out of reach from the app', async () => {
+    await expect(as(primary, 'authenticated', session(S1, 30, 10), 'select * from private.pins')).rejects.toThrow(/permission denied/);
+  });
+  it('shows nothing to someone else, even fully signed in', async () => {
+    expect(await count(session(S1, 30, 10, { sub: B_OWNER }))).toBe(0);
   });
   it('gives signed-out visitors no access at all', async () => {
     await expect(as(primary, 'anon', {}, 'select count(*) from public.tasks')).rejects.toThrow(/permission denied/);
+    await expect(as(primary, 'anon', {}, `select public.unlock_with_pin('482915')`)).rejects.toThrow(/permission denied/);
   });
   it('lets the backup login read but never write', async () => {
     expect((await as(primary, 'backup_reader', {}, 'select count(*)::int n from public.tasks')).rows[0].n).toBe(3);
@@ -112,11 +161,24 @@ describe('2FA in the database', () => {
 });
 
 describe('breach checks on real snapshots', () => {
-  it('pass on a healthy pair, warning that the backup has no authenticator yet', async () => {
+  it('pass on a healthy pair with no warnings', async () => {
     const r = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA });
-    expect(r.findings.filter(f => f.level === 'block')).toEqual([]);
-    expect(r.findings.some(f => f.check === 'backup:2fa' && f.level === 'warn')).toBe(true);
+    expect(r.findings.filter(f => f.level !== 'info')).toEqual([]);
     expect(r.primaryOwner.id).toBe(P_OWNER);
+  });
+  it('warn when anyone signs in to the backup, which has no app', async () => {
+    await backup.exec(`insert into auth.mfa_factors (user_id, factor_type, status) values ('${B_OWNER}', 'totp', 'verified')`);
+    try {
+      const r = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA });
+      expect(r.findings).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'warn', check: 'backup:2fa' })]));
+    } finally { await backup.exec('delete from auth.mfa_factors'); }
+  });
+  it('warn on wrong PIN attempts', async () => {
+    await primary.exec('update private.pins set failed = 2');
+    try {
+      const r = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA });
+      expect(r.findings).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'warn', check: 'primary:pin', detail: '2 wrong PIN attempt(s) since the last unlock' })]));
+    } finally { await primary.exec('update private.pins set failed = 0'); }
   });
 
   const tampered = async (attack, undo) => {
@@ -130,9 +192,14 @@ describe('breach checks on real snapshots', () => {
   it('block when a policy opens the table', async () => {
     expect(await tampered(`create policy "open" on public.tasks for select to authenticated using (true)`, 'drop policy "open" on public.tasks')).toContain('primary:policies');
   });
-  it('block when the 2FA policy is dropped', async () => {
-    expect(await tampered('drop policy "fresh 2fa" on public.tasks',
-      `create policy "fresh 2fa" on public.tasks as restrictive for all to authenticated using ((select private.mfa_fresh())) with check ((select private.mfa_fresh()))`)).toContain('primary:policies');
+  it('block when the sign-in policy is dropped', async () => {
+    expect(await tampered('drop policy "unlocked" on public.tasks',
+      `create policy "unlocked" on public.tasks as restrictive for all to authenticated using ((select private.access_ok())) with check ((select private.access_ok()))`)).toContain('primary:policies');
+  });
+  it('block when the sign-in rule is weakened', async () => {
+    const original = sql('migrations/0004_pin_unlock.sql').match(/create or replace function private\.access_ok\(\)[\s\S]*?\$\$;/)[0];
+    expect(await tampered(`create or replace function private.access_ok() returns boolean language sql stable security definer set search_path = '' as $$ select private.mfa_fresh() $$;`, original))
+      .toEqual(expect.arrayContaining(['primary:access-rule', 'both:access-rule']));
   });
   it('block when the 2FA rule itself is weakened', async () => {
     const original = sql('migrations/0002_require_fresh_2fa.sql').match(/create or replace function private\.mfa_fresh\(\)[\s\S]*?\$\$;/)[0];
@@ -192,13 +259,27 @@ describe('backup job end to end', () => {
   }, 30000);
 
   it('weekly verify fails on warnings and passes once they are cleared', async () => {
+    await primary.exec('update private.pins set failed = 1');
     const r = await runJob('verify');
     expect(r.code).toBe(1);
-    expect(r.out).toMatch(/WARN  backup:2fa/);
-    await backup.exec(`insert into auth.mfa_factors (user_id, factor_type, status) values ('${B_OWNER}', 'totp', 'verified')`);
+    expect(r.out).toMatch(/WARN  primary:pin/);
+    await primary.exec('update private.pins set failed = 0');
     const ok = await runJob('verify');
     expect(ok.out).toMatch(/contents match the primary/);
     expect(ok.code).toBe(0);
+  }, 30000);
+
+  it('restore puts the backup back into the primary, only when confirmed', async () => {
+    await primary.exec(`delete from public.tasks`);
+    const refused = await runJob('restore', { RESTORE_TO_DB_URL: url(PORTS[0]) });
+    expect(refused.code).toBe(1);
+    expect(refused.out).toMatch(/CONFIRM=overwrite-primary/);
+    expect((await primary.query('select count(*)::int n from public.tasks')).rows[0].n).toBe(0);
+    const r = await runJob('restore', { RESTORE_TO_DB_URL: url(PORTS[0]), CONFIRM: 'overwrite-primary' });
+    expect(r.out).toMatch(/primary now holds 2 tasks and 1 settings, matching the backup/);
+    expect(r.code).toBe(0);
+    expect((await primary.query('select user_id, count(*)::int n from public.tasks group by 1')).rows).toEqual([{ user_id: P_OWNER, n: 2 }]);
+    expect(compareData(await snap(primary), await snap(backup))).toEqual([]);
   }, 30000);
 
   it('does nothing when not configured', async () => {
