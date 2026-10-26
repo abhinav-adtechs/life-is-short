@@ -1,0 +1,43 @@
+# --- Keys, secrets, credentials ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.gpg
+*.asc
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.ppk
+secrets/
+secrets.*
+*secret*.json
+*credentials*
+service-account*.json
+.npmrc
+.pypirc
+.netrc
+.aws/
+.gcloud/
+
+# --- Tasks ---
+tasks/
+.tasks/
+tasks.*
+TASKS.*
+todo.*
+TODO.*
+*.tasks
+.claude/
+
+# --- OS / tooling noise ---
+.DS_Store
+Thumbs.db
+node_modules/
+__pycache__/
+*.log
