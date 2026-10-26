@@ -40,12 +40,16 @@ Paste `seed.sql` into the Supabase SQL editor and run it. It's safe to run again
 
 Create a key at aistudio.google.com. The free tier is enough. The route tries `gemini-3.1-flash-lite`, then `gemini-flash-lite-latest`; set `GEMINI_MODEL` to a comma-separated list to change that.
 
-### 4. Google Calendar and Tasks (optional, read-only pull)
+### 4. Google Calendar and Tasks (optional, read-only pull, up to 5 accounts)
 
 1. In Google Cloud console, create a project and enable the **Google Calendar API** and **Google Tasks API**.
 2. Set up the OAuth consent screen (External) and add your account as a test user. Then **publish** it ("In production"). Apps left in Testing get refresh tokens that expire after 7 days. A personal app in production without Google verification shows a "Google hasn't verified this app" screen once; continue past it.
 3. Credentials → Create OAuth client ID → **Web application**. Add the authorized redirect URIs `https://<your-app>.vercel.app/google/callback` and `http://localhost:3000/google/callback`.
-4. In the app: **Settings → Connect Google**. It pulls events from your own calendars (today through the next month) and your Google Tasks, then pulls again every 30 minutes while the app is open. Changes in Google update the title and time here; priority, notes and done state stay yours.
+4. In the app: **Settings → Google accounts → Connect Google**. Google's account chooser opens; pick an account and allow access. Use **Add another account** for a second or third (personal and work, say). Every account's events land on one calendar, each in its own colour.
+   - It pulls today through the next month from each account's own calendars, plus its Google Tasks, then again every 30 minutes while the app is open. Changes in Google update the title and time here; priority, notes and done state stay yours.
+   - Per account: pick its colour, hide it from the calendar, turn its Google Tasks off, and choose which calendars to pull (subscribed ones like holidays are off until you tick them).
+   - A meeting that's on two of your accounts shows once.
+   - If Google ends access for one account, it's marked **Reconnect**; the others keep pulling. **Disconnect** can keep that account's events or remove them (with Undo).
 
 ### 5. Vercel
 
@@ -60,12 +64,23 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
 
+## Settings
+
+Open **Settings** from the `···` button. It's a full page (also reachable at `/#settings`, or `/#settings/calendar` and so on), and changes apply as you make them.
+
+- **Appearance**: light, dark or system (per device); five themes (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced); 12- or 24-hour clock. A live preview shows the result.
+- **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
+- **Google accounts**, **Your tasks** (import) and **Account** (password, sign out).
+
+Light/dark and the calendar view stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
+
 ## How it fits together
 
 - `lib/`: pure, tested logic ported from the prototype (`localParse`, `cleanItem`, `placeItem`, `findSlot`, `buildPrompt`, `applyCapture`), plus selectors for Now/Next, backlog, missed and done.
 - `lib/repo/`: the storage interface, with a localStorage adapter and a Supabase adapter (RLS on `user_id`, realtime for cross-device sync).
 - `app/api/sort`: Gemini with a JSON schema. A missing key or a failure tells the client to use the keyword parser.
-- `app/api/google/*`: OAuth and pull. The refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
+- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests). `lib/calview.ts`: which days each calendar view shows.
+- `app/api/google/*`: OAuth and pull, one call per account. Each refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
 - `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
 
 Every API route requires a signed-in Supabase user.

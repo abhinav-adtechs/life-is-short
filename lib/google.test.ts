@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapEvent, mapTask, mergeExternal, type ExternalItem } from './google';
+import { calendarOf, mapEvent, mapTask, mergeExternal, type ExternalItem } from './google';
 import type { Task } from './model';
 
 const NOW = Date.parse('2026-10-26T13:30:00+05:30');
@@ -7,7 +7,7 @@ const NOW = Date.parse('2026-10-26T13:30:00+05:30');
 describe('mapEvent', () => {
   it('maps a timed event to a scheduled item, rounded to 15 minutes', () => {
     expect(mapEvent({ id: 'e1', summary: ' Design  review ', description: 'Agenda<br>Notes', start: { dateTime: '2026-10-27T10:00:00+05:30' }, end: { dateTime: '2026-10-27T10:50:00+05:30' } }, 'me@x.com', NOW))
-      .toEqual({ externalId: 'gcal:me@x.com:e1', source: 'gcal', title: 'Design review', notes: 'Agenda\nNotes', start: Date.parse('2026-10-27T10:00:00+05:30'), minutes: 45, due: null, done: false });
+      .toEqual({ externalId: 'gcal:me@x.com:e1', source: 'gcal', title: 'Design review', notes: 'Agenda\nNotes', start: Date.parse('2026-10-27T10:00:00+05:30'), minutes: 45, due: null, done: false, uid: null });
   });
 
   it('marks events that already ended as done', () => {
@@ -63,5 +63,45 @@ describe('mergeExternal', () => {
     expect(r.ticked).toBe(1);
     expect(r.added).toBe(0);
     expect(r.puts[0]).toMatchObject({ id: 'k', status: 'done', doneAt: NOW });
+  });
+});
+
+describe('several accounts', () => {
+  const NOW2 = Date.parse('2026-10-26T13:30:00+05:30');
+  const meeting = (cal: string) => mapEvent({ id: 'm1', iCalUID: 'abc@google.com', summary: 'Sync', start: { dateTime: '2026-10-27T10:00:00+05:30' }, end: { dateTime: '2026-10-27T10:30:00+05:30' } }, cal, NOW2) as ExternalItem;
+  let n = 0;
+  const ids = () => 'h' + n++;
+
+  it('finds the calendar in an externalId', () => {
+    expect(calendarOf('gcal:me@x.com:e1')).toBe('me@x.com');
+    expect(calendarOf('gcal:en.indian#holiday@group.v.calendar.google.com:20261102_x')).toBe('en.indian#holiday@group.v.calendar.google.com');
+    expect(calendarOf('gtask:1')).toBeNull();
+    expect(calendarOf(null)).toBeNull();
+  });
+
+  it('lands a meeting on two accounts once', () => {
+    const r = mergeExternal([], [meeting('work@x.com'), meeting('me@gmail.com')], NOW2, ids);
+    expect(r.added).toBe(1);
+    expect(r.puts[0].externalId).toBe('gcal:work@x.com:m1');
+  });
+
+  it('keeps the copy already in the planner when a second account shows the same meeting', () => {
+    const had = { ...mergeExternal([], [meeting('me@gmail.com')], NOW2, ids).puts[0] };
+    const r = mergeExternal([had], [meeting('work@x.com'), meeting('me@gmail.com')], NOW2, ids);
+    expect(r).toMatchObject({ added: 0, updated: 0, puts: [] });
+  });
+
+  it('lands it once when the second account is connected later, or its twin failed to pull', () => {
+    const had = mergeExternal([], [meeting('me@gmail.com')], NOW2, ids).puts[0];
+    expect(mergeExternal([had], [meeting('work@x.com')], NOW2, ids)).toMatchObject({ added: 0, puts: [] });
+    // A different meeting at the same time still comes in.
+    const other = { ...meeting('work@x.com'), externalId: 'gcal:work@x.com:m2', title: 'Interview', uid: 'zzz|1' };
+    expect(mergeExternal([had], [other], NOW2, ids).added).toBe(1);
+  });
+
+  it('keeps different instances of a repeating meeting apart', () => {
+    const a = meeting('work@x.com');
+    const b = { ...a, externalId: 'gcal:work@x.com:m1_2', start: (a.start as number) + 7 * 864e5, uid: `abc@google.com|${(a.start as number) + 7 * 864e5}` };
+    expect(mergeExternal([], [a, b], NOW2, ids).added).toBe(2);
   });
 });

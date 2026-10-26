@@ -27,17 +27,19 @@ export function unseal(blob: string): string {
   return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8');
 }
 
-export function authUrl(redirectUri: string, state: string) {
+/** Google's consent screen. It always offers the account chooser so you can add a second or third account; `hint` pre-picks one to reconnect. */
+export function authUrl(redirectUri: string, state: string, hint?: string) {
   const q = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || '',
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: SCOPES,
     access_type: 'offline',
-    prompt: 'consent',
+    prompt: 'select_account consent',
     include_granted_scopes: 'true',
     state,
   });
+  if (hint) q.set('login_hint', hint);
   return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
 }
 
@@ -67,30 +69,50 @@ async function get<T>(url: string, accessToken: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Everything on your own calendars in the window, plus your Google Tasks, as planner items. */
-export async function pull(blob: string, timeMin: string, timeMax: string): Promise<ExternalItem[]> {
+interface CalEntry { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; selected?: boolean; primary?: boolean; accessRole: string }
+
+/** A calendar in the account, and whether its events were pulled. */
+export interface PulledCalendar { id: string; name: string; color: string | null; role: string; primary: boolean; pulled: boolean }
+
+/** Pulled unless you said otherwise: your own calendars (owner/writer) that are ticked in Google. Subscribed ones like holidays are off. */
+const pullByDefault = (c: CalEntry) => (c.accessRole === 'owner' || c.accessRole === 'writer') && c.selected !== false;
+
+/**
+ * One account's events in the window, plus its Google Tasks, as planner items.
+ * `choices` maps calendar id → pull or not, from Settings; calendars not in it use the default.
+ */
+export async function pull(blob: string, timeMin: string, timeMax: string, choices: Record<string, boolean> = {}, withTasks = true) {
   const { access_token: at } = await token({ refresh_token: unseal(blob), grant_type: 'refresh_token' });
   const now = Date.now();
   const items: ExternalItem[] = [];
 
-  // Your own calendars only (owner/writer); subscribed ones like holidays are read-only and skipped.
-  const cals = await get<{ items?: { id: string; selected?: boolean; accessRole: string }[] }>(
-    'https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=writer', at);
-  for (const cal of cals.items || []) {
-    if (cal.selected === false) continue;
+  // Every calendar you can read (free/busy-only ones can't list events).
+  const list = await get<{ items?: CalEntry[] }>('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&maxResults=250', at);
+  const calendars: PulledCalendar[] = (list.items || []).map(c => ({
+    id: c.id, name: c.summaryOverride || c.summary || c.id, color: /^#[0-9a-f]{6}$/i.test(c.backgroundColor || '') ? c.backgroundColor as string : null,
+    role: c.accessRole, primary: c.primary === true, pulled: choices[c.id] ?? pullByDefault(c),
+  }));
+  await Promise.all(calendars.filter(c => c.pulled).map(async cal => {
     const q = new URLSearchParams({ timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
-    const evs = await get<{ items?: GEvent[] }>(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${q}`, at);
-    for (const ev of evs.items || []) { const it = mapEvent(ev, cal.id, now); if (it) items.push(it); }
-  }
+    try {
+      const evs = await get<{ items?: GEvent[] }>(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${q}`, at);
+      for (const ev of evs.items || []) { const it = mapEvent(ev, cal.id, now); if (it) items.push(it); }
+    } catch (e) {
+      // One unreadable calendar (a stale subscription, say) shouldn't stop the rest.
+      console.error('google calendar skipped:', e instanceof Error ? e.message : e);
+    }
+  }));
 
-  const lists = await get<{ items?: { id: string }[] }>('https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100', at);
-  const updatedMin = new Date(now - 30 * 864e5).toISOString();
-  for (const l of lists.items || []) {
-    const q = new URLSearchParams({ showCompleted: 'true', showHidden: 'true', maxResults: '100', updatedMin });
-    const ts = await get<{ items?: GTask[] }>(`https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(l.id)}/tasks?${q}`, at);
-    for (const t of ts.items || []) { const it = mapTask(t); if (it) items.push(it); }
+  if (withTasks) {
+    const lists = await get<{ items?: { id: string }[] }>('https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100', at);
+    const updatedMin = new Date(now - 30 * 864e5).toISOString();
+    for (const l of lists.items || []) {
+      const q = new URLSearchParams({ showCompleted: 'true', showHidden: 'true', maxResults: '100', updatedMin });
+      const ts = await get<{ items?: GTask[] }>(`https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(l.id)}/tasks?${q}`, at);
+      for (const t of ts.items || []) { const it = mapTask(t); if (it) items.push(it); }
+    }
   }
-  return items;
+  return { items, calendars };
 }
 
 export async function revoke(blob: string) {

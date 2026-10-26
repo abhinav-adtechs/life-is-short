@@ -232,7 +232,7 @@ export function PhoneScreen() {
         <header className="hdr in">
           <span className="date">{longDate(now)}</span>
           <div className="tools">
-            <button type="button" className="ib quiet" aria-label="Settings" onClick={openSettings}><MoreIcon /></button>
+            <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
             <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
           </div>
         </header>
@@ -253,7 +253,7 @@ export function LaptopSide() {
     <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label="Now and backlog" data-backlog="">
       <div className="dateline in">
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
-        <button type="button" className="ib quiet" aria-label="Settings" onClick={openSettings}><MoreIcon size={18} /></button>
+        <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
       </div>
       <NowBlock />
       <div className="sh in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><em>Drag onto the calendar</em></div>
