@@ -1,0 +1,33 @@
+name: Weekly security check
+
+# Weekly: the same breach checks on both databases, a fresh sync, and a content comparison.
+# Fails on warnings too, so GitHub emails you whenever something needs a look.
+on:
+  schedule:
+    - cron: '23 3 * * 1' # Mondays 08:53 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/backup/run.mjs verify
+        env:
+          PRIMARY_DB_URL: ${{ secrets.PRIMARY_DB_URL }}
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          SUPABASE_CA_CERT: ${{ secrets.SUPABASE_CA_CERT }}

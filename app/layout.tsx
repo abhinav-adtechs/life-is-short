@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -23,14 +24,16 @@ const themeScript = `try{var r=document.documentElement,L=JSON.parse(localStorag
   + `if(L.font){var l=document.createElement('link');l.id='ds-font';l.rel='stylesheet';l.href=L.font;document.head.appendChild(l)}}`
   + `else{var t=localStorage.getItem('ds.theme');if(t==='light'||t==='dark')r.dataset.theme=t}}catch(e){}`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // The CSP nonce from proxy.ts; reading headers also makes every page render per request.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" />
+        <link rel="stylesheet" nonce={nonce} href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" />
       </head>
       <body>{children}</body>
     </html>

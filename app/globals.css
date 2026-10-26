@@ -454,6 +454,11 @@ button{-webkit-user-select:none;user-select:none}
   .seg.big button{padding:0 6px;font-size:calc(12.5px*var(--fs))}
 }
 
+/* 2FA */
+.login .qr{display:block;margin:22px 0 0;padding:12px;width:184px;height:184px;border-radius:calc(16px*var(--round));background:#FFFFFF}
+.login .secret{font:500 calc(12.5px*var(--fs))/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);word-break:break-all;-webkit-user-select:all;user-select:all}
+.login input.code{font:600 calc(22px*var(--fs))/1 var(--font);letter-spacing:.3em;text-align:center}
+
 /* Motion: follows the system unless Settings says otherwise. */
 @media (prefers-reduced-motion:reduce){:root:not([data-motion="full"]) *,:root:not([data-motion="full"]) *::before,:root:not([data-motion="full"]) *::after{animation:none!important;transition:none!important}}
 :root[data-motion="reduce"] *,:root[data-motion="reduce"] *::before,:root[data-motion="reduce"] *::after{animation:none!important;transition:none!important}
