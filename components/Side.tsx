@@ -11,8 +11,8 @@ import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon
 
 /** Rows fade up in a stagger on first load; rows added later appear straight away. */
 function useStagger(base: number, step: number) {
-  const t0 = useRef(Date.now());
-  return (i: number) => (Date.now() - t0.current < 1500 ? `${(base + i * step).toFixed(2)}s` : '0s');
+  const t0 = useRef(performance.now());
+  return (i: number) => (performance.now() - t0.current < 1500 ? `${(base + i * step).toFixed(2)}s` : '0s');
 }
 
 function Due({ t }: { t: Task }) {

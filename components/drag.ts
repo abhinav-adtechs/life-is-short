@@ -88,7 +88,7 @@ export function useDrag(h: DragHandlers) {
     clearTimeout(cur.timer);
     document.documentElement.classList.remove('dragging', 'resizing-all');
     if (cur.active) {
-      suppressUntil.current = Date.now() + 350;
+      suppressUntil.current = performance.now() + 350;
       if (commit) {
         const v = cur.view;
         if (cur.kind === 'resize') { if (v.minutes != null && v.minutes !== cur.minutes) handlers.current.onResize(cur.id, v.minutes); }
@@ -176,7 +176,7 @@ export function useDrag(h: DragHandlers) {
   }, []);
 
   /** True right after a drag, so the click it ends with doesn't also open or pick. */
-  const ignoreClick = useCallback(() => Date.now() < suppressUntil.current, []);
+  const ignoreClick = useCallback(() => performance.now() < suppressUntil.current, []);
 
   return { view, begin, ignoreClick, cancel: () => end(false) };
 }
