@@ -1,6 +1,6 @@
 # Go-live runbook
 
-Everything needed to take Dump & Slot live, in order. Each step says what it unlocks. Steps marked *(account)* need your Supabase, Vercel, Google or GitHub account.
+Everything needed to take Life is short live, in order. Each step says what it unlocks. Steps marked *(account)* need your Supabase, Vercel, Google or GitHub account.
 
 ## 1. Primary database *(account: Supabase)*
 
@@ -42,7 +42,7 @@ Then build the **Session pooler** URLs (Connect → Session pooler), replacing t
 ## 5. Google Calendar and Tasks *(account: Google Cloud)*
 
 1. console.cloud.google.com → new project → enable **Google Calendar API** and **Google Tasks API**.
-2. OAuth consent screen: External, app name "Dump & Slot", your email as support contact, scopes `calendar.readonly` and `tasks.readonly`, and yourself as a test user.
+2. OAuth consent screen: External, app name "Life is short", your email as support contact, scopes `calendar.readonly` and `tasks.readonly`, and yourself as a test user.
 3. **Publish app → In production.** In Testing mode Google expires the connection every 7 days. In production, unverified, Google shows a one-time "hasn't verified this app" screen; click Advanced → continue. Verification isn't needed for personal use.
 4. Credentials → OAuth client ID → Web application. Redirect URIs: `https://<vercel-url>/google/callback` and `http://localhost:3000/google/callback`. Put the ID and secret into Vercel and redeploy.
 

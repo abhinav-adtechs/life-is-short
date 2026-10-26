@@ -22,7 +22,7 @@ const SECTIONS = [
   { id: 'account', name: 'Account', needsSupabase: true },
 ];
 
-const APPEARANCE_KEYS = ['mode', 'surface', 'accent', 'font', 'textSize', 'corners', 'density', 'contrast', 'trueBlack', 'motion', 'clock'] as const;
+const APPEARANCE_KEYS = ['mode', 'scene', 'surface', 'accent', 'font', 'textSize', 'corners', 'density', 'contrast', 'trueBlack', 'motion', 'clock'] as const;
 
 /** Settings as a full page over the planner. Every change applies straight away; there's nothing to save. */
 export function Settings({ section, onClose }: { section: string; onClose: () => void }) {
@@ -57,7 +57,7 @@ export function Settings({ section, onClose }: { section: string; onClose: () =>
   return (
     <div ref={page} className="setpage" role="dialog" aria-modal="true" aria-labelledby="set-h" tabIndex={-1}>
       <header className="sp-top">
-        <button type="button" className="ib" aria-label="Back to the planner" onClick={onClose}><BackIcon /></button>
+        <button type="button" className="ib float" aria-label="Back to the planner" onClick={onClose}><BackIcon /></button>
         <h1 id="set-h">Settings</h1>
         <span className="sp-saved">Changes apply as you make them</span>
       </header>
@@ -144,6 +144,19 @@ function Preview() {
   );
 }
 
+const SCENES = [{ value: 'sky', label: 'Sky' }, { value: 'plain', label: 'Plain' }] as const;
+
+/** A small sky for the Background choice: fields, a far hill and two birds. */
+function SkyThumb() {
+  return (
+    <svg viewBox="0 0 320 96" preserveAspectRatio="none">
+      <path className="t-far" d="M0 66C60 58 120 62 180 64 240 66 280 56 320 60V96H0Z" />
+      <path className="t-near" d="M0 78C80 70 160 72 220 78 260 82 290 76 320 77V96H0Z" />
+      <path className="t-bird" d="M58 28C61 25 64 25.4 67 29 70 25.4 73 25 76 28M84 21C86 19.2 88 19.5 90 22 92 19.5 94 19.2 96 21" />
+    </svg>
+  );
+}
+
 function Appearance() {
   const { prefs, setPrefs, toast } = usePlanner();
   const sysDark = useMedia('(prefers-color-scheme: dark)');
@@ -164,7 +177,20 @@ function Appearance() {
     <Section id="appearance" title="Appearance" lead="Light or dark is set per device. Everything else follows you to your other devices.">
       <Preview />
 
-      <Opt label="Mode" note="This device only. System follows your phone or computer." stack>
+      <Opt label="Background" note="A slow, breathing sky over open fields, with birds now and then. Plain keeps the page still and flat." stack>
+        {({ labelId }) => (
+          <div className="scenes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
+            {SCENES.map(sc => (
+              <button key={sc.value} type="button" className="scn" {...radio(prefs.scene === sc.value)} onClick={() => setPrefs({ scene: sc.value })}>
+                <span className={'sp ' + sc.value} aria-hidden="true">{sc.value === 'sky' && <SkyThumb />}</span>
+                <b>{sc.label}</b>
+              </button>
+            ))}
+          </div>
+        )}
+      </Opt>
+
+      <Opt label="Mode" note="This device only. System follows your phone or computer. Dark turns the sky to dusk." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.mode} onChange={mode => setPrefs({ mode })}
             options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
@@ -251,7 +277,7 @@ function Appearance() {
       <Opt label="Pure black in dark mode" note="A true black background for OLED screens."
         toggle={{ checked: prefs.trueBlack, onChange: trueBlack => setPrefs({ trueBlack }) }} />
 
-      <Opt label="Motion" note="Reduced turns off animations, the mic’s ripple included. System follows your device." stack>
+      <Opt label="Motion" note="Reduced turns off animations: the mic’s ripple, and the sky’s breathing, clouds and birds. System follows your device." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.motion} onChange={motion => setPrefs({ motion })}
             options={[{ value: 'system', label: 'System' }, { value: 'full', label: 'On' }, { value: 'reduce', label: 'Reduced' }]} />

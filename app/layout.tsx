@@ -1,19 +1,21 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
+import Scene from '@/components/Scene';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Dump & Slot',
-  description: 'Dump tasks the moment they come to mind; the screen tells you the one thing to do now.',
+  title: 'Life is short',
+  description: 'Dump a task the moment it comes to mind; the screen tells you the one thing to do now.',
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // The top of the sky; components/prefs.ts changes it to match Settings.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#FFFFFF' },
-    { media: '(prefers-color-scheme: dark)', color: '#0B0B0C' },
+    { media: '(prefers-color-scheme: light)', color: '#5F9BD6' },
+    { media: '(prefers-color-scheme: dark)', color: '#060B1C' },
   ],
 };
 
@@ -28,14 +30,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // The CSP nonce from proxy.ts; reading headers also makes every page render per request.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
-    <html lang="en" suppressHydrationWarning>
+    // The sky is the default scene; the startup script swaps in a saved Plain before first paint.
+    <html lang="en" data-scene="sky" suppressHydrationWarning>
       <head>
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link rel="stylesheet" nonce={nonce} href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" />
       </head>
-      <body>{children}</body>
+      <body><Scene />{children}</body>
     </html>
   );
 }

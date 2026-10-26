@@ -8,6 +8,7 @@ import { endOf, MIN } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { useVoice } from './hooks';
 import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon, StopIcon } from './icons';
+import { Brand, Mark } from './Brand';
 
 /** Rows fade up in a stagger on first load; rows added later appear straight away. */
 function useStagger(base: number, step: number) {
@@ -230,31 +231,43 @@ export function PhoneScreen() {
     <>
       <div className="screen">
         <header className="hdr in">
-          <span className="date">{longDate(now)}</span>
+          <span className="date"><Mark size={22} />{longDate(now)}</span>
           <div className="tools">
-            <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
-            <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
+            <button type="button" className="ib quiet float" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
+            <button type="button" className="ib float" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
           </div>
         </header>
         <NowBlock phone />
-        <div className="sh in" style={{ animationDelay: '.16s' }}><span>Backlog</span><span>{backlog.length}</span></div>
-        <BacklogRows phone />
+        <section className="blist in" aria-label="Backlog" style={{ animationDelay: '.16s' }}>
+          <div className="sh"><span>Backlog</span><span>{backlog.length}</span></div>
+          <BacklogRows phone />
+        </section>
       </div>
       <div className="capwrap in" style={{ animationDelay: '.3s' }}><CaptureBar phone /></div>
     </>
   );
 }
 
+/** Across the top on a laptop: the name, the date and time, and Settings. */
+export function LaptopTop() {
+  const { now, openSettings } = usePlanner();
+  return (
+    <header className="top in">
+      <Brand />
+      <div className="end">
+        <span className="date">{longDate(now)} · {fmtTime(now)}</span>
+        <button type="button" className="ib float" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
+      </div>
+    </header>
+  );
+}
+
 export function LaptopSide() {
-  const { now, openSettings, drag } = usePlanner();
+  const { drag } = usePlanner();
   const { backlog } = useLists();
   const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
   return (
     <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label="Now and backlog" data-backlog="">
-      <div className="dateline in">
-        <span className="date">{longDate(now)} · {fmtTime(now)}</span>
-        <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
-      </div>
       <NowBlock />
       <div className="sh in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><em>Drag onto the calendar</em></div>
       <div className="rows"><BacklogRows /></div>

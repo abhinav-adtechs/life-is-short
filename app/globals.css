@@ -1,24 +1,84 @@
-/* Dump & Slot. Values come from design/phone.dc.html and design/laptop.dc.html.
+/* Life is short. A breathing sky over open fields, with the planner on soft panels in front of it.
    Only two heavy things per screen: the current task and the orange mic. */
 
 /* Theme tokens. Settings → Appearance overrides the --l-* (light) and --d-* (dark) values inline on <html>;
    these are the defaults. Light or dark is picked here, from the system or a forced data-theme. */
-:root{--l-bg:#FFFFFF;--l-ink:#0F0F10;--l-muted:#6B6B70;--l-hair:#EDEDEF;--l-hair2:#F6F6F7;--l-soft:#F4F4F5;--l-block:#F1F1F3;--l-block-h:#E8E8EB;--l-accent:#F04A0C;--l-on-accent:#FFFFFF;--l-accent-soft:rgba(240,74,12,.08);--l-accent-line:rgba(240,74,12,.5);--d-bg:#0B0B0C;--d-ink:#F2F2F3;--d-muted:#8E8E93;--d-hair:#1F1F22;--d-hair2:#141416;--d-soft:#18181B;--d-block:#1C1C1F;--d-block-h:#26262A;--d-accent:#FF6A33;--d-on-accent:#0B0B0C;--d-accent-soft:rgba(255,106,51,.12);--d-accent-line:rgba(255,106,51,.55);--font:'Geist',system-ui,-apple-system,sans-serif;--fs:1;--round:1;--pill:999px;--dens:1}
-:root{--bg:var(--l-bg);--ink:var(--l-ink);--muted:var(--l-muted);--hair:var(--l-hair);--hair2:var(--l-hair2);--soft:var(--l-soft);--block:var(--l-block);--block-h:var(--l-block-h);--accent:var(--l-accent);--on-accent:var(--l-on-accent);--accent-soft:var(--l-accent-soft);--accent-line:var(--l-accent-line);--lift:0 1px 2px rgba(0,0,0,.08);--scrim:rgba(15,15,16,.28);--pop:0 30px 70px rgba(0,0,0,.16),0 0 0 1px rgba(0,0,0,.06);--tint:16%;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}
+:root{--l-bg:#F8FBFD;--l-ink:#0E1922;--l-muted:#56636E;--l-hair:#E1E9EF;--l-hair2:#EEF3F7;--l-soft:#EAF1F6;--l-block:#E3ECF2;--l-block-h:#D7E3EC;--l-panel:rgba(248,251,253,0.86);--l-accent:#F04A0C;--l-on-accent:#FFFFFF;--l-accent-soft:rgba(240,74,12,.08);--l-accent-line:rgba(240,74,12,.5);--d-bg:#0A1220;--d-ink:#EAF0F7;--d-muted:#8D9AAD;--d-hair:#1C2638;--d-hair2:#121A29;--d-soft:#162033;--d-block:#1A2438;--d-block-h:#243049;--d-panel:rgba(10,18,32,0.82);--d-accent:#FF6A33;--d-on-accent:#0B0B0C;--d-accent-soft:rgba(255,106,51,.12);--d-accent-line:rgba(255,106,51,.55);--font:'Geist',system-ui,-apple-system,sans-serif;--fs:1;--round:1;--pill:999px;--dens:1}
+:root{--bg:var(--l-bg);--ink:var(--l-ink);--muted:var(--l-muted);--hair:var(--l-hair);--hair2:var(--l-hair2);--soft:var(--l-soft);--block:var(--l-block);--block-h:var(--l-block-h);--accent:var(--l-accent);--on-accent:var(--l-on-accent);--accent-soft:var(--l-accent-soft);--accent-line:var(--l-accent-line);--panel:var(--l-panel);--glass:inset 0 1px 0 rgba(255,255,255,.6),0 30px 60px -32px rgba(28,56,86,.38);--lift:0 1px 2px rgba(0,0,0,.08);--scrim:rgba(15,15,16,.28);--pop:0 30px 70px rgba(0,0,0,.16),0 0 0 1px rgba(0,0,0,.06);--tint:16%;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--panel:var(--d-panel);--glass:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -30px rgba(0,0,0,.6);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:var(--d-bg);--ink:var(--d-ink);--muted:var(--d-muted);--hair:var(--d-hair);--hair2:var(--d-hair2);--soft:var(--d-soft);--block:var(--d-block);--block-h:var(--d-block-h);--accent:var(--d-accent);--on-accent:var(--d-on-accent);--accent-soft:var(--d-accent-soft);--accent-line:var(--d-accent-line);--panel:var(--d-panel);--glass:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -30px rgba(0,0,0,.6);--lift:0 1px 2px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);--pop:0 30px 70px rgba(0,0,0,.5),0 0 0 1px var(--hair);--tint:24%;color-scheme:dark}
+
+/* The scene's colours (lib/prefs.ts SKY): a morning sky by day, dusk in dark mode. */
+:root{--sky-0:#5F9BD6;--sky-1:#8DBDE6;--sky-2:#BFDBEE;--sky-3:#E6EFEC;--sky-4:#F3F1E4;--sky-glow:rgba(255,246,222,.95);--glow-at:80% 6%;--glow-size:60vmax 50vmax;--sky-breath:rgba(255,255,255,.16);--sky-haze:rgba(243,241,228,.55);--cloud:#FFFFFF;--cloud-shade:#C7DAEA;--cloud-o:.94;--hill-far:#AFC8BA;--hill-mid0:#9DC38C;--hill-mid1:#8AB679;--hill-near0:#86B56B;--hill-near1:#679A52;--tree:#55854A;--bird:#2B3A47;--mote:rgba(255,255,255,.9);--stars:0;--brand:#A8D672;--brand-ink:#0E1922}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--sky-0:#060B1C;--sky-1:#0E1736;--sky-2:#1C2752;--sky-3:#3A3C6A;--sky-4:#6E5470;--sky-glow:rgba(255,178,128,.38);--glow-at:70% 78%;--glow-size:70vmax 34vmax;--sky-breath:rgba(150,170,255,.07);--sky-haze:rgba(110,84,112,.18);--cloud:#2A3263;--cloud-shade:#161D40;--cloud-o:.7;--hill-far:#1B2541;--hill-mid0:#14222F;--hill-mid1:#112029;--hill-near0:#0D1A1A;--hill-near1:#0A1515;--tree:#08110F;--bird:#050912;--mote:rgba(255,228,150,.95);--stars:1}}
+:root[data-theme="dark"]{--sky-0:#060B1C;--sky-1:#0E1736;--sky-2:#1C2752;--sky-3:#3A3C6A;--sky-4:#6E5470;--sky-glow:rgba(255,178,128,.38);--glow-at:70% 78%;--glow-size:70vmax 34vmax;--sky-breath:rgba(150,170,255,.07);--sky-haze:rgba(110,84,112,.18);--cloud:#2A3263;--cloud-shade:#161D40;--cloud-o:.7;--hill-far:#1B2541;--hill-mid0:#14222F;--hill-mid1:#112029;--hill-near0:#0D1A1A;--hill-near1:#0A1515;--tree:#08110F;--bird:#050912;--mote:rgba(255,228,150,.95);--stars:1}
+
+/* Over the sky, pages are clear and panels are a veil of the page colour (lib/prefs.ts VEIL keeps text at 4.5:1 on it).
+   Lines and fills become tints of the ink so they read on the veil. Settings → Background → Plain puts the flat page back. */
+:root[data-scene="sky"]{--page:transparent;--hair:color-mix(in srgb,var(--ink) 10%,transparent);--hair2:color-mix(in srgb,var(--ink) 5%,transparent);--soft:color-mix(in srgb,var(--ink) 6%,transparent);background:var(--sky-2)}
+:root[data-scene="sky"][data-contrast]{--hair:color-mix(in srgb,var(--ink) 20%,transparent);--hair2:color-mix(in srgb,var(--ink) 9%,transparent)}
+:root:not([data-scene="sky"]){--page:var(--bg);--panel:var(--bg);--glass:none}
 
 *,*::before,*::after{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--page);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
 body{overflow-x:hidden}
 button,input,select,textarea{font-family:inherit;color:inherit}
 button{-webkit-user-select:none;user-select:none}
 :focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.boot{min-height:100dvh;background:var(--bg)}
+.boot{min-height:100dvh;background:var(--page)}
 
 .in{animation:fade .6s cubic-bezier(.2,.8,.2,1) both}
 @keyframes fade{from{opacity:0;transform:translateY(8px)}}
+
+/* ---------- the sky (components/Scene.tsx) ---------- */
+/* Everything moves slowly: one breath every 14 seconds, clouds over minutes, a flock now and then.
+   Only transforms and opacity animate, so the page never repaints for it. Reduced motion stops it all where it stands. */
+.scene{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;contain:strict}
+:root:not([data-scene="sky"]) .scene{display:none}
+.scene>*{position:absolute;inset:0}
+.sc-sky{background:linear-gradient(180deg,var(--sky-0) 0%,var(--sky-1) 26%,var(--sky-2) 50%,var(--sky-3) 68%,var(--sky-4) 80%)}
+.sc-stars{width:100%;height:60%;opacity:var(--stars)}
+.sc-stars circle{fill:#FFFFFF}
+.sc-stars .tw{animation:sc-twinkle 7s ease-in-out infinite}
+.sc-glow{background:radial-gradient(var(--glow-size) at var(--glow-at),var(--sky-glow),transparent 60%);transform-origin:var(--glow-at);opacity:.8;animation:sc-breathe 14s ease-in-out infinite;will-change:opacity,transform}
+.sc-clouds{inset:2% -12% auto;height:54%;animation:sc-drift 220s linear infinite alternate;will-change:transform}
+.sc-clouds svg,.sc-land svg{display:block;width:100%;height:100%}
+.sc-cloud{opacity:var(--cloud-o);fill:var(--cloud)}
+.sc-shade{fill:var(--cloud-shade)}
+.sc-land{top:auto;height:38%;animation:sc-swell 14s ease-in-out infinite;will-change:transform}
+.sc-far{fill:var(--hill-far)}
+.sc-tree{fill:var(--tree)}
+.sc-mid0{stop-color:var(--hill-mid0)}.sc-mid1{stop-color:var(--hill-mid1)}.sc-near0{stop-color:var(--hill-near0)}.sc-near1{stop-color:var(--hill-near1)}
+.sc-haze{top:auto;height:40%;background:linear-gradient(transparent,var(--sky-haze) 38%,transparent 70%)}
+.sc-breath{background:var(--sky-breath);opacity:.5;animation:sc-inhale 14s ease-in-out infinite;will-change:opacity}
+.sc-birds{color:var(--bird)}
+/* Still (reduced motion), the sky rests mid-breath and each flock rests where its transform puts it. */
+.flock{position:absolute;left:0;width:64px;height:30px;animation:sc-fly 64s linear infinite;will-change:transform}
+.flock.f1{top:9%;transform:translateX(62vw);animation-delay:-14s}
+.flock.f2{top:34%;width:30px;transform:translateX(22vw) scaleX(-1);animation-name:sc-fly-r;animation-duration:88s;animation-delay:-50s}
+.flock.f3{top:21%;transform:translateX(84vw);animation-duration:120s;animation-delay:-96s}
+.flock i{position:absolute;display:block;animation:sc-bob 3.2s ease-in-out infinite}
+.flock svg{display:block;width:100%;height:auto;overflow:visible}
+.flock path{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transform-box:fill-box;transform-origin:50% 90%;animation:sc-flap 7s ease-in-out infinite}
+.sc-motes i{position:absolute;display:block;border-radius:50%;background:var(--mote);box-shadow:0 0 6px var(--mote);opacity:.5;animation:sc-mote 40s linear infinite;will-change:transform,opacity}
+.sc-grain{opacity:.5;mix-blend-mode:soft-light;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E") 0 0/180px}
+@keyframes sc-breathe{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes sc-inhale{0%,100%{opacity:0}50%{opacity:1}}
+@keyframes sc-twinkle{0%,100%{opacity:.2}50%{opacity:1}}
+@keyframes sc-drift{from{transform:translateX(-5%)}to{transform:translateX(5%)}}
+@keyframes sc-swell{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes sc-fly{0%{transform:translate(-14vw,0)}55%{transform:translate(112vw,-7vh)}100%{transform:translate(112vw,-7vh)}}
+@keyframes sc-fly-r{0%{transform:translate(112vw,0) scaleX(-1)}50%{transform:translate(-14vw,-4vh) scaleX(-1)}100%{transform:translate(-14vw,-4vh) scaleX(-1)}}
+@keyframes sc-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+@keyframes sc-flap{0%,40%,100%{transform:scaleY(1)}5%,15%,25%{transform:scaleY(-.45)}10%,20%,30%{transform:scaleY(1)}}
+@keyframes sc-mote{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.6}100%{transform:translate(4vw,-34vh);opacity:0}}
+
+/* The mark and name. */
+.brand{display:inline-flex;align-items:center;gap:10px;font:500 calc(17px*var(--fs))/1 var(--font);letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
+.mark{display:block;flex:none}
+.mark rect{fill:var(--brand)}
+.mark path{fill:none;stroke:var(--brand-ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 /* ---------- shared pieces ---------- */
 .nl{display:flex;align-items:center;gap:8px;font:500 calc(13px*var(--fs))/1 var(--font);color:var(--muted)}
@@ -80,13 +140,13 @@ button{-webkit-user-select:none;user-select:none}
 .mic:focus-visible{outline-offset:4px}
 
 /* ---------- phone, under 860px ---------- */
-.ph{min-height:100dvh;background:var(--bg);color:var(--ink)}
+.ph{min-height:100dvh;background:var(--page);color:var(--ink)}
 .ph .screen{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 20px) 24px calc(env(safe-area-inset-bottom,0px) + 130px);display:flex;flex-direction:column}
 .ph .hdr{display:flex;align-items:center;justify-content:space-between}
 .ph .hdr .tools{display:flex;align-items:center;gap:2px;margin-right:-10px}
-.ph .date{font:500 calc(15px*var(--fs))/1 var(--font);color:var(--muted)}
+.ph .date{display:flex;align-items:center;gap:10px;font:500 calc(15px*var(--fs))/1 var(--font);color:var(--muted)}
 .ph .now{margin-top:40px}
-.ph .sh{margin-top:48px}
+.ph .blist{margin-top:48px}
 .ph .row{grid-template-columns:44px minmax(0,1fr) auto;gap:6px;padding:calc(8px*var(--dens)) 0}
 .ph .ck{width:44px;height:44px;margin-left:-12px}
 .ph .ck span{width:20px;height:20px}
@@ -96,7 +156,7 @@ button{-webkit-user-select:none;user-select:none}
 .ph .rp{margin-top:4px;font:400 calc(13px*var(--fs))/1.2 var(--font)}
 .ph .rd{font:400 calc(13px*var(--fs))/1 var(--font);color:var(--muted);white-space:nowrap}
 .ph .row.picked{background:var(--accent-soft)}
-.ph .capwrap{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:12px 20px max(20px,env(safe-area-inset-bottom,0px));background:var(--bg)}
+.ph .capwrap{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:12px 20px max(20px,env(safe-area-inset-bottom,0px));background:var(--page)}
 .ph .cap{max-width:520px;margin:0 auto;display:flex;align-items:center;gap:12px}
 .ph .field{height:56px}
 .ph .field input{height:44px;font:400 max(16px,calc(16px*var(--fs)))/1 var(--font)}
@@ -110,7 +170,7 @@ button{-webkit-user-select:none;user-select:none}
 .ph .arm{margin-top:12px}
 .ph .daygrid{margin-top:16px}
 .ph .gut span{right:10px}
-.ph .tray{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:10px 0 max(16px,env(safe-area-inset-bottom,0px));background:var(--bg);border-top:1px solid var(--hair)}
+.ph .tray{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:10px 0 max(16px,env(safe-area-inset-bottom,0px));background:var(--panel);border-top:1px solid var(--hair)}
 .ph .tray .tl{padding:0 20px 8px;font:500 calc(12.5px*var(--fs))/1 var(--font);color:var(--muted)}
 .ph .tray .ts{display:flex;gap:8px;overflow-x:auto;padding:0 20px;scrollbar-width:none}
 .ph .tray .ts::-webkit-scrollbar{display:none}
@@ -119,12 +179,13 @@ button{-webkit-user-select:none;user-select:none}
 .ph .chip[aria-pressed="true"]{background:var(--accent-soft)}
 
 /* ---------- laptop, 860px and wider ---------- */
-.lp{height:100dvh;display:grid;grid-template-columns:380px minmax(0,1fr);background:var(--bg);color:var(--ink);overflow:hidden}
-.lp .side{min-height:0;display:flex;flex-direction:column;padding:36px 28px 28px;border-right:1px solid var(--hair)}
-.lp .dateline{display:flex;align-items:center;justify-content:space-between;height:20px}
-.lp .dateline .ib{width:36px;height:36px;margin-right:-8px}
-.lp .date{font:500 calc(14px*var(--fs))/1 var(--font);color:var(--muted)}
-.lp .now{margin-top:28px}
+.lp{height:100dvh;display:grid;grid-template-columns:380px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);background:var(--page);color:var(--ink);overflow:hidden}
+.lp .top{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 20px 0 26px;border-bottom:1px solid var(--hair)}
+.lp .top .end{display:flex;align-items:center;gap:12px;min-width:0}
+.lp .top .ib{width:40px;height:40px}
+.lp .side{min-height:0;display:flex;flex-direction:column;padding:30px 28px 28px;border-right:1px solid var(--hair)}
+.lp .date{font:500 calc(14px*var(--fs))/1 var(--font);color:var(--muted);white-space:nowrap}
+.lp .now{margin-top:0}
 .lp .nt{margin:12px 0 0;font:600 calc(26px*var(--fs))/1.18 var(--font);letter-spacing:-.025em}
 .lp .nm{margin-top:10px}
 .lp .acts{margin-top:20px;gap:8px}
@@ -256,12 +317,20 @@ button{-webkit-user-select:none;user-select:none}
 .link:hover{color:var(--ink)}
 .link.armed{color:var(--accent)}
 .raw{margin:16px 0 0;padding-top:14px;border-top:1px solid var(--hair);font:400 calc(12.5px*var(--fs))/1.45 var(--font);color:var(--muted)}
-.login{min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--ink)}
-.login form{width:min(360px,100%)}
-.login h1{margin:0;font:600 calc(30px*var(--fs))/1.15 var(--font);letter-spacing:-.03em}
+/* Sign-in: the name top left, the step's title on the sky, its form on a card. */
+.login{min-height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top,0px) 16px max(24px,env(safe-area-inset-bottom,0px));background:var(--page);color:var(--ink)}
+.login .ltop{flex:none;height:64px;display:flex;align-items:center;padding:0 10px}
+.login .lmid{flex:1;display:flex;flex-direction:column;align-items:center;padding:max(16px,6vh) 0 40px;text-align:center}
+.login .tag{margin:0 0 18px;display:flex;align-items:center;gap:12px;font:500 calc(15px*var(--fs))/1 var(--font)}
+.login .tag i{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.login h1{margin:0;font:600 calc(40px*var(--fs))/1.05 var(--font);letter-spacing:-.04em}
+.login h1.hero{font-size:calc(clamp(52px,7vw,76px)*var(--fs));letter-spacing:-.045em}
+.login .lead{margin:18px 0 0;max-width:30em;font:400 calc(17px*var(--fs))/1.5 var(--font)}
+.login .lcard{width:min(380px,100%);margin-top:32px;padding:26px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass);text-align:left}
+.login .lcard>:first-child{margin-top:0}
 .login .nm{margin-top:10px}
-.login .btn{width:100%;margin-top:22px}
-.login .msg{margin-top:14px;font:400 calc(13px*var(--fs))/1.45 var(--font);color:var(--muted)}
+.login .btn{width:100%;margin-top:22px;display:flex;align-items:center;justify-content:center;gap:8px}
+.login .msg{margin:14px 0 0;font:400 calc(13px*var(--fs))/1.45 var(--font);color:var(--muted)}
 
 /* ---------- calendar: views, colours, month ---------- */
 /* Narrow day columns (7 days on a phone, a small laptop) drop the time line and the × to keep the title. */
@@ -334,10 +403,10 @@ button{-webkit-user-select:none;user-select:none}
 .month.compact .mnum{align-self:center;min-width:32px;height:32px}
 
 /* ---------- settings page ---------- */
-.setpage{position:fixed;inset:0;z-index:65;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);color:var(--ink);animation:fadeonly .2s ease both}
+.setpage{position:fixed;inset:0;z-index:65;overflow-y:auto;overscroll-behavior:contain;background:var(--page);color:var(--ink);animation:fadeonly .2s ease both}
 .setpage:focus{outline:0}
 /* The bar spans the page; its padding lines the back arrow up with the centred body below. */
-.sp-top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;height:64px;padding:env(safe-area-inset-top,0px) max(16px,calc((100% - 1100px)/2 + 32px)) 0 max(8px,calc((100% - 1100px)/2 + 20px));box-sizing:content-box;background:var(--bg);border-bottom:1px solid var(--hair)}
+.sp-top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;height:64px;padding:env(safe-area-inset-top,0px) max(16px,calc((100% - 1100px)/2 + 32px)) 0 max(8px,calc((100% - 1100px)/2 + 20px));box-sizing:content-box;background:var(--panel);border-bottom:1px solid var(--hair)}
 .sp-top h1{margin:0;flex:1;font:600 calc(20px*var(--fs))/1 var(--font);letter-spacing:-.02em}
 .sp-saved{font:400 calc(13px*var(--fs))/1 var(--font);color:var(--muted)}
 .sp-body{display:grid;grid-template-columns:200px minmax(0,680px);gap:56px;max-width:1100px;margin:0 auto;padding:36px 32px 120px;box-sizing:border-box}
@@ -396,6 +465,22 @@ button{-webkit-user-select:none;user-select:none}
 .theme:focus-visible .tp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--muted)}
 .theme[aria-checked="true"]:focus-visible .tp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink),0 0 0 6px var(--muted)}
 
+/* Background: the sky or a plain page. The sky's thumbnail follows light and dark like the real one. */
+.scenes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:420px}
+.scn{min-width:0;padding:0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.scn .sp{position:relative;display:block;height:88px;border-radius:calc(12px*var(--round));overflow:hidden;box-shadow:inset 0 0 0 1px var(--hair);transition:box-shadow .2s}
+.scn .sp.sky{background:linear-gradient(180deg,var(--sky-0),var(--sky-2) 55%,var(--sky-4) 72%)}
+.scn .sp.plain{background:var(--bg)}
+.scn svg{position:absolute;inset:0;width:100%;height:100%}
+.scn .t-far{fill:var(--hill-far)}
+.scn .t-near{fill:var(--hill-near0)}
+.scn .t-bird{fill:none;stroke:var(--bird);stroke-width:1.4;stroke-linecap:round}
+.scn b{display:block;margin-top:8px;font:500 calc(13px*var(--fs))/1 var(--font)}
+.scn[aria-checked="true"] .sp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink)}
+.scn:focus-visible{outline:0}
+.scn:focus-visible .sp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--muted)}
+.scn[aria-checked="true"]:focus-visible .sp{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink),0 0 0 6px var(--muted)}
+
 .fonts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .fontc{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:14px 14px 13px;border:0;border-radius:calc(14px*var(--round));background:var(--soft);color:var(--ink);text-align:left;cursor:pointer;transition:background .2s,box-shadow .2s}
 .fontc:hover{background:var(--block-h)}
@@ -445,13 +530,43 @@ button{-webkit-user-select:none;user-select:none}
   .sp-top{height:56px}
   .sp-saved{display:none}
   .sp-body{display:block;padding:0 20px 120px}
-  .sp-nav{position:sticky;top:calc(56px + env(safe-area-inset-top,0px));z-index:2;flex-direction:row;gap:6px;margin:0 -20px;padding:10px 20px;overflow-x:auto;background:var(--bg);border-bottom:1px solid var(--hair);scrollbar-width:none}
+  .sp-nav{position:sticky;top:calc(56px + env(safe-area-inset-top,0px));z-index:2;flex-direction:row;gap:6px;margin:0 -20px;padding:10px 20px;overflow-x:auto;background:var(--panel);border-bottom:1px solid var(--hair);scrollbar-width:none}
   .sp-nav::-webkit-scrollbar{display:none}
   .sp-nav button{flex:none;height:36px;background:var(--hair2)}
   .sp-sec{scroll-margin-top:130px;padding-top:28px;margin-bottom:0}
   .preview{grid-template-columns:minmax(0,1fr);padding:18px}
   .pv-cal{display:none}
   .seg.big button{padding:0 6px;font-size:calc(12.5px*var(--fs))}
+}
+
+/* ---------- on the sky ---------- */
+/* Panels float over the scene. Text on the bare sky is always the ink, never the muted grey. */
+[data-scene="sky"] .float{background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .float:hover{background:var(--bg)}
+[data-scene="sky"] .lp{padding:0 16px 16px;column-gap:16px}
+[data-scene="sky"] .lp .top{padding:0 6px 0 10px;border-bottom:0}
+[data-scene="sky"] .lp .date,[data-scene="sky"] .ph .date,[data-scene="sky"] .ph .cvh .ttl span{color:var(--ink)}
+[data-scene="sky"] .lp .side,[data-scene="sky"] .lp .cal{border:0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .ph .now{margin-top:20px;padding:22px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .ph .blist{margin-top:14px;padding:16px 22px 6px;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+/* The phone's capture bar is one capsule over the list, so nothing shows between the field and the mic. */
+[data-scene="sky"] .ph .cap{padding:6px;border-radius:var(--pill);background:color-mix(in srgb,var(--bg) 92%,transparent);box-shadow:var(--glass)}
+[data-scene="sky"] .ph .cvh .navg{padding:2px;border-radius:var(--pill);background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .ph .cvs .seg{background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .ph .daygrid{padding:12px 12px 12px 0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .ph .daygrid:has(.month){padding:4px 8px 8px}
+[data-scene="sky"] .ph .arm{background:linear-gradient(var(--accent-soft),var(--accent-soft)),var(--panel)}
+[data-scene="sky"] .ph .tray{border-top:0;border-radius:calc(22px*var(--round)) calc(22px*var(--round)) 0 0;box-shadow:var(--glass)}
+/* Settings is clear over the sky, so the planner behind it steps out of view. */
+[data-scene="sky"] .lp[inert],[data-scene="sky"] .ph[inert]{visibility:hidden}
+[data-scene="sky"] .sp-top{border-bottom:0}
+[data-scene="sky"] .sp-nav button{color:var(--ink)}
+[data-scene="sky"] .sp-nav button[aria-current="true"]{background:var(--panel);box-shadow:var(--glass)}
+[data-scene="sky"] .sp-main{align-self:start;padding:32px 36px 0;border-radius:calc(22px*var(--round));background:var(--panel);box-shadow:var(--glass)}
+@media (max-width:859px){
+  [data-scene="sky"] .sp-nav{border-bottom:0}
+  [data-scene="sky"] .sp-nav button[aria-current="true"]{background:var(--bg);box-shadow:var(--lift)}
+  [data-scene="sky"] .sp-main{margin-top:16px;padding:0 20px}
 }
 
 /* 2FA */

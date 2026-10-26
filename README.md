@@ -1,6 +1,6 @@
 # Life is short
 
-**Dump & Slot**, a personal planner. Dump a task the moment it comes to mind, by typing or by voice. A day or time puts it on the calendar; anything else waits in a prioritised backlog. The screen always shows the one thing to do now.
+A personal planner. Dump a task the moment it comes to mind, by typing or by voice. A day or time puts it on the calendar; anything else waits in a prioritised backlog. The screen always shows the one thing to do now, on soft panels over a slow, breathing sky: open fields, drifting clouds, a few birds, and dusk when your device is in dark mode.
 
 Next.js (App Router) + TypeScript, plain CSS with custom properties, Supabase for storage and sync, Gemini for sorting dumps, deployed on Vercel.
 
@@ -70,7 +70,7 @@ Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time
 
 Open **Settings** from the `···` button. It's a full page (also reachable at `/#settings`, or `/#settings/calendar` and so on), and changes apply as you make them.
 
-- **Appearance**: light, dark or system (per device); five themes (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced); 12- or 24-hour clock. A live preview shows the result.
+- **Appearance**: background (the breathing sky, or a plain page); light, dark or system (per device), where dark turns the sky to dusk; six themes (Sky, Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced; reduced also holds the sky still); 12- or 24-hour clock. A live preview shows the result.
 - **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
 - **Google accounts**, **Your tasks** (import) and **Account** (password, sign out).
 
@@ -81,7 +81,8 @@ Light/dark and the calendar view stay on each device. Everything else is saved t
 - `lib/`: pure, tested logic ported from the prototype (`localParse`, `cleanItem`, `placeItem`, `findSlot`, `buildPrompt`, `applyCapture`), plus selectors for Now/Next, backlog, missed and done.
 - `lib/repo/`: the storage interface, with a localStorage adapter and a Supabase adapter (RLS on `user_id`, realtime for cross-device sync).
 - `app/api/sort`: Gemini with a JSON schema. A missing key or a failure tells the client to use the keyword parser.
-- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests). `lib/calview.ts`: which days each calendar view shows.
+- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests, including text on a panel anywhere over the sky). `lib/calview.ts`: which days each calendar view shows.
+- `components/Scene.tsx`: the sky behind every screen. Static SVG and CSS, no script; only transforms and opacity animate. `components/Brand.tsx` and `app/icon.svg`: the mark, a bird over open fields in a soft green square.
 - `app/api/google/*`: OAuth and pull, one call per account. Each refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
 - `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
 

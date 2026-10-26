@@ -359,7 +359,7 @@ export function PhoneCalendar() {
     <>
       <div className="cv">
         <div className="cvh in">
-          <button type="button" className="ib" aria-label="Back to the list" onClick={() => { setPhoneView('list'); setPicked(null); }}><BackIcon /></button>
+          <button type="button" className="ib float" aria-label="Back to the list" onClick={() => { setPhoneView('list'); setPicked(null); }}><BackIcon /></button>
           <div className="ttl">{nav.title}<span>{nav.sub}</span></div>
           <Nav />
         </div>

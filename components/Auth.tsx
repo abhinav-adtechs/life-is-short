@@ -2,6 +2,27 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { Brand } from './Brand';
+import { ArrowIcon } from './icons';
+
+/** Every sign-in step: the name top left, the step's title on the sky, and its form on a card. The first step gets the big title. */
+export function Shell({ title, hero, onSubmit, children }: {
+  title: string; hero?: boolean; onSubmit?: (e: React.FormEvent) => void; children: React.ReactNode;
+}) {
+  return (
+    <main className="login">
+      <header className="ltop in"><Brand /></header>
+      <div className="lmid">
+        {hero && <p className="tag in"><span>Dump it</span><i aria-hidden="true" /><span>Slot it</span><i aria-hidden="true" /><span>Live it</span></p>}
+        <h1 className={'in' + (hero ? ' hero' : '')} style={{ animationDelay: '.06s' }}>{title}</h1>
+        {hero && <p className="lead in" style={{ animationDelay: '.12s' }}>Dump a thought the moment it arrives. Slot it into your day. Then go outside.</p>}
+        {onSubmit
+          ? <form className="lcard in" style={{ animationDelay: '.18s' }} onSubmit={onSubmit}>{children}</form>
+          : <div className="lcard in" style={{ animationDelay: '.18s' }}>{children}</div>}
+      </div>
+    </main>
+  );
+}
 
 /** First sign-in on a device: email and password. There's no sign-up or email link. */
 export function SignIn({ notice }: { notice?: string }) {
@@ -20,23 +41,20 @@ export function SignIn({ notice }: { notice?: string }) {
   }
 
   return (
-    <main className="login">
-      <form onSubmit={submit} className="in">
-        <h1>Dump &amp; Slot</h1>
-        <div className="nm">Sign in. You’ll confirm with your authenticator app next.</div>
-        {notice && <p className="msg" role="alert">{notice}</p>}
-        <div className="fld">
-          <label htmlFor="em">Email</label>
-          <input id="em" type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} />
-        </div>
-        <div className="fld">
-          <label htmlFor="pw">Password</label>
-          <input id="pw" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
-        </div>
-        <button type="submit" className="btn pri" disabled={busy}>Continue</button>
-        {msg && <p className="msg" role="alert">{msg}</p>}
-      </form>
-    </main>
+    <Shell title="Life is short." hero onSubmit={submit}>
+      {notice && <p className="msg" role="alert">{notice}</p>}
+      <div className="fld">
+        <label htmlFor="em">Email</label>
+        <input id="em" type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} />
+      </div>
+      <div className="fld">
+        <label htmlFor="pw">Password</label>
+        <input id="pw" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
+      </div>
+      <button type="submit" className="btn pri" disabled={busy}>Continue<ArrowIcon /></button>
+      {msg && <p className="msg" role="alert">{msg}</p>}
+      <p className="msg">You’ll confirm with your authenticator app next.</p>
+    </Shell>
   );
 }
 
@@ -80,7 +98,7 @@ export function EnrollTotp({ onSignOut }: { onSignOut: () => void }) {
       for (const f of list?.all ?? []) {
         if (f.factor_type === 'totp' && f.status === 'unverified') await sb.auth.mfa.unenroll({ factorId: f.id });
       }
-      const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Dump & Slot', issuer: 'Dump & Slot' });
+      const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Life is short', issuer: 'Life is short' });
       if (error || !data) { setMsg(error?.message || 'Couldn’t start 2FA setup.'); return; }
       setFactor({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
     })();
@@ -95,21 +113,18 @@ export function EnrollTotp({ onSignOut }: { onSignOut: () => void }) {
   }
 
   return (
-    <main className="login">
-      <form className="in" onSubmit={e => { e.preventDefault(); verify(code); }}>
-        <h1>Turn on 2FA</h1>
-        <div className="nm">Scan this with an authenticator app (Google Authenticator, 1Password, Authy), then type the 6-digit code it shows.</div>
-        {factor ? (
-          <>
-            <img className="qr" src={factor.qr} alt="QR code for your authenticator app" width={184} height={184} />
-            <p className="msg">Can’t scan? Enter this key: <code className="secret">{factor.secret}</code></p>
-            <CodeField code={code} setCode={setCode} onCode={verify} busy={busy} />
-          </>
-        ) : !msg && <p className="msg">Preparing…</p>}
-        {msg && <p className="msg" role="alert">{msg}</p>}
-        <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
-      </form>
-    </main>
+    <Shell title="Turn on 2FA" onSubmit={e => { e.preventDefault(); verify(code); }}>
+      <div className="nm">Scan this with an authenticator app (Google Authenticator, 1Password, Authy), then type the 6-digit code it shows.</div>
+      {factor ? (
+        <>
+          <img className="qr" src={factor.qr} alt="QR code for your authenticator app" width={184} height={184} />
+          <p className="msg">Can’t scan? Enter this key: <code className="secret">{factor.secret}</code></p>
+          <CodeField code={code} setCode={setCode} onCode={verify} busy={busy} />
+        </>
+      ) : !msg && <p className="msg">Preparing…</p>}
+      {msg && <p className="msg" role="alert">{msg}</p>}
+      <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
+    </Shell>
   );
 }
 
@@ -127,15 +142,12 @@ export function CodeCheck({ factorId, email, onSignOut }: { factorId: string; em
   }
 
   return (
-    <main className="login">
-      <form className="in" onSubmit={e => { e.preventDefault(); verify(code); }}>
-        <h1>Enter your code</h1>
-        <div className="nm">Open your authenticator app and enter the 6-digit code{email ? ` for ${email}` : ''}.</div>
-        <CodeField code={code} setCode={setCode} onCode={verify} busy={busy} />
-        {msg && <p className="msg" role="alert">{msg}</p>}
-        <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
-      </form>
-    </main>
+    <Shell title="Enter your code" onSubmit={e => { e.preventDefault(); verify(code); }}>
+      <div className="nm">Open your authenticator app and enter the 6-digit code{email ? ` for ${email}` : ''}.</div>
+      <CodeField code={code} setCode={setCode} onCode={verify} busy={busy} />
+      {msg && <p className="msg" role="alert">{msg}</p>}
+      <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
+    </Shell>
   );
 }
 
@@ -171,17 +183,14 @@ export function CreatePin({ onDone, onSignOut }: { onDone: () => void; onSignOut
   }
 
   return (
-    <main className="login">
-      <form className="in" onSubmit={save}>
-        <h1>Choose a PIN</h1>
-        <div className="nm">From now on you’ll sign in with this PIN and your authenticator code, instead of your password. 6 to 12 digits.</div>
-        <PinField id="pin1" label="PIN" value={pin} onChange={setPin} autoFocus />
-        <PinField id="pin2" label="PIN again" value={again} onChange={setAgain} />
-        <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Save PIN'}</button>
-        {msg && <p className="msg" role="alert">{msg}</p>}
-        <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
-      </form>
-    </main>
+    <Shell title="Choose a PIN" onSubmit={save}>
+      <div className="nm">From now on you’ll sign in with this PIN and your authenticator code, instead of your password. 6 to 12 digits.</div>
+      <PinField id="pin1" label="PIN" value={pin} onChange={setPin} autoFocus />
+      <PinField id="pin2" label="PIN again" value={again} onChange={setAgain} />
+      <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Save PIN'}</button>
+      {msg && <p className="msg" role="alert">{msg}</p>}
+      <div className="minor"><button type="button" className="link" onClick={onSignOut}>Sign out</button></div>
+    </Shell>
   );
 }
 
@@ -214,18 +223,15 @@ export function PinUnlock({ factorId, email, codeDone, onDone, onLocked, onSignO
   }
 
   return (
-    <main className="login">
-      <form className="in" onSubmit={unlock}>
-        <h1>Unlock</h1>
-        <div className="nm">{codeDone ? 'Enter your PIN.' : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
-        <PinField id="pin" label="PIN" value={pin} onChange={setPin} autoFocus />
-        {!codeDone && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
-        {codeDone && <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>{busy ? 'Checking…' : 'Unlock'}</button>}
-        {msg && <p className="msg" role="alert">{msg}</p>}
-        <div className="minor">
-          <button type="button" className="link" onClick={onSignOut}>Forgot your PIN? Sign in with your password</button>
-        </div>
-      </form>
-    </main>
+    <Shell title="Unlock" onSubmit={unlock}>
+      <div className="nm">{codeDone ? 'Enter your PIN.' : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
+      <PinField id="pin" label="PIN" value={pin} onChange={setPin} autoFocus />
+      {!codeDone && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
+      {codeDone && <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>{busy ? 'Checking…' : 'Unlock'}</button>}
+      {msg && <p className="msg" role="alert">{msg}</p>}
+      <div className="minor">
+        <button type="button" className="link" onClick={onSignOut}>Forgot your PIN? Sign in with your password</button>
+      </div>
+    </Shell>
   );
 }
