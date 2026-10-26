@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Dump & Slot',
+  title: 'Life is short',
   description: 'Dump tasks the moment they come to mind; the screen tells you the one thing to do now.',
 };
 

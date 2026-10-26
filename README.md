@@ -1,151 +1,187 @@
-# Life is short
+<div align="center">
 
-**Dump & Slot**, a personal planner. Dump a task the moment it comes to mind, by typing or by voice. A day or time puts it on the calendar; anything else waits in a prioritised backlog. The screen always shows the one thing to do now.
+# Life is short.
 
-Next.js (App Router) + TypeScript, plain CSS with custom properties, Supabase for storage and sync, Gemini for sorting dumps, deployed on Vercel.
+### Stop managing your to-do list. Do the one thing that matters right now.
 
-## Run it locally
+Say what's on your mind. **Life is short** turns it into tasks, puts them on your calendar,<br>
+and shows you the one thing to do **right now**.
+
+[How it works](#how-it-works) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+  <img alt="Life is short on a laptop and a phone: today's task at the top, a prioritised backlog, and a week calendar" src="docs/images/hero-light.png">
+</picture>
+
+</div>
+
+<br>
+
+## The idea
+
+You get about four thousand weeks. That's it. And most to-do apps want you to spend them *organising*: projects, tags, inboxes, contexts, reviews, a list that only gets longer.
+
+**Life is short does the opposite.** One box to dump things into. One answer on the screen.
+
+> **Dump it.** Type it or say it. A word, a list or a thirty-second ramble.
+>
+> **Slot it.** A day or a time puts it on your calendar. Anything else lands in a backlog, already prioritised.
+>
+> **Do it.** The screen shows the one thing to do now, a **Done** button and a **Schedule** button. Nothing else to manage.
+
+No folders. No tags. No "weekly review". You don't keep a system going; you get on with your day.
+
+<br>
+
+## How it works
+
+<p align="center">
+  <img alt="Typing a rambling note into the dump bar: the AI adds three tasks, puts one on Wednesday at 9 AM, and ticks off a finished task" src="docs/images/dump.gif" width="100%">
+</p>
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### 1 · Dump
+
+Type in the bar or tap the big mic and **just talk**. Your words stream in as you speak.
+
+*"Finished the roadmap draft. Call the plumber tomorrow at 9, landing page copy is due Friday, and book a haircut at some point."*
+
+The AI reads it like a good assistant would. It pulls out every task, gives each a short title, a priority and a realistic length, and works out dates. It also spots when you're talking about something **already on your list**: "finished the roadmap" ticks it off instead of adding a duplicate.
+
+</td>
+<td width="33%" valign="top">
+
+### 2 · Slot
+
+- **Said a day or a time?** It goes straight onto the calendar.
+- **Said a deadline?** It waits in the backlog with a due date.
+- **Said neither?** It waits in the backlog, ranked: **Urgent**, **Important**, **Later**, then by due date.
+
+When you're ready, one tap finds the **next free gap in your day**, on a 15-minute grid, inside the hours you set.
+
+</td>
+<td width="33%" valign="top">
+
+### 3 · Do
+
+The top of the screen is always **Now**: the task on your calendar at this minute, or the most important thing in your backlog.
+
+**Done.** Or **Schedule**, which moves it to the next free slot. Below it you see what's **Next**.
+
+Slipped past something? It turns up under **Missed** with a one-tap **Reslot**. No guilt, no lost tasks.
+
+</td>
+</tr>
+</table>
+
+Every capture, move and tick comes with **Undo**. A half-typed thought is still there when you come back. No AI key? A built-in parser understands "tomorrow at 9", "by Friday", "urgent", "2h" and "someday", so it keeps working.
+
+<br>
+
+## Designed to get out of the way
+
+There are only two heavy things on any screen: **the task you're on, and the mic.** Everything else stays quiet.
+
+<p align="center">
+  <img alt="Three phone screens: Now with the backlog, a day calendar, and the dark theme" src="docs/images/phone.png" width="100%">
+</p>
+
+**On your phone** it's a focused list: Now on top, backlog below, the dump bar under your thumb. Tap the calendar for your day, then tap a task and tap a time to place it.
+
+**On your laptop** it opens up into a full planner: Now and the backlog on the left, a calendar on the right.
+
+- **Drag** a task from the backlog onto any time. Drag it back to unschedule it.
+- **Drag the edge** of a block to make it longer or shorter.
+- **Click, then click.** Pick a task, then click a time slot.
+- **Day, 5 days, Week or Month**, with a live line for the current time.
+- **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the backlog, `Esc` closes anything.
+
+It feels fast because it is fast: rows ease in, ticked tasks get a satisfying check-and-strike, and your theme loads before the first frame, so it never flashes.
+
+<br>
+
+## Make it yours
+
+<p align="center">
+  <img alt="Five phone screens in the Neutral, Paper, Slate, Sage and Lilac themes with different accent colours" src="docs/images/themes.png" width="100%">
+</p>
+
+- **5 themes** (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side, plus **true black** for OLED screens.
+- **10 accent colours**, or pick your own. Life is short adjusts it until it's readable on your background.
+- **9 fonts**, including **Lexend** and **Atkinson Hyperlegible** for easier reading.
+- Text size, corner style, list density, **high contrast**, reduced motion, and a 12- or 24-hour clock.
+- **Your day:** set the hours you work. The calendar shows them, auto-slotting stays inside them, and the AI plans around them.
+- Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by account, calendar or priority.
+
+<p align="center">
+  <img alt="The Appearance settings page with a live preview, mode, theme and accent pickers" src="docs/images/settings.png" width="100%">
+</p>
+
+Every change previews live and **follows you to your other devices**. Light or dark stays per device, so your phone can follow the sun while your laptop stays dark.
+
+<br>
+
+## Your whole life, one calendar
+
+Connect **up to five Google accounts**, personal and work alike. Their **Google Calendar events and Google Tasks** land on the same calendar, each account in its own colour, so Life is short slots your tasks around the meetings you already have.
+
+- It refreshes every 30 minutes while the app is open.
+- A meeting that's on two of your accounts shows **once**.
+- You choose which calendars to pull, per account. Holidays and other subscriptions stay off until you tick them.
+- It's **read-only**: nothing is written back to Google. Your priorities, notes and done ticks stay yours.
+
+<br>
+
+## On every screen you own
+
+Add a task on your phone in the queue for coffee and it's **on your laptop within seconds**. Live sync keeps every open screen up to date, and the phone and the laptop each get a layout built for them.
+
+Want to try it without an account? Run it with no keys and it works **entirely in your browser**.
+
+<br>
+
+## Locked down by default
+
+Your task list is a map of your life, so it's protected like one.
+
+- **PIN + authenticator code** to get in, once a day. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish.
+- **The database checks it, not only the app.** Row-level security refuses to return a single task unless this session passed both checks in the last 24 hours. A stolen password, PIN or session token on its own reads nothing.
+- **Five wrong PINs** and the PIN is wiped and every session is signed out.
+- **A strict Content-Security-Policy**, HSTS, no framing and no caching of API responses.
+- **A nightly backup** to a second database in another region. Before each copy it runs a set of breach checks, and if anything looks off it refuses to overwrite your last good copy. A weekly check confirms the two copies match exactly.
+
+The full write-up is in [`docs/security.md`](docs/security.md).
+
+<br>
+
+## Run your own
+
+Life is short is built to run as **your own private copy**: one person, your own database, nobody else's app.
 
 ```sh
 npm install
-cp .env.example .env.local   # fill in what you have; everything is optional locally
-npm run dev                  # http://localhost:3000
-npm test                     # unit tests for the parser, slotting, capture and Google merge
+npm run dev        # http://localhost:3000, with tasks stored in your browser
 ```
 
-Without Supabase keys the app runs in local-only mode (tasks in this browser). Without a Gemini key, dumps are sorted by the keyword parser and the toast says so.
+That's enough to try it. For your phone and laptop, add Supabase (sync and sign-in), a free Gemini key (AI sorting) and, if you like, Google:
 
-## Set up for real (phone + laptop)
+- [**Setup guide**](docs/setup.md): local development, Supabase, Gemini, Google, Vercel and the full settings reference.
+- [**Go-live checklist**](docs/go-live.md): every step from zero to running on your phone, in order.
+- [**Security and backups**](docs/security.md): how sign-in, the database rules and the backup work.
 
-The full ordered checklist, including the backup and GitHub secrets, is in [`docs/go-live.md`](docs/go-live.md).
+Built with Next.js, TypeScript, Supabase and Gemini. Hosted on Vercel.
 
-### 1. Supabase (primary)
+<br>
 
-1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0004` in order, then `supabase/roles/primary_backup_reader.sql`.
-3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
-4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
-5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
-6. Project Settings → API: copy the project URL and the `anon` key for Vercel.
+<div align="center">
 
-### 2. Load your tasks
+### Life is short.
+**Dump it. Slot it. Do it.**
 
-Your tasks file never goes in this repo. On your machine:
-
-```sh
-node scripts/seed-sql.mjs ~/path/to/tasks.json you@example.com > ~/seed.sql
-```
-
-Paste `seed.sql` into the Supabase SQL editor and run it. It's safe to run again; existing ids are updated. Alternatively, sign in and use **Settings → Import from a file**.
-
-### 3. Gemini (AI sorting)
-
-Create a key at aistudio.google.com. The free tier is enough. The route tries `gemini-3.1-flash-lite`, then `gemini-flash-lite-latest`; set `GEMINI_MODEL` to a comma-separated list to change that.
-
-### 4. Google Calendar and Tasks (optional, read-only pull, up to 5 accounts)
-
-1. In Google Cloud console, create a project and enable the **Google Calendar API** and **Google Tasks API**.
-2. Set up the OAuth consent screen (External) and add your account as a test user. Then **publish** it ("In production"). Apps left in Testing get refresh tokens that expire after 7 days. A personal app in production without Google verification shows a "Google hasn't verified this app" screen once; continue past it.
-3. Credentials → Create OAuth client ID → **Web application**. Add the authorized redirect URIs `https://<your-app>.vercel.app/google/callback` and `http://localhost:3000/google/callback`.
-4. In the app: **Settings → Google accounts → Connect Google**. Google's account chooser opens; pick an account and allow access. Use **Add another account** for a second or third (personal and work, say). Every account's events land on one calendar, each in its own colour.
-   - It pulls today through the next month from each account's own calendars, plus its Google Tasks, then again every 30 minutes while the app is open. Changes in Google update the title and time here; priority, notes and done state stay yours.
-   - Per account: pick its colour, hide it from the calendar, turn its Google Tasks off, and choose which calendars to pull (subscribed ones like holidays are off until you tick them).
-   - A meeting that's on two of your accounts shows once.
-   - If Google ends access for one account, it's marked **Reconnect**; the others keep pulling. **Disconnect** can keep that account's events or remove them (with Undo).
-
-### 5. Vercel
-
-Import the GitHub repo. Under Settings → Environment Variables, add:
-
-| name | value |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
-| `GEMINI_API_KEY` | Gemini key |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
-
-Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
-
-## Settings
-
-Open **Settings** from the `···` button. It's a full page (also reachable at `/#settings`, or `/#settings/calendar` and so on), and changes apply as you make them.
-
-- **Appearance**: light, dark or system (per device); five themes (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced); 12- or 24-hour clock. A live preview shows the result.
-- **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
-- **Google accounts**, **Your tasks** (import) and **Account** (password, sign out).
-
-Light/dark and the calendar view stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
-
-## How it fits together
-
-- `lib/`: pure, tested logic ported from the prototype (`localParse`, `cleanItem`, `placeItem`, `findSlot`, `buildPrompt`, `applyCapture`), plus selectors for Now/Next, backlog, missed and done.
-- `lib/repo/`: the storage interface, with a localStorage adapter and a Supabase adapter (RLS on `user_id`, realtime for cross-device sync).
-- `app/api/sort`: Gemini with a JSON schema. A missing key or a failure tells the client to use the keyword parser.
-- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests). `lib/calview.ts`: which days each calendar view shows.
-- `app/api/google/*`: OAuth and pull, one call per account. Each refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
-- `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
-
-Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours.
-
-## Security
-
-- **First sign-in on a device:** email + password, then a 6-digit code from an authenticator app (TOTP), then, the very first time, choose a PIN (6–12 digits). There's no sign-up, password reset or email link in the app.
-- **Every sign-in after that:** your **PIN + an authenticator code**, once every 24 hours. Never the password. The app locks itself when the 24 hours run out.
-- **Wrong PINs:** after 5 in a row, the PIN is erased and every session is signed out. You sign in with the password again and choose a new PIN.
-- **The database enforces all of this** (`supabase/migrations/0004`). Restrictive row-level security only returns or accepts rows for a session that passed an authenticator code in the last 24 hours **and** either signed in with the password or unlocked with the PIN in the last 24 hours. The PIN is stored as a bcrypt hash and checked inside the database. A stolen password, PIN or session token alone reads nothing. The API routes ask the database the same question.
-- **Changing the PIN** (Settings → Account) needs a password sign-in in the last 10 minutes.
-- **Browser hardening:** a strict nonce-based Content-Security-Policy (only our scripts run; the page talks only to itself and Supabase), no framing, HSTS, no referrer, and no caching of API responses.
-- **Lost your phone?** Remove the factor in Supabase → Authentication → Users → your user → MFA factors, then sign in with your password and set up a new one.
-
-## Backup database
-
-A second Supabase project, in another region, holds a copy of your tasks. It has no app: it's only there to restore from. The two never hold each other's credentials, so a compromise of the primary database can't reach the backup.
-
-- **Daily** (`.github/workflows/backup-sync.yml`): the job reads the primary through `backup_reader`, a read-only login, and overwrites the backup through `backup_writer`, which can only replace task rows. Before every overwrite it runs the breach checks below. If any of them **blocks**, it doesn't overwrite, and the backup keeps the last good copy.
-- **Weekly** (`.github/workflows/backup-verify.yml`, Mondays): it repeats the checks on both databases, re-syncs, confirms the copies match byte for byte (by hash), and fails on warnings too. A failed run makes GitHub email you.
-- **What's checked** (`scripts/backup/checks.mjs`): exactly one account, and it's yours; exactly one verified authenticator, and none added or changed recently; wrong PIN attempts; sign-ins that passed the password but not 2FA; sign-up, password-change and recovery events; row-level security on every table; the exact set of policies and functions; no access for signed-out visitors; the 2FA and sign-in rules unchanged and identical on both projects; no unexpected database logins; any sign-in, authenticator or PIN on the backup (it has no app); mass deletions or mass edits; and a backup that was edited since the last sync.
-- **Public logs:** the repo is public, so the job prints check names and counts only. It never prints emails, IPs or task text.
-
-### Set up the backup
-
-1. Create a second Supabase project, ideally under a separate Supabase organization.
-2. SQL editor: run `supabase/migrations/0001` to `0004`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
-3. On each project set the job login's password (SQL editor, a long random value, never committed):
-   `alter role backup_reader with password '…';` on the primary, and `alter role backup_writer with password '…';` on the backup.
-4. GitHub → Settings → Secrets and variables → Actions, add:
-
-| secret | value |
-|---|---|
-| `PRIMARY_DB_URL` | the primary's **Session pooler** connection string, user `backup_reader.<primary-ref>` |
-| `BACKUP_DB_URL` | the backup's **Session pooler** connection string, user `backup_writer.<backup-ref>` |
-| `OWNER_EMAIL` | your sign-in email |
-| `SUPABASE_CA_CERT` | optional: Supabase's CA certificate (Project Settings → Database → SSL), to pin it |
-
-5. Run **Actions → Backup sync → Run workflow** once to confirm it's green.
-
-### Restoring from the backup
-
-1. Disable the **Backup sync** workflow, so nothing overwrites the backup while you work.
-2. Make the primary safe again: rotate its database password and API keys (and recreate the project if needed: run the migrations and add your user).
-3. From a checkout of this repo:
-
-   ```sh
-   BACKUP_DB_URL='<the BACKUP_DB_URL secret>' \
-   RESTORE_TO_DB_URL='postgresql://postgres.<primary-ref>:<primary db password>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres' \
-   OWNER_EMAIL='<your email>' CONFIRM=overwrite-primary \
-   node scripts/backup/run.mjs restore
-   ```
-
-   It replaces your tasks in the primary with the backup's, and checks the two match afterwards.
-4. Re-enable **Backup sync**.
-
-## Keeping keys and tasks out of this public repo
-
-- `.gitignore` excludes key/secret files (`.env*`, `*.pem`, `*.key`, SSH keys, `secrets/`, credentials) and task files (`tasks/`, `TASKS.*`, `todo.*`, `*.tasks`, `.claude/`).
-- `.githooks/pre-commit` blocks those files even if force-added. It also rejects staged content that looks like an API key (including Google's `AIza…` and `AQ.…` formats) or a private key. Enable it once per clone:
-
-  ```sh
-  git config core.hooksPath .githooks
-  ```
-
-- Put secrets in `.env.local` (ignored) or in Vercel's environment variables, never in code.
+</div>

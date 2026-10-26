@@ -80,7 +80,7 @@ export function EnrollTotp({ onSignOut }: { onSignOut: () => void }) {
       for (const f of list?.all ?? []) {
         if (f.factor_type === 'totp' && f.status === 'unverified') await sb.auth.mfa.unenroll({ factorId: f.id });
       }
-      const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Dump & Slot', issuer: 'Dump & Slot' });
+      const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Life is short', issuer: 'Life is short' });
       if (error || !data) { setMsg(error?.message || 'Couldn’t start 2FA setup.'); return; }
       setFactor({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
     })();
