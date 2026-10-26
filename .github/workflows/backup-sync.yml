@@ -1,0 +1,39 @@
+name: Backup sync
+
+# Daily: run the breach checks, then overwrite the backup database with the primary's tasks.
+# Any blocking finding stops the overwrite, so the backup keeps the last good copy.
+on:
+  schedule:
+    - cron: '17 21 * * *' # 02:47 IST
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Overwrite even if a data guard trips (mass deletion, backup in use). Security checks still apply.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/backup/run.mjs sync
+        env:
+          PRIMARY_DB_URL: ${{ secrets.PRIMARY_DB_URL }}
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          SUPABASE_CA_CERT: ${{ secrets.SUPABASE_CA_CERT }}
+          FORCE: ${{ inputs.force || 'false' }}
