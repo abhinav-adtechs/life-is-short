@@ -15,11 +15,13 @@ import { BackIcon, CheckIcon, MicIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
 import { View } from './Scene';
+import { SharingSection } from './SharingSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
   { id: 'calendar', name: 'Calendar' },
   { id: 'google', name: 'Google accounts' },
+  { id: 'sharing', name: 'Sharing', needsSupabase: true },
   { id: 'tasks', name: 'Your tasks' },
   { id: 'account', name: 'Account', needsSupabase: true },
 ];
@@ -73,6 +75,7 @@ export function Settings({ section, onClose }: { section: string; onClose: () =>
           <Appearance />
           <CalendarPrefs />
           <GoogleSection />
+          {hasSupabase() && <SharingSection />}
           <TasksSection />
           {hasSupabase() && <AccountSection />}
         </div>
@@ -341,7 +344,7 @@ function CalendarPrefs() {
         )}
       </Opt>
 
-      <Opt label="Hour height" note="How tall an hour is on the day and week grids." stack>
+      <Opt label="Hour height" note="The least an hour gets on the day and week grids. On a laptop, your day stretches to fill the screen." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.hourHeight} onChange={hourHeight => setPrefs({ hourHeight })}
             options={HOUR_HEIGHTS.map(h => ({ value: h.value, label: h.label }))} />

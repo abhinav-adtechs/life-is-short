@@ -2,43 +2,19 @@
 // for Supabase's auth schema, then exercises 2FA enforcement, the breach checks and the copy.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { PGlite } from '@electric-sql/pglite';
-import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
+import { as, migrated, sql } from '../db/pglite.mjs';
 import { compareData, countLost, evaluate } from './checks.mjs';
 
-const root = new URL('../../supabase/', import.meta.url);
-const sql = f => readFileSync(new URL(f, root), 'utf8');
 const EMAIL = 'Me@Example.com';
 const OWNER_SHA = createHash('sha256').update(EMAIL.toLowerCase()).digest('hex');
 const P_OWNER = '11111111-1111-1111-1111-111111111111';
 const B_OWNER = '22222222-2222-2222-2222-222222222222';
 const nowS = () => Math.floor(Date.now() / 1000);
 
-// What Supabase provides that the migrations rely on.
-const STUB = `
-  create schema extensions;
-  create schema auth;
-  create table auth.users (id uuid primary key, email text, created_at timestamptz default now(), last_sign_in_at timestamptz);
-  create table auth.mfa_factors (id uuid primary key default gen_random_uuid(), user_id uuid, factor_type text, status text,
-    created_at timestamptz default now() - interval '30 days', updated_at timestamptz default now() - interval '30 days');
-  create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid, created_at timestamptz default now(), aal text, ip inet, user_agent text);
-  create table auth.audit_log_entries (id uuid primary key default gen_random_uuid(), payload json, created_at timestamptz default now());
-  create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
-  create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
-  create role authenticated nologin; create role anon nologin;
-  grant usage on schema public, auth to authenticated, anon;
-  grant execute on function auth.jwt(), auth.uid() to authenticated, anon;
-  alter default privileges in schema public grant all on tables to anon, authenticated;
-  create publication supabase_realtime;
-`;
-
 async function project(which) {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  await db.exec(STUB);
-  for (const f of ['migrations/0001_init.sql', 'migrations/0002_require_fresh_2fa.sql', 'migrations/0003_audit_snapshot.sql', 'migrations/0004_pin_unlock.sql']) await db.exec(sql(f));
+  const db = await migrated();
   await db.exec(sql(which === 'primary' ? 'roles/primary_backup_reader.sql' : 'roles/backup_writer.sql'));
   const owner = which === 'primary' ? P_OWNER : B_OWNER;
   await db.exec(`insert into auth.users (id, email) values ('${owner}', '${EMAIL}')`);
@@ -53,10 +29,6 @@ async function project(which) {
   return db;
 }
 
-async function as(db, role, claims, query) {
-  await db.exec(`set role ${role}; select set_config('request.jwt.claims', '${JSON.stringify(claims)}', false);`);
-  try { return await db.query(query); } finally { await db.exec('reset role'); }
-}
 const snap = async db => (await db.query('select audit.snapshot() as s')).rows[0].s;
 
 let primary, backup, pServer, bServer;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtTime, fmtWhen, longDate } from '@/lib/format';
@@ -17,11 +17,12 @@ function useStagger(base: number, step: number) {
   return (i: number) => (performance.now() - t0.current < 1500 ? `${(base + i * step).toFixed(2)}s` : '0s');
 }
 
-function Due({ t }: { t: Task }) {
+/** "Due tomorrow", after a " · " unless it starts the line. */
+function Due({ t, first }: { t: Task; first?: boolean }) {
   const { now } = usePlanner();
   if (!t.due) return null;
   const d = dueLabel(t.due, now);
-  return <> · <span className={d.hot ? 'hot' : undefined}>{d.text}</span></>;
+  return <>{first ? null : ' · '}<span className={d.hot ? 'hot' : undefined}>{d.text}</span></>;
 }
 
 /* ---------- Now ---------- */
@@ -116,14 +117,16 @@ function PhoneRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done
       <Check t={t} />
       <button type="button" className="main" onClick={() => openEditor(t.id)}>
         <div className="rt"><span>{t.title}</span></div>
-        <div className="rp">
-          {kind === 'missed' && t.start != null ? <>Missed · {fmtWhen(t.start, now)}</>
-            : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
-            : <>{PRI[t.priority]}<Due t={t} /></>}
-        </div>
+        {(kind !== 'open' || t.due) && (
+          <div className="rp">
+            {kind === 'missed' && t.start != null ? fmtWhen(t.start, now)
+              : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
+              : <Due t={t} first />}
+          </div>
+        )}
       </button>
       {kind === 'missed'
-        ? <button type="button" className="txt" onClick={() => slot(t.id)}>Reslot</button>
+        ? <button type="button" className="txt reslot" onClick={() => slot(t.id)}>Reslot</button>
         : <span className="rd">{fmtDur(t.minutes)}</span>}
     </div>
   );
@@ -151,13 +154,13 @@ function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'don
         onKeyDown={e => { if (e.key === 'e' || e.key === 'E') { e.preventDefault(); openEditor(t.id); } }}>
         <span className="rt"><span>{t.title}</span></span>
         <span className="rp">
-          {kind === 'missed' && t.start != null ? <>Missed · {fmtWhen(t.start, now)}</>
+          {kind === 'missed' && t.start != null ? <>{fmtWhen(t.start, now)} · {fmtDur(t.minutes)}</>
             : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
-            : <>{PRI[t.priority]} · {fmtDur(t.minutes)}<Due t={t} /></>}
+            : <>{fmtDur(t.minutes)}<Due t={t} /></>}
         </span>
       </button>
       {kind === 'missed' ? (
-        <button type="button" className="txt" onClick={() => slot(t.id)}>Reslot</button>
+        <button type="button" className="txt reslot" aria-label={`Reslot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>Reslot</button>
       ) : kind === 'open' ? (
         <button type="button" className="sched" aria-label={`Put in the next free slot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>
           <CalendarPlusIcon />
@@ -186,13 +189,20 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
   const [doneOpen, setDoneOpen] = useState(false);
   const stagger = useStagger(phone ? 0.22 : 0.16, phone ? 0.07 : 0.06);
   const Row = phone ? PhoneRow : LaptopRow;
+  // The backlog is ranked by priority already; a heading per priority says so once instead of on every row.
+  const groups = ([1, 2, 3] as const).map(p => ({ p, list: backlog.filter(t => t.priority === p) })).filter(g => g.list.length);
   let i = 0;
   return (
     <>
       {pending.map(p => <SortingRow key={p.id} text={p.text} phone={phone} />)}
       {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
       {missed.map(t => <Row key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
-      {backlog.map(t => <Row key={t.id} t={t} kind="open" delay={stagger(i++)} />)}
+      {groups.map(({ p, list }) => (
+        <Fragment key={p}>
+          <div className="gh in"><span>{PRI[p]}</span><span>{list.length}</span></div>
+          {list.map(t => <Row key={t.id} t={t} kind="open" delay={stagger(i++)} />)}
+        </Fragment>
+      ))}
       {store.loaded && !backlog.length && !missed.length && !pending.length && (
         <p className="empty in">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
       )}
@@ -255,6 +265,17 @@ export function CaptureBar({ phone }: { phone?: boolean }) {
 
 /* ---------- layouts ---------- */
 
+/** Suggestions from people you share with: a quiet way into Settings → Sharing. */
+function Inbox() {
+  const { inbox, openSettings } = usePlanner();
+  if (!inbox) return null;
+  return (
+    <button type="button" className="inbox" onClick={() => openSettings('sharing')}>
+      <i aria-hidden="true" />{inbox} suggestion{inbox === 1 ? '' : 's'}
+    </button>
+  );
+}
+
 export function PhoneScreen() {
   const { now, setPhoneView, openSettings } = usePlanner();
   const { backlog } = useLists();
@@ -273,6 +294,7 @@ export function PhoneScreen() {
           <NowBlock phone />
         </div>
         <section className="blist in" aria-label="Backlog" style={{ animationDelay: '.16s' }}>
+          <Inbox />
           <div className="sh"><span>Backlog</span><span>{backlog.length}</span></div>
           <BacklogRows phone />
         </section>
@@ -303,6 +325,7 @@ export function LaptopSide() {
   return (
     <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label="Backlog" data-backlog="">
       <NextBoard />
+      <Inbox />
       <div className="sh in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><em>Drag onto the calendar</em></div>
       <div className="rows"><BacklogRows /></div>
       <CaptureBar />

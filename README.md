@@ -7,7 +7,7 @@
 Say what's on your mind. **Life is short** turns it into tasks, puts them on your calendar,<br>
 and shows you the one thing to do **right now**.
 
-[How it works](#how-it-works) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
+[How it works](#how-it-works) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
 
 <br>
 
@@ -149,11 +149,22 @@ Want to try it without an account? Run it with no keys and it works **entirely i
 
 <br>
 
+## Share a view, keep the keys
+
+Let someone see your planner without handing it over. **Settings → Sharing**: add their email, pick what they see and for how long, and send them the link.
+
+- **What they see is up to you:** the backlog, the calendar (today, upcoming or all), titles or just *busy*, with or without your Google events. Never your notes.
+- **No account, no password:** they open the link and sign in with a code sent to that email. The link on its own isn't enough.
+- **They can suggest, you decide:** a task for your backlog or a time on your calendar. A small badge tells you, and nothing lands until you approve it.
+- **You always know your exposure:** who can see what, until when, which devices are signed in, and a log of every sign-in, view and wrong code. **See what they see** shows you exactly that, and **Stop sharing** signs them out on the spot.
+
+<br>
+
 ## Locked down by default
 
 Your task list is a map of your life, so it's protected like one.
 
-- **PIN + authenticator code** to get in, once a day. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish.
+- **PIN + authenticator code** to get in, once a day. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish. People you share with never get an account: they get a view-only window, decided by the database.
 - **The database checks it, not only the app.** Row-level security refuses to return a single task unless this session passed both checks in the last 24 hours. A stolen password, PIN or session token on its own reads nothing.
 - **Five wrong PINs** and the PIN is wiped and every session is signed out.
 - **A strict Content-Security-Policy**, HSTS, no framing and no caching of API responses.

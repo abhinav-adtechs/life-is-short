@@ -17,6 +17,7 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { workHours, type CalView, type Prefs } from '@/lib/prefs';
+import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
 import { prefersReducedMotion, useMedia, useNow } from './hooks';
 import { usePrefs } from './prefs';
@@ -84,6 +85,9 @@ export interface PlannerApi {
   changeAccount: (id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => void;
   changeCalendar: (accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => void;
   pulling: boolean;
+  /** Suggestions from people you share with, waiting for you. */
+  inbox: number;
+  refreshInbox: () => void;
 }
 
 const Ctx = createContext<PlannerApi | null>(null);
@@ -414,6 +418,21 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     // Once per planner.
   }, [repo]);
 
+  /* ---------- sharing: suggestions waiting for you ---------- */
+
+  const [inbox, setInbox] = useState(0);
+  const refreshInbox = useCallback(() => {
+    if (repo.kind !== 'supabase') return;
+    pendingCount().then(n => { if (n != null) setInbox(n); });
+  }, [repo]);
+  useEffect(() => {
+    refreshInbox();
+    const again = () => { if (!document.hidden) refreshInbox(); };
+    const timer = window.setInterval(again, 5 * 60000);
+    document.addEventListener('visibilitychange', again);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', again); };
+  }, [refreshInbox]);
+
   const onCalendar = useCallback((t: Task) => {
     if (!prefs.showDone && t.status === 'done') return false;
     const src = srcOf(t);
@@ -432,6 +451,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     day, setDay, view, setView, prefs, setPrefs, hours, phoneView, setPhoneView,
     toast, done, slot, schedule, unslot, place, placeOnDay, capture, openEditor, openSettings, undoable,
     accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
+    inbox, refreshInbox,
   };
 
   if (!mounted) return <div className="boot" />;
