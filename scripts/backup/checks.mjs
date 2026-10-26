@@ -14,6 +14,11 @@ const WARNING_EVENTS = [
 const DAY = 864e5;
 /** Functions the app calls; anything else in the public schema is a surprise. */
 const PUBLIC_FUNCTIONS = new Set(['pin_status', 'set_pin', 'unlock_with_pin']);
+/** Sharing (migration 0005). Allowed, but not required: a project without it just shares nothing. */
+const SHARE_FUNCTIONS = new Set([
+  'share_list', 'share_create', 'share_update', 'share_revoke', 'share_delete', 'share_decide', 'share_inbox', 'share_preview',
+  'share_ping', 'share_code', 'share_sign_in', 'share_view', 'share_request', 'share_sign_out',
+]);
 
 /** Expected policies per table, by project. The `qual` must mention these to count. */
 function expectedPolicies(which) {
@@ -86,7 +91,7 @@ function checkProject(snap, which, ownerSha, f) {
   for (const p of have) if (!want.some(w => w.table === p.table && w.name === p.name)) f.block(`${P}:policies`, `unexpected policy "${p.name}" on ${p.table}`);
 
   if ((snap.public_grants || []).length) f.block(`${P}:grants`, `signed-out visitors have ${snap.public_grants.length} privilege(s) on public tables`);
-  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n));
+  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n) && !SHARE_FUNCTIONS.has(n));
   if (extraFns.length) f.warn(`${P}:functions`, `${extraFns.length} unexpected function(s) in the public schema`);
   for (const n of PUBLIC_FUNCTIONS) if (!(snap.public_functions || []).includes(n)) f.block(`${P}:functions`, `the ${n} function is missing`);
 
@@ -102,6 +107,14 @@ function checkProject(snap, which, ownerSha, f) {
 
   const rt = (snap.realtime_tables || []).filter(t => t !== 'public.tasks');
   if (rt.length) f.warn(`${P}:realtime`, `${rt.length} extra table(s) broadcast over realtime`);
+
+  const sh = snap.sharing;
+  if (sh && which === 'backup') {
+    if (sh.key_set || sh.shares > 0) f.warn(`${P}:sharing`, 'sharing was set up on the backup, which has no app');
+  } else if (sh) {
+    f.info(`${P}:sharing`, `${sh.active} active share(s), ${sh.sessions_live} viewer session(s), ${sh.sign_ins_7d} viewer sign-in(s) in 7 days`);
+    if (sh.wrong_codes_7d >= 10) f.warn(`${P}:sharing`, `${sh.wrong_codes_7d} wrong viewer code(s) in 7 days`);
+  }
   return owner;
 }
 

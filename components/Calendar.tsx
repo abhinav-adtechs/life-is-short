@@ -3,29 +3,15 @@
 import { useRef, useState } from 'react';
 import type { Task } from '@/lib/model';
 import type { CalView } from '@/lib/prefs';
-import { layoutDay, tasksOn } from '@/lib/select';
+import { hourRange, layoutDay, tasksOn } from '@/lib/select';
 import { fmtHour, fmtRange, fmtShort, fmtTime, shortTitle } from '@/lib/format';
 import { VIEW_LABELS, monthGrid, stepDay, viewDays, viewTitle } from '@/lib/calview';
-import { DOW, DOWL, MIN, MON, addDays, atMinutes, endOf, isWeekend, isoWeek, minsOf, startOfDay, ymd } from '@/lib/time';
+import { DOW, DOWL, MIN, MON, atMinutes, endOf, isWeekend, isoWeek, minsOf, startOfDay, ymd } from '@/lib/time';
 import { hourOf } from './drag';
 import { usePlanner, useLists } from './Planner';
 import { BackIcon, ChevronLeft, ChevronRight, XIcon } from './icons';
 
 const tint = (color: string | null) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
-
-/** Visible hour range: your day, stretched to fit anything scheduled outside it. */
-function hourRange(days: Date[], sched: Task[], base: [number, number]) {
-  let [h0, h1] = base;
-  for (const d of days) {
-    const ds = startOfDay(d).getTime(), de = addDays(d, 1).getTime();
-    for (const t of tasksOn(sched, d)) {
-      const s = Math.max(t.start as number, ds), e = Math.min(endOf(t), de);
-      h0 = Math.min(h0, Math.floor((s - ds) / 3600000));
-      h1 = Math.max(h1, Math.ceil((e - ds) / 3600000));
-    }
-  }
-  return [h0, Math.min(24, h1)] as const;
-}
 
 /** Floor a click to the 15-minute slot under the pointer. */
 function clickMinute(col: HTMLElement, clientY: number) {

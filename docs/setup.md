@@ -20,7 +20,7 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0004` in order, then `supabase/roles/primary_backup_reader.sql`.
+2. SQL editor: run `supabase/migrations/0001` to `0005` in order, then `supabase/roles/primary_backup_reader.sql`.
 3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
 4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
 5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
@@ -51,7 +51,30 @@ Create a key at aistudio.google.com. The free tier is enough. The route tries `g
    - A meeting that's on two of your accounts shows once.
    - If Google ends access for one account, it's marked **Reconnect**; the others keep pulling. **Disconnect** can keep that account's events or remove them (with Undo).
 
-### 5. Vercel
+### 5. Sharing (optional, view-only links)
+
+Settings → Sharing lets someone see your planner, view only: you pick their email, what they see and for how long, and send them the link. They sign in with a 6-digit code emailed to that address. How it's locked down is in [`security.md`](security.md#sharing).
+
+1. Make a server key and keep it for Vercel (step 6):
+
+   ```sh
+   openssl rand -base64 33
+   ```
+
+2. Give the database its sha256, never the key itself. On your machine:
+
+   ```sh
+   printf %s '<the key>' | shasum -a 256
+   ```
+
+   Then in the Supabase SQL editor: `select private.set_share_key_hash('<the 64 hex characters>');`
+3. Email for the codes: create a [Resend](https://resend.com) account, verify a domain you own, and make an API key with sending access only.
+4. In Vercel add `SHARE_SERVER_KEY`, `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (for example `Life is short <share@yourdomain.com>`), then redeploy.
+5. Open Settings → Sharing. If anything is missing it says what; otherwise create a share and open the link in a private window to try it.
+
+Locally you can skip Resend: without it, `npm run dev` prints each code to the terminal. To change the key later, repeat steps 1, 2 and 4: viewers stay signed in, and new codes use the new key.
+
+### 6. Vercel
 
 Import the GitHub repo. Under Settings → Environment Variables, add:
 
@@ -61,6 +84,7 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `GEMINI_API_KEY` | Gemini key |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
+| `SHARE_SERVER_KEY`, `RESEND_API_KEY`, `SHARE_EMAIL_FROM` | Sharing, from step 5 (optional) |
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
 
@@ -71,6 +95,7 @@ Open **Settings** from the `···` button. It's a full page (also reachable at 
 - **Appearance**: light, dark or system (per device); five themes (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced); 12- or 24-hour clock. A live preview shows the result.
 - **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
 - **Google accounts**, **Your tasks** (import) and **Account** (password, sign out).
+- **Sharing**: who can see your planner, what they see (backlog; calendar today, upcoming or all; titles or busy only; items from Google; whether they can suggest tasks) and until when; their signed-in devices, last visit, an activity log of every sign-in, view, wrong code and suggestion; their suggestions to approve or decline; "See what they see"; and Stop sharing, which signs them out at once. A badge on the planner shows suggestions waiting.
 
 Light/dark and the calendar view stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
 
@@ -82,8 +107,9 @@ Light/dark and the calendar view stay on each device. Everything else is saved t
 - `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests). `lib/calview.ts`: which days each calendar view shows.
 - `app/api/google/*`: OAuth and pull, one call per account. Each refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
 - `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
+- Sharing: `supabase/migrations/0005` (the share tables and functions), `app/api/share/*` (the viewer's sign-in, view and suggestions), `app/shared` and `components/SharedPlanner.tsx` (the viewer's page), `components/SharingSection.tsx` (Settings → Sharing) and `lib/share.ts`.
 
-Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours.
+Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
 
 ## Keeping keys and tasks out of this public repo
 

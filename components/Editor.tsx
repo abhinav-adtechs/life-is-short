@@ -1,35 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import { findSlot } from '@/lib/place';
 import { fmtWhen, shortTitle } from '@/lib/format';
 import { gcalUrl } from '@/lib/links';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
+import { useTrap } from './hooks';
 import { XIcon } from './icons';
 
 const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
 const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
-
-/** Keep Tab inside an open dialog. */
-export function useTrap(ref: React.RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.focus({ preventScroll: true });
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const items = [...el.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x => !x.hasAttribute('disabled'));
-      if (!items.length) return;
-      const first = items[0], last = items[items.length - 1];
-      if (e.shiftKey && (document.activeElement === first || document.activeElement === el)) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    };
-    el.addEventListener('keydown', onKey);
-    return () => el.removeEventListener('keydown', onKey);
-  }, [ref]);
-}
 
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
   const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf, liveTasks } = usePlanner();

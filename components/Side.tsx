@@ -223,6 +223,17 @@ export function CaptureBar({ phone }: { phone?: boolean }) {
 
 /* ---------- layouts ---------- */
 
+/** Suggestions from people you share with: a quiet way into Settings → Sharing. */
+function Inbox() {
+  const { inbox, openSettings } = usePlanner();
+  if (!inbox) return null;
+  return (
+    <button type="button" className="inbox" onClick={() => openSettings('sharing')}>
+      <i aria-hidden="true" />{inbox} suggestion{inbox === 1 ? '' : 's'}
+    </button>
+  );
+}
+
 export function PhoneScreen() {
   const { now, setPhoneView, openSettings } = usePlanner();
   const { backlog } = useLists();
@@ -236,6 +247,7 @@ export function PhoneScreen() {
             <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
           </div>
         </header>
+        <Inbox />
         <NowBlock phone />
         <div className="sh in" style={{ animationDelay: '.16s' }}><span>Backlog</span><span>{backlog.length}</span></div>
         <BacklogRows phone />
@@ -255,6 +267,7 @@ export function LaptopSide() {
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
         <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
       </div>
+      <Inbox />
       <NowBlock />
       <div className="sh in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><em>Drag onto the calendar</em></div>
       <div className="rows"><BacklogRows /></div>

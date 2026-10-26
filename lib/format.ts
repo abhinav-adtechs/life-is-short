@@ -55,6 +55,21 @@ export function dueLabel(due: string, nowMs = Date.now()): { text: string; hot: 
   return { text: `Due ${dayWord(ms, nowMs)}`, hot: false };
 }
 
+/** "just now", "5 min ago", "3 h ago", "2 d ago". */
+export function fmtAgo(ms: number, nowMs = Date.now()) {
+  const m = Math.round((nowMs - ms) / MIN);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
+
+/** "Mon 3 Nov", with the year when it isn't this one. */
+export const shortDate = (ms: number, nowMs = Date.now()) => {
+  const d = new Date(ms);
+  return `${DOW[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}${d.getFullYear() !== new Date(nowMs).getFullYear() ? ` ${d.getFullYear()}` : ''}`;
+};
+
 /** "Monday, 26 October". */
 export const longDate = (ms: number) => { const d = new Date(ms); return `${DOWL[d.getDay()]}, ${d.getDate()} ${MONL[d.getMonth()]}`; };
 

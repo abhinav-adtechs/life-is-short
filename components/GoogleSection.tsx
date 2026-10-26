@@ -2,18 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { calendarOf } from '@/lib/google';
+import { fmtAgo } from '@/lib/format';
 import { ACCOUNT_COLORS, MAX_ACCOUNTS, ownCalendars, type GoogleAccount } from '@/lib/google-client';
 import { usePlanner } from './Planner';
 import { CaretIcon, CheckIcon } from './icons';
 import { Opt, radio, radioKeys } from './Controls';
-
-const ago = (ms: number) => {
-  const m = Math.round((Date.now() - ms) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
-};
 
 const ROLE: Record<string, string> = { owner: 'Yours', writer: 'Can edit', reader: 'Read-only' };
 
@@ -46,7 +39,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
   const on = a.calendars.filter(c => c.pull).length;
   const status = a.error
     ? 'Google ended access. Reconnect to keep pulling.'
-    : (a.pulledAt ? `Pulled ${ago(a.pulledAt)}` : 'Not pulled yet') + (a.calendars.length ? ` · ${on} of ${a.calendars.length} calendars` : '');
+    : (a.pulledAt ? `Pulled ${fmtAgo(a.pulledAt)}` : 'Not pulled yet') + (a.calendars.length ? ` · ${on} of ${a.calendars.length} calendars` : '');
   const palette = ACCOUNT_COLORS.includes(a.color) ? ACCOUNT_COLORS : [...ACCOUNT_COLORS, a.color];
 
   return (
