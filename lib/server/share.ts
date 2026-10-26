@@ -1,6 +1,6 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
-import { deviceLabel } from '../share';
+import { deviceLabel, isCode } from '../share';
 
 /**
  * The viewer side of sharing. Viewers have no database account: every call goes through these routes,
@@ -44,7 +44,8 @@ export async function body<T>(req: Request): Promise<Partial<T>> {
 /* ---------- the viewer's session cookie ---------- */
 
 // __Host- pins it to this exact origin over HTTPS. Plain http (local development) can't use the prefix.
-const secure = (req: Request) => new URL(req.url).protocol === 'https:';
+// Behind a proxy that ends TLS, the request itself may say http; the proxy's header says what the browser used.
+const secure = (req: Request) => new URL(req.url).protocol === 'https:' || req.headers.get('x-forwarded-proto') === 'https';
 const cookieName = (req: Request) => (secure(req) ? '__Host-lis-view' : 'lis-view');
 
 export function sessionToken(req: Request): string | null {
@@ -65,7 +66,7 @@ export const clearCookie = (req: Request) => `${cookieName(req)}=; Path=/; Max-A
 
 /* ---------- the code email ---------- */
 
-/** The email with the 6-digit code. Plain and short, so it reads well anywhere. */
+/** The email with the code. Plain and short, so it reads well anywhere. */
 export function codeEmail(code: string) {
   const subject = `${code} is your code for a shared planner`;
   const text = `Your code to see the planner shared with you:\n\n${code}\n\nIt works for 10 minutes. If you didn’t ask for it, you can ignore this email.\n\nLife is short`;
@@ -79,7 +80,7 @@ export function codeEmail(code: string) {
 
 /** Send a code through Resend. Returns whether it went. */
 export async function sendCode(to: string, code: string): Promise<boolean> {
-  if (!/^\d{6}$/.test(code)) return false;
+  if (!isCode(code)) return false;
   if (!emailConfigured()) {
     if (process.env.NODE_ENV === 'production') return false;
     console.info(`[sharing] no email service set up; the code for ${to} is ${code}`);

@@ -15,9 +15,10 @@ const DAY = 864e5;
 /** Functions the app calls; anything else in the public schema is a surprise. */
 const PUBLIC_FUNCTIONS = new Set(['pin_status', 'set_pin', 'unlock_with_pin']);
 /** Sharing (migration 0005). Allowed, but not required: a project without it just shares nothing. */
+const VIEWER_FUNCTIONS = new Set(['share_ping', 'share_code', 'share_sign_in', 'share_view', 'share_request', 'share_sign_out']);
 const SHARE_FUNCTIONS = new Set([
   'share_list', 'share_create', 'share_update', 'share_revoke', 'share_delete', 'share_decide', 'share_inbox', 'share_preview',
-  'share_ping', 'share_code', 'share_sign_in', 'share_view', 'share_request', 'share_sign_out',
+  ...VIEWER_FUNCTIONS,
 ]);
 
 /** Expected policies per table, by project. The `qual` must mention these to count. */
@@ -108,12 +109,18 @@ function checkProject(snap, which, ownerSha, f) {
   const rt = (snap.realtime_tables || []).filter(t => t !== 'public.tasks');
   if (rt.length) f.warn(`${P}:realtime`, `${rt.length} extra table(s) broadcast over realtime`);
 
+  // Signed-out visitors may only call the viewer's sharing functions, and those only answer the app's server.
+  const anonFns = (snap.anon_functions || []).filter(n => !VIEWER_FUNCTIONS.has(n));
+  if (anonFns.length) f.block(`${P}:functions`, `signed-out visitors can call ${anonFns.length} function(s) they shouldn't`);
+
   const sh = snap.sharing;
   if (sh && which === 'backup') {
     if (sh.key_set || sh.shares > 0) f.warn(`${P}:sharing`, 'sharing was set up on the backup, which has no app');
   } else if (sh) {
     f.info(`${P}:sharing`, `${sh.active} active share(s), ${sh.sessions_live} viewer session(s), ${sh.sign_ins_7d} viewer sign-in(s) in 7 days`);
     if (sh.wrong_codes_7d >= 10) f.warn(`${P}:sharing`, `${sh.wrong_codes_7d} wrong viewer code(s) in 7 days`);
+    const nowMs = Date.parse(snap.at) || Date.now();
+    if (sh.key_updated_at && nowMs - Date.parse(sh.key_updated_at) < 8 * DAY) f.warn(`${P}:sharing`, 'the sharing server key was set or changed in the last 8 days');
   }
   return owner;
 }
@@ -143,6 +150,8 @@ export function evaluate({ primary, backup, ownerSha, force = false, lost = 0 })
   if (primary.access_rule_sha256 && backup.access_rule_sha256 && primary.access_rule_sha256 !== backup.access_rule_sha256) {
     f.block('both:access-rule', 'the sign-in rule differs between primary and backup');
   }
+  const ps = primary.sharing?.functions_sha256, bs = backup.sharing?.functions_sha256;
+  if (ps && bs && ps !== bs) f.block('both:sharing', 'the sharing functions differ between primary and backup');
   for (const name of ['own tasks', 'unlocked']) {
     const a = (primary.policies || []).find(p => p.table === 'tasks' && p.name === name);
     const b = (backup.policies || []).find(p => p.table === 'tasks' && p.name === name);

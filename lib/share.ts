@@ -59,6 +59,10 @@ export const DURATIONS: { days: number | null; label: string }[] = [
 export const isEmail = (s: unknown): s is string =>
   typeof s === 'string' && s.trim().length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.trim());
 
+/** Digits in the code a viewer gets by email. Mirrors private.share_new_code(). */
+export const CODE_LENGTH = 8;
+export const isCode = (s: unknown): s is string => typeof s === 'string' && s.length === CODE_LENGTH && /^\d+$/.test(s);
+
 /** The secret in a share link. */
 export const isLink = (s: unknown): s is string => typeof s === 'string' && /^[A-Za-z0-9_-]{32,64}$/.test(s);
 
@@ -97,6 +101,8 @@ export interface Share {
   /** Signed in right now. */
   sessions: ShareSession[];
   pending: number;
+  /** Ten wrong codes in a day: signing in is paused until the day has passed. */
+  locked: boolean;
 }
 
 export type RequestStatus = 'pending' | 'approved' | 'declined';

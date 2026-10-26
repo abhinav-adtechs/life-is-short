@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SCOPE, deviceLabel, eventText, isEmail, isLink, normalizeScope, requestTask, requestWhen, scopeOk, scopeParts,
+  CODE_LENGTH, DEFAULT_SCOPE, deviceLabel, eventText, isCode, isEmail, isLink, normalizeScope, requestTask, requestWhen, scopeOk, scopeParts,
   shareEnds, shareUrl, suggestionError, todayDays, type ShareRequest,
 } from './share';
 import { fmtAgo, shortDate } from './format';
@@ -37,6 +37,14 @@ describe('links and emails', () => {
     expect(isLink('abc-_'.repeat(7))).toBe(true);
     expect(isLink('short')).toBe(false);
     expect(isLink('a'.repeat(31) + '/')).toBe(false);
+  });
+
+  it('codes are exactly 8 digits', () => {
+    expect(CODE_LENGTH).toBe(8);
+    expect(isCode('01234567')).toBe(true);
+    expect(isCode('123456')).toBe(false);
+    expect(isCode('1234567a')).toBe(false);
+    expect(isCode(12345678)).toBe(false);
   });
 
   it('accepts ordinary emails only', () => {

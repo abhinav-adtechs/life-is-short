@@ -2,8 +2,9 @@
 // the email code, what a viewer sees for each scope, suggestions, and the activity log.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { as, migrated } from './pglite.mjs';
+import { as, migrated, sql } from './pglite.mjs';
 import { evaluate } from '../backup/checks.mjs';
+import { normalizeAccounts, sourceIndex, sourceOf } from '../../lib/google-client';
 
 const OWNER = '11111111-1111-1111-1111-111111111111';
 const KEY = 'k'.repeat(40);
@@ -24,7 +25,14 @@ const server = (q, params) => one('anon', {}, q, params);
 async function share(email, scope, days = null) {
   return owner('select public.share_create($1, $2, $3::jsonb, $4, $5)', [email, 'Them', JSON.stringify(scope), days, 'Asia/Kolkata']);
 }
+/** A minute passes: the next code for this share may go. */
+const tick = link => db.query(`update private.share_events set at = at - interval '61 seconds'
+  where kind = 'code-sent' and share_id = (select id from private.shares where link = $1)`, [link]);
+const codeFor = (link, email, device = '') => server('select public.share_code($1, $2, $3, $4)', [KEY, link, email, device]);
+const tryCode = (link, email, code, device = '') => server('select public.share_sign_in($1, $2, $3, $4, $5)', [KEY, link, email, code, device]);
+const wrongFor = code => (code === '00000000' ? '11111111' : '00000000');
 async function signIn(link, email) {
+  await tick(link);
   const sent = await server('select public.share_code($1, $2, $3, $4)', [KEY, link, email, 'Safari on iPhone']);
   expect(sent).toMatchObject({ sent: true });
   const r = await server('select public.share_sign_in($1, $2, $3, $4, $5)', [KEY, link, email, sent.code, 'Safari on iPhone']);
@@ -116,44 +124,68 @@ describe('creating and changing a share', () => {
 describe('signing in with an emailed code', () => {
   let link;
   beforeAll(async () => { ({ link } = await share('viewer@example.com', { backlog: true })); });
+  const reset = async () => {
+    await db.query(`delete from private.share_events where kind in ('code-sent', 'wrong-code') and share_id = (select id from private.shares where link = $1)`, [link]);
+    await db.exec('delete from private.share_codes');
+  };
 
   it('only makes a code for the share’s own email, and says the same either way', async () => {
-    expect(await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'someone@else.com', ''])).toEqual({ sent: false });
-    expect(await server('select public.share_code($1, $2, $3, $4)', [KEY, 'x'.repeat(32), 'viewer@example.com', ''])).toEqual({ sent: false });
+    expect(await codeFor(link, 'someone@else.com')).toEqual({ sent: false });
+    expect(await codeFor('x'.repeat(32), 'viewer@example.com')).toEqual({ sent: false });
   });
-  it('stores only a hash of the code, and limits how often one is sent', async () => {
-    const r = await server('select public.share_code($1, $2, $3, $4)', [KEY, link, ' Viewer@Example.com ', '']);
+  it('8 digits, stored only as a hash, and at most one a minute', async () => {
+    const r = await codeFor(link, ' Viewer@Example.com ');
     expect(r).toMatchObject({ sent: true, email: 'viewer@example.com' });
-    expect(r.code).toMatch(/^\d{6}$/);
+    expect(r.code).toMatch(/^\d{8}$/);
     const stored = (await db.query('select code_hash from private.share_codes')).rows.map(x => x.code_hash);
     expect(stored.join()).not.toContain(r.code);
-    // Another one straight away is refused.
-    expect(await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'viewer@example.com', ''])).toEqual({ sent: false });
+    expect(await codeFor(link, 'viewer@example.com')).toEqual({ sent: false });
   });
-  it('five wrong codes burn it', async () => {
-    await db.exec(`update private.share_codes set sent_at = now() - interval '2 minutes'`);
-    const { code } = await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'viewer@example.com', '']);
-    const wrong = code === '000000' ? '111111' : '000000';
-    const tryCode = c => server('select public.share_sign_in($1, $2, $3, $4, $5)', [KEY, link, 'viewer@example.com', c, '']);
-    for (let i = 0; i < 4; i++) expect(await tryCode(wrong)).toEqual({ error: 'wrong' });
-    expect(await tryCode(wrong)).toEqual({ error: 'expired' });
-    expect(await tryCode(code)).toEqual({ error: 'expired' });
+  it('five wrong codes burn it, and burning it doesn’t lift the one-a-minute limit', async () => {
+    await tick(link);
+    const { code } = await codeFor(link, 'viewer@example.com');
+    for (let i = 0; i < 4; i++) expect(await tryCode(link, 'viewer@example.com', wrongFor(code))).toEqual({ error: 'wrong' });
+    expect(await tryCode(link, 'viewer@example.com', wrongFor(code))).toEqual({ error: 'expired' });
+    expect(await tryCode(link, 'viewer@example.com', code)).toEqual({ error: 'expired' });
+    expect(await codeFor(link, 'viewer@example.com')).toEqual({ sent: false });
   });
   it('an expired code does nothing', async () => {
-    await db.exec(`update private.share_codes set sent_at = now() - interval '20 minutes'`);
-    await db.exec(`delete from private.share_events where kind = 'code-sent'`);
-    const { code } = await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'viewer@example.com', '']);
+    await reset();
+    const { code } = await codeFor(link, 'viewer@example.com');
     await db.exec(`update private.share_codes set expires_at = now() - interval '1 second'`);
-    expect(await server('select public.share_sign_in($1, $2, $3, $4, $5)', [KEY, link, 'viewer@example.com', code, ''])).toEqual({ error: 'expired' });
+    expect(await tryCode(link, 'viewer@example.com', code)).toEqual({ error: 'expired' });
   });
   it('no more than five codes an hour', async () => {
-    await db.exec(`delete from private.share_events where kind = 'code-sent'; delete from private.share_codes`);
+    await reset();
     for (let i = 0; i < 5; i++) {
-      expect(await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'viewer@example.com', ''])).toMatchObject({ sent: true });
-      await db.exec(`update private.share_codes set sent_at = now() - interval '2 minutes'`);
+      expect(await codeFor(link, 'viewer@example.com')).toMatchObject({ sent: true });
+      await tick(link);
     }
-    expect(await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'viewer@example.com', ''])).toEqual({ sent: false });
-    await db.exec(`delete from private.share_events where kind = 'code-sent'; delete from private.share_codes`);
+    expect(await codeFor(link, 'viewer@example.com')).toEqual({ sent: false });
+    await reset();
+  });
+  it('ten wrong codes in a day pause signing in, even with the right code', async () => {
+    await reset();
+    let code;
+    for (let round = 0; round < 2; round++) {
+      await tick(link);
+      ({ code } = await codeFor(link, 'viewer@example.com'));
+      for (let i = 0; i < 5; i++) await tryCode(link, 'viewer@example.com', wrongFor(code));
+    }
+    await tick(link);
+    expect(await codeFor(link, 'viewer@example.com')).toEqual({ sent: false });
+    const s = (await owner('select public.share_list()')).shares.find(x => x.link === link);
+    expect(s.locked).toBe(true);
+    // A code made before the pause doesn't get through it either.
+    await db.exec(`update private.share_events set at = now() - interval '25 hours' where kind = 'wrong-code'`);
+    await tick(link);
+    ({ code } = await codeFor(link, 'viewer@example.com'));
+    await db.exec(`update private.share_events set at = now() where kind = 'wrong-code'`);
+    expect(await tryCode(link, 'viewer@example.com', code)).toEqual({ error: 'locked' });
+    // A day later it lifts.
+    await db.exec(`update private.share_events set at = now() - interval '25 hours' where kind = 'wrong-code'`);
+    expect(await tryCode(link, 'viewer@example.com', code)).toHaveProperty('token');
+    await reset();
   });
   it('the right code starts a session that can only see its own link', async () => {
     const token = await signIn(link, 'viewer@example.com');
@@ -233,6 +265,51 @@ describe('what a viewer sees', () => {
   });
 });
 
+describe('Google calendars: a viewer sees what your calendar shows', () => {
+  const ME2 = '33333333-3333-3333-3333-333333333333';
+  const me2 = { ...me, sub: ME2 };
+  const CALS = ['work@corp.com', 'team@group.calendar.google.com', 'me@home.com', 'later@new.com', 'nopull@group.calendar.google.com', 'gone@old.com'];
+  let id;
+  beforeAll(async () => {
+    await db.exec(`insert into auth.users (id, email) values ('${ME2}', 'me2@example.com')`);
+    for (const [i, cal] of CALS.entries()) {
+      await db.query(`insert into public.tasks (user_id, id, title, priority, minutes, start, created, sort_order, external_id)
+        values ($1, $2, $3, 2, 30, $4, 1, 1, $5)`, [ME2, `e${i}`, cal, later((i + 1) * H), `gcal:${cal}:ev${i}`]);
+    }
+    ({ id } = await one('authenticated', me2, `select public.share_create('g2@example.com', '', '{"calendar":"all","google":true}', null, 'UTC')`));
+  });
+  // The planner: a pulled event shows when its source account is shown and its source calendar is pulled.
+  const planner = google => {
+    const idx = sourceIndex(normalizeAccounts(google));
+    return CALS.filter((cal, i) => { const src = sourceOf(idx, `gcal:${cal}:ev${i}`); return !src || (src.account.show && (!src.calendar || src.calendar.pull)); });
+  };
+  const acct = (email, show, calendars, extra = {}) => ({ id: email, blob: 'x', email, show, calendars, ...extra });
+  const SCENARIOS = {
+    'a hidden work account’s main calendar, also pulled by a shown account': [{ v: 2, accounts: [
+      acct('me@home.com', true, [{ id: 'me@home.com', primary: true }, { id: 'work@corp.com' }]),
+      acct('work@corp.com', false, [{ id: 'work@corp.com', primary: true }])] }, ['work@corp.com']],
+    'the hidden account stopped pulling it': [{ v: 2, accounts: [
+      acct('me@home.com', true, [{ id: 'work@corp.com' }]),
+      acct('work@corp.com', false, [{ id: 'work@corp.com', primary: true, pull: false }])] }, []],
+    'a tie goes to the first account': [{ v: 2, accounts: [
+      acct('x@a.com', false, [{ id: 'team@group.calendar.google.com' }]),
+      acct('me@home.com', true, [{ id: 'team@group.calendar.google.com' }])] }, ['team@group.calendar.google.com']],
+    'an account that hasn’t pulled yet': [{ v: 2, accounts: [acct('later@new.com', false, [])] }, ['later@new.com']],
+    'a calendar switched off': [{ v: 2, accounts: [acct('me@home.com', true, [{ id: 'nopull@group.calendar.google.com', pull: false }])] }, ['nopull@group.calendar.google.com']],
+    'an account without a token is ignored': [{ v: 2, accounts: [{ id: 'work@corp.com', email: 'work@corp.com', show: false, calendars: [{ id: 'work@corp.com', primary: true }] }] }, []],
+    'the old single-account shape': [{ blob: 'x', email: 'me@home.com', show: false }, ['me@home.com']],
+  };
+  for (const [name, [google, hidden]] of Object.entries(SCENARIOS)) {
+    it(name, async () => {
+      await db.query(`insert into public.settings (user_id, key, value) values ($1, 'google', $2::jsonb)
+        on conflict (user_id, key) do update set value = excluded.value`, [ME2, JSON.stringify(google)]);
+      const shown = (await one('authenticated', me2, 'select public.share_preview($1)', [id])).calendar.items.map(x => x.title);
+      expect(shown).toEqual(planner(google));
+      expect(CALS.filter(c => !shown.includes(c))).toEqual(hidden);
+    });
+  }
+});
+
 describe('stopping a share', () => {
   it('signs them out at once and kills the link', async () => {
     const { id, link } = await share('stop@example.com', { backlog: true });
@@ -278,6 +355,11 @@ describe('suggestions', () => {
     expect(await suggest({ kind: 'calendar', title: 'x' })).toBe('invalid');
     expect(await suggest({ kind: 'calendar', title: 'x', start: ago(48 * H), minutes: 30 })).toBe('invalid');
     expect(await suggest({ kind: 'backlog', title: 'x', due: '2026-02-31' })).toBe('invalid');
+    expect(await suggest({ kind: 'backlog', title: 'x', due: 'infinity' })).toBe('invalid');
+    expect(await suggest({ kind: 'backlog', title: 'x', due: '1/2/2027' })).toBe('invalid');
+    expect(await suggest({ kind: 'backlog', title: 'x', due: '9999-01-01' })).toBe('invalid');
+    expect(await suggest({ kind: 'calendar', title: 'x', start: 1e30, minutes: 30 })).toBe('invalid');
+    expect(await suggest({ kind: 'calendar', title: 'x', start: later(H), minutes: 1e30 })).toBe('invalid');
   });
   it('lands for you to decide, and shows the viewer where it stands', async () => {
     expect(await suggest({ kind: 'backlog', title: '  Buy   milk ', note: 'the oat one', due: '2026-11-02' })).toBe('ok');
@@ -320,12 +402,14 @@ describe('the activity log', () => {
     const token = await signIn(link, 'log@example.com');
     await view(link, token);
     await view(link, token);
-    const { code } = await server('select public.share_code($1, $2, $3, $4)', [KEY, link, 'log@example.com', 'Firefox on Windows']);
-    await server('select public.share_sign_in($1, $2, $3, $4, $5)', [KEY, link, 'log@example.com', code === '999999' ? '000000' : '999999', 'Firefox on Windows']);
+    await tick(link);
+    const { code } = await codeFor(link, 'log@example.com', 'Firefox on Windows');
+    await tryCode(link, 'log@example.com', wrongFor(code), 'Firefox on Windows');
     await server('select public.share_sign_out($1, $2, $3, $4)', [KEY, link, token, 'Safari on iPhone']);
     const list = await owner('select public.share_list()');
-    const kinds = list.events.filter(e => e.shareId === id).map(e => e.kind).reverse();
-    expect(kinds).toEqual(['created', 'code-sent', 'signed-in', 'viewed', 'code-sent', 'wrong-code', 'signed-out']);
+    // (tick() backdates codes, so compare what happened, not the order.)
+    const kinds = list.events.filter(e => e.shareId === id).map(e => e.kind).sort();
+    expect(kinds).toEqual(['code-sent', 'code-sent', 'created', 'signed-in', 'signed-out', 'viewed', 'wrong-code']);
     expect(list.events.find(e => e.shareId === id && e.kind === 'viewed').device).toBe('Safari on iPhone');
     const s = list.shares.find(x => x.id === id);
     expect(s).toMatchObject({ views: 1, sessions: [] });
@@ -342,18 +426,41 @@ describe('the activity log', () => {
 });
 
 describe('the weekly check', () => {
-  it('reports sharing as counts, and warns on many wrong codes', async () => {
-    const snap = (await db.query('select audit.snapshot() as s')).rows[0].s;
-    expect(snap.sharing).toMatchObject({ key_set: true });
-    expect(snap.sharing.active).toBeGreaterThan(5);
-    const r = evaluate({ primary: snap, backup: { ...snap, sharing: { key_set: false, shares: 0 } }, ownerSha: '' });
-    const sharing = r.findings.filter(f => f.check.endsWith(':sharing'));
-    expect(sharing).toEqual([expect.objectContaining({ level: 'info', check: 'primary:sharing' })]);
-    expect(r.findings.filter(f => f.check.endsWith(':functions'))).toEqual([]);
-    const noisy = evaluate({ primary: { ...snap, sharing: { ...snap.sharing, wrong_codes_7d: 12 } }, backup: snap, ownerSha: '' });
-    expect(noisy.findings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ level: 'warn', check: 'primary:sharing' }),
-      expect.objectContaining({ level: 'warn', check: 'backup:sharing' }),
-    ]));
+  const snap = async () => (await db.query('select audit.snapshot() as s')).rows[0].s;
+  const checks = r => r.findings.filter(f => f.level !== 'info').map(f => `${f.level} ${f.check}`);
+
+  it('reports sharing as counts, warns on many wrong codes and on a new key', async () => {
+    const p = await snap();
+    expect(p.sharing).toMatchObject({ key_set: true });
+    expect(p.sharing.active).toBeGreaterThan(5);
+    expect(p.anon_functions).toEqual(['share_code', 'share_ping', 'share_request', 'share_sign_in', 'share_sign_out', 'share_view']);
+    const backup = { ...p, sharing: { ...p.sharing, key_set: false, shares: 0 } };
+    const r = evaluate({ primary: p, backup, ownerSha: '' });
+    expect(r.findings.filter(f => f.check === 'primary:sharing' && f.level === 'info')).toHaveLength(1);
+    // The key was installed a moment ago.
+    expect(checks(r).filter(c => c.endsWith(':sharing'))).toEqual(['warn primary:sharing']);
+    expect(checks(r).filter(c => c.includes('functions'))).toEqual([]);
+    const old = { ...p, sharing: { ...p.sharing, key_updated_at: '2026-01-01T00:00:00Z' } };
+    expect(checks(evaluate({ primary: old, backup, ownerSha: '' })).filter(c => c.endsWith(':sharing'))).toEqual([]);
+    const noisy = evaluate({ primary: { ...old, sharing: { ...old.sharing, wrong_codes_7d: 12 } }, backup: p, ownerSha: '' });
+    expect(checks(noisy)).toEqual(expect.arrayContaining(['warn primary:sharing', 'warn backup:sharing']));
+  });
+  it('blocks when signed-out visitors can call anything else', async () => {
+    await db.exec('grant execute on function public.share_list() to anon');
+    try {
+      expect(checks(evaluate({ primary: await snap(), backup: await snap(), ownerSha: '' }))).toContain('block primary:functions');
+    } finally { await db.exec('revoke execute on function public.share_list() from anon'); }
+  });
+  it('blocks when the sharing functions differ between primary and backup', async () => {
+    const before = await snap();
+    await db.exec(`create or replace function private.share_key_ok(p_key text) returns boolean language sql stable set search_path = '' as $$ select true $$`);
+    try {
+      const after = await snap();
+      expect(after.sharing.functions_sha256).not.toBe(before.sharing.functions_sha256);
+      expect(checks(evaluate({ primary: after, backup: before, ownerSha: '' }))).toContain('block both:sharing');
+    } finally {
+      await db.exec(sql('migrations/0005_sharing.sql').match(/create or replace function private\.share_key_ok[\s\S]*?\$\$;/)[0]);
+    }
+    expect((await snap()).sharing.functions_sha256).toBe(before.sharing.functions_sha256);
   });
 });

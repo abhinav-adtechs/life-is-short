@@ -132,14 +132,26 @@ volatile
 set search_path = ''
 as $$ select translate(encode(extensions.gen_random_bytes(24), 'base64'), '+/', '-_') $$;
 
+-- 8 digits. With at most 10 wrong tries a day per share (share_locked), a guesser has about a 1 in 27,000 chance a year.
 create or replace function private.share_new_code()
 returns text
 language sql
 volatile
 set search_path = ''
 as $$
-  select lpad(((get_byte(b, 0)::bigint * 16777216 + get_byte(b, 1) * 65536 + get_byte(b, 2) * 256 + get_byte(b, 3)) % 1000000)::text, 6, '0')
+  select lpad(((get_byte(b, 0)::bigint * 16777216 + get_byte(b, 1) * 65536 + get_byte(b, 2) * 256 + get_byte(b, 3)) % 100000000)::text, 8, '0')
   from (select extensions.gen_random_bytes(4) as b) r
+$$;
+
+-- Ten wrong codes in a day pause signing in to a share for the rest of that day.
+create or replace function private.share_locked(p_share uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select (select count(*) from private.share_events e
+          where e.share_id = p_share and e.kind = 'wrong-code' and e.at > now() - interval '24 hours') >= 10
 $$;
 
 create or replace function private.share_hash(salt text, secret text)
@@ -204,20 +216,35 @@ begin
   select value into prefs from public.settings where user_id = s.user_id and key = 'prefs';
   select value into google from public.settings where user_id = s.user_id and key = 'google';
 
+  -- Each Google calendar has one source, as the planner sees it (sourceIndex in lib/google-client.ts): the account
+  -- pulling it wins, then the one it's the main calendar of, then the first. Its events show when that source
+  -- pulls it and its account is shown on the calendar. An account that hasn't pulled yet lists no calendars;
+  -- its main calendar's id is its email.
   with acc as (
-    select a from jsonb_array_elements(case
+    select a, ai from jsonb_array_elements(case
       when jsonb_typeof(google -> 'accounts') = 'array' then google -> 'accounts'
       when jsonb_typeof(google) = 'object' and google ? 'blob' then jsonb_build_array(google)
-      else '[]'::jsonb end) a
+      else '[]'::jsonb end) with ordinality as t(a, ai)
+    where jsonb_typeof(a -> 'blob') = 'string'
   ), listed as (
-    select c ->> 'id' as cal, coalesce(c ->> 'pull', 'true') <> 'false' and coalesce(a ->> 'show', 'true') <> 'false' as shown
-    from acc, jsonb_array_elements(case when jsonb_typeof(a -> 'calendars') = 'array' then a -> 'calendars' else '[]'::jsonb end) c
-    union all
-    -- An account that hasn't pulled yet lists no calendars; its main calendar's id is its email.
-    select a ->> 'email', false from acc where coalesce(a ->> 'show', 'true') = 'false' and a ->> 'email' is not null
+    select c ->> 'id' as cal, ai, ci,
+      (case when coalesce(c ->> 'pull', 'true') <> 'false' then 2 else 0 end)
+        + (case when c -> 'primary' = 'true'::jsonb or c ->> 'id' = a ->> 'email' then 1 else 0 end) as rank,
+      coalesce(c ->> 'pull', 'true') <> 'false' and coalesce(a ->> 'show', 'true') <> 'false' as shown
+    from acc, jsonb_array_elements(case when jsonb_typeof(a -> 'calendars') = 'array' then a -> 'calendars' else '[]'::jsonb end)
+      with ordinality as u(c, ci)
+    where jsonb_typeof(c -> 'id') = 'string'
+  ), source as (
+    select distinct on (cal) cal, shown from listed order by cal, rank desc, ai, ci
+  ), unlisted as (
+    select distinct on (a ->> 'email') a ->> 'email' as cal, coalesce(a ->> 'show', 'true') <> 'false' as shown
+    from acc where a ->> 'email' is not null and a ->> 'email' not in (select cal from listed)
+    order by a ->> 'email', ai
+  ), visible as (
+    select * from source union all select * from unlisted
   )
   select coalesce(array_agg(cal) filter (where shown), '{}'), coalesce(array_agg(cal) filter (where not shown), '{}')
-  into shown_cals, hidden_cals from listed;
+  into shown_cals, hidden_cals from visible;
 
   if sc -> 'backlog' = 'true'::jsonb then
     select coalesce(jsonb_agg(jsonb_build_object('title', b.title, 'priority', b.priority, 'minutes', b.minutes, 'due', b.due)
@@ -296,13 +323,14 @@ as $$
           'lastSeenAt', private.ms(x.last_seen_at), 'expiresAt', private.ms(x.expires_at)) order by x.last_seen_at desc)
       from private.share_sessions x
       where x.share_id = s.id and x.ended_at is null and x.expires_at > now() and private.share_live(s)), '[]'::jsonb),
-    'pending', (select count(*) from private.share_requests r where r.share_id = s.id and r.status = 'pending')
+    'pending', (select count(*) from private.share_requests r where r.share_id = s.id and r.status = 'pending'),
+    'locked', private.share_locked(s.id)
   )
 $$;
 
 revoke all on function private.ms(timestamptz), private.share_live(private.shares), private.share_scope(jsonb), private.share_key_ok(text),
   private.share_token(), private.share_new_code(), private.share_hash(text, text), private.share_device(text),
-  private.share_session(text, text), private.share_payload(uuid), private.share_json(private.shares) from public;
+  private.share_session(text, text), private.share_payload(uuid), private.share_json(private.shares), private.share_locked(uuid) from public;
 
 -- SQL editor only: install the sha256 (hex) of SHARE_SERVER_KEY. See docs/setup.md.
 create or replace function private.set_share_key_hash(hash text)
@@ -548,8 +576,9 @@ as $$
   select case when not exists (select 1 from private.share_key) then 'no-key' when private.share_key_ok(p_key) then 'ok' else 'wrong-key' end
 $$;
 
--- A new 6-digit code for a live share's email, for the server to send. Ten minutes, five tries;
--- one a minute and five an hour per share. Says nothing about whether an email has access.
+-- A new 8-digit code for a live share's email, for the server to send. Ten minutes, five tries;
+-- one a minute and five an hour per share, and none after 10 wrong codes in a day.
+-- Says nothing about whether an email has access.
 create or replace function public.share_code(p_key text, p_link text, p_email text, p_device text)
 returns jsonb
 language plpgsql
@@ -559,15 +588,15 @@ set search_path = ''
 as $$
 declare
   s private.shares;
-  c private.share_codes;
   code text;
 begin
   if not private.share_key_ok(p_key) then return jsonb_build_object('error', 'key'); end if;
-  select * into s from private.shares x where x.link = p_link and x.email = lower(trim(coalesce(p_email, ''))) and private.share_live(x);
+  -- One at a time per share, so the limits below hold under concurrent requests.
+  select * into s from private.shares x where x.link = p_link and x.email = lower(trim(coalesce(p_email, ''))) and private.share_live(x) for update;
   if not found then return jsonb_build_object('sent', false); end if;
-  select * into c from private.share_codes where share_id = s.id;
-  if found and c.sent_at > now() - interval '1 minute' then return jsonb_build_object('sent', false); end if;
-  if (select count(*) from private.share_events e where e.share_id = s.id and e.kind = 'code-sent' and e.at > now() - interval '1 hour') >= 5 then
+  if private.share_locked(s.id)
+     or exists (select 1 from private.share_events e where e.share_id = s.id and e.kind = 'code-sent' and e.at > now() - interval '1 minute')
+     or (select count(*) from private.share_events e where e.share_id = s.id and e.kind = 'code-sent' and e.at > now() - interval '1 hour') >= 5 then
     return jsonb_build_object('sent', false);
   end if;
   code := private.share_new_code();
@@ -597,11 +626,12 @@ declare
   dev text := private.share_device(p_device);
 begin
   if not private.share_key_ok(p_key) then return jsonb_build_object('error', 'key'); end if;
-  select * into s from private.shares x where x.link = p_link and x.email = lower(trim(coalesce(p_email, ''))) and private.share_live(x);
+  select * into s from private.shares x where x.link = p_link and x.email = lower(trim(coalesce(p_email, ''))) and private.share_live(x) for update;
   if not found then return jsonb_build_object('error', 'wrong'); end if;
+  if private.share_locked(s.id) then return jsonb_build_object('error', 'locked'); end if;
   select * into c from private.share_codes where share_id = s.id for update;
   if not found or c.expires_at <= now() then return jsonb_build_object('error', 'expired'); end if;
-  if c.code_hash <> private.share_hash(s.id::text, p_code) then
+  if c.code_hash is distinct from private.share_hash(s.id::text, p_code) then
     insert into private.share_events (share_id, kind, device) values (s.id, 'wrong-code', dev);
     if c.attempts + 1 >= 5 then
       delete from private.share_codes where share_id = s.id;
@@ -685,16 +715,21 @@ begin
   end if;
   if v_kind = 'calendar' then
     if jsonb_typeof(p_req -> 'start') is distinct from 'number' or jsonb_typeof(p_req -> 'minutes') is distinct from 'number' then return 'invalid'; end if;
+    if (p_req ->> 'start')::numeric not between now_ms - 3600000 and now_ms + 731 * 86400000::bigint
+       or (p_req ->> 'minutes')::numeric not between 15 and 480 then
+      return 'invalid';
+    end if;
     v_start := (p_req ->> 'start')::numeric::bigint;
     v_minutes := round((p_req ->> 'minutes')::numeric / 15) * 15;
-    if v_minutes < 15 or v_minutes > 480 or v_start < now_ms - 3600000 or v_start > now_ms + 731 * 86400000::bigint then return 'invalid'; end if;
   end if;
   if coalesce(p_req ->> 'due', '') <> '' then
+    if p_req ->> 'due' !~ '^\d{4}-\d{2}-\d{2}$' then return 'invalid'; end if;
     begin
       v_due := (p_req ->> 'due')::date;
     exception when others then
       return 'invalid';
     end;
+    if v_due not between current_date - 366 and current_date + 3660 then return 'invalid'; end if;
   end if;
   if (select count(*) from private.share_requests r where r.share_id = s.id and r.status = 'pending') >= 20
      or (select count(*) from private.share_requests r where r.share_id = s.id and r.created_at > now() - interval '1 day') >= 50 then
@@ -831,7 +866,16 @@ begin
                         where x.ended_at is null and x.expires_at > now() and private.share_live(s)),
       'sign_ins_7d', (select count(*) from private.share_events where kind = 'signed-in' and at > now() - interval '7 days'),
       'wrong_codes_7d', (select count(*) from private.share_events where kind = 'wrong-code' and at > now() - interval '7 days'),
-      'pending', (select count(*) from private.share_requests where status = 'pending')),
+      'pending', (select count(*) from private.share_requests where status = 'pending'),
+      'key_updated_at', (select k.updated_at from private.share_key k),
+      -- Compared between primary and backup, like the sign-in rules above.
+      'functions_sha256', (select encode(sha256(convert_to(coalesce(string_agg(pg_catalog.pg_get_functiondef(p.oid), E'\n' order by n.nspname, p.proname), ''), 'UTF8')), 'hex')
+        from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+        where n.nspname in ('public', 'private') and (p.proname like 'share\_%' or p.proname in ('ms', 'set_share_key_hash')))),
+    -- Only the viewer's six functions may be callable without signing in.
+    'anon_functions', case when exists (select 1 from pg_catalog.pg_roles where rolname = 'anon') then coalesce((
+        select jsonb_agg(p.proname order by p.proname) from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and pg_catalog.has_function_privilege('anon', p.oid, 'execute')), '[]'::jsonb) end,
     'last_sync', (select to_jsonb(s) from audit.sync_log s order by s.synced_at desc limit 1)
   ) into out;
   return out;

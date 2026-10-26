@@ -215,6 +215,7 @@ function ShareCard({ s, now, fresh, reload, onPreview }: { s: Share; now: number
           <p className="note">{fresh ? 'Your link is ready. ' : ''}Send it to {s.email}. They sign in with a code sent to that address, so the link alone isn’t enough.</p>
         </>
       )}
+      {s.locked && <p className="sh-warn" role="status">Signing in is paused: 10 wrong codes in the last day. It starts again on its own a day after the last one. Not them? Stop sharing.</p>}
       <p className="sh-scope">{scopeParts(s.scope).join(' · ')}</p>
       <p className="sh-meta">
         {s.lastSeenAt ? `Last viewed ${when(s.lastSeenAt, now)}` : 'Not opened yet'}

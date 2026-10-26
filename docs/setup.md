@@ -53,7 +53,7 @@ Create a key at aistudio.google.com. The free tier is enough. The route tries `g
 
 ### 5. Sharing (optional, view-only links)
 
-Settings → Sharing lets someone see your planner, view only: you pick their email, what they see and for how long, and send them the link. They sign in with a 6-digit code emailed to that address. How it's locked down is in [`security.md`](security.md#sharing).
+Settings → Sharing lets someone see your planner, view only: you pick their email, what they see and for how long, and send them the link. They sign in with an 8-digit code emailed to that address. How it's locked down is in [`security.md`](security.md#sharing).
 
 1. Make a server key and keep it for Vercel (step 6):
 

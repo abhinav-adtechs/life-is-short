@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fmtDur, fmtWhen, shortDate, setClock24 } from '@/lib/format';
 import { atMinutes, fromYmd, pad, ymd } from '@/lib/time';
-import { isEmail, isLink, requestWhen, suggestionError, type SharedData, type Suggestion } from '@/lib/share';
+import { CODE_LENGTH, isEmail, isLink, requestWhen, suggestionError, type SharedData, type Suggestion } from '@/lib/share';
 import { loadView, requestCode, sendSuggestion, signOutViewer, verifyCode } from '@/lib/share-viewer';
 import { SharedView } from './SharedView';
 import { Toast, type ToastState } from './Toast';
@@ -94,15 +94,14 @@ function EmailStep({ link, notice, onSent }: { link: string; notice?: string; on
     const v = email.trim();
     if (!isEmail(v)) { setMsg('Enter the email this was shared with.'); return; }
     setBusy(true); setMsg('');
-    const { status, data } = await requestCode(link, v);
+    const { status } = await requestCode(link, v);
     setBusy(false);
     if (status === 200) {
       try { localStorage.setItem(EMAIL_KEY, v); } catch { /* a nicety */ }
       onSent(v);
       return;
     }
-    setMsg(data?.reason === 'email-failed' ? 'Couldn’t send the email just now. Try again in a minute.'
-      : status === 503 ? 'Sharing isn’t available right now.' : 'Couldn’t send a code. Check your connection and try again.');
+    setMsg(status === 503 ? 'Sharing isn’t available right now.' : 'Couldn’t send a code. Check your connection and try again.');
   }
 
   return (
@@ -131,13 +130,12 @@ function CodeStep({ link, email, onBack, onDone }: { link: string; email: string
   useEffect(() => { input.current?.focus(); }, []);
 
   async function verify(c: string) {
-    if (c.length !== 6 || busy) return;
+    if (c.length !== CODE_LENGTH || busy) return;
     setBusy(true); setMsg('');
-    const { status, data } = await verifyCode(link, email, c);
+    const { status } = await verifyCode(link, email, c);
     if (status === 200) { onDone(); return; }
     setBusy(false); setCode('');
-    setMsg(data?.reason === 'expired' ? 'That code has expired or had too many tries. Send a new one.'
-      : status === 401 ? 'That code didn’t work. Check the latest email and try again.' : 'Couldn’t check the code. Try again.');
+    setMsg(status === 401 ? 'That code didn’t work. Check the latest email, or send a new code. Codes last 10 minutes.' : 'Couldn’t check the code. Try again.');
   }
 
   async function resend() {
@@ -151,17 +149,18 @@ function CodeStep({ link, email, onBack, onDone }: { link: string; email: string
     <main className="login">
       <form className="in" onSubmit={e => { e.preventDefault(); verify(code); }}>
         <h1>Check your email</h1>
-        <div className="nm">If {email} can view this planner, a 6-digit code is on its way. It works for 10 minutes.</div>
+        <div className="nm">If {email} can view this planner, a {CODE_LENGTH}-digit code is on its way. It works for 10 minutes.
+          If none arrives, check spam or ask whoever shared it.</div>
         <div className="fld">
-          <label htmlFor="v-otp">6-digit code</label>
-          <input id="v-otp" ref={input} className="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
+          <label htmlFor="v-otp">{CODE_LENGTH}-digit code</label>
+          <input id="v-otp" ref={input} className="code" inputMode="numeric" autoComplete="one-time-code" pattern={`[0-9]{${CODE_LENGTH}}`} maxLength={CODE_LENGTH}
             required value={code} onChange={e => {
-              const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+              const v = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
               setCode(v);
-              if (v.length === 6) verify(v);
+              if (v.length === CODE_LENGTH) verify(v);
             }} />
         </div>
-        <button type="submit" className="btn pri" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'View planner'}</button>
+        <button type="submit" className="btn pri" disabled={busy || code.length !== CODE_LENGTH}>{busy ? 'Checking…' : 'View planner'}</button>
         {msg && <p className="msg" role="alert">{msg}</p>}
         <div className="minor">
           <button type="button" className="link" onClick={onBack}>Use a different email</button>
