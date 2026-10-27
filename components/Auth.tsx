@@ -22,7 +22,7 @@ export function SignIn({ notice }: { notice?: string }) {
   return (
     <main className="login">
       <form onSubmit={submit} className="in">
-        <h1>Dump &amp; Slot</h1>
+        <h1>Life is short</h1>
         <div className="nm">Sign in. You’ll confirm with your authenticator app next.</div>
         {notice && <p className="msg" role="alert">{notice}</p>}
         <div className="fld">
