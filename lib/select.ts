@@ -9,9 +9,21 @@ export const byBacklog = (a: Task, b: Task) =>
 
 export const backlogList = (tasks: Task[]) => tasks.filter(t => t.status === 'open' && t.start == null).sort(byBacklog);
 
-/** Scheduled, still open, and already over. */
+/** Scheduled, still open, and already over. A Google Calendar event is a meeting that keeps Google's time, so it's never missed. */
 export const missedList = (tasks: Task[], now: number) =>
-  tasks.filter(t => t.status === 'open' && t.start != null && endOf(t) <= now).sort((a, b) => (a.start as number) - (b.start as number));
+  tasks.filter(t => t.status === 'open' && t.start != null && endOf(t) <= now && !t.externalId?.startsWith('gcal:'))
+    .sort((a, b) => (a.start as number) - (b.start as number));
+
+/**
+ * Missed tasks sent back to the backlog, on top of the stack: ahead of the tasks they tie with on priority and due
+ * date, the latest miss first. Empty when nothing was missed.
+ */
+export function backToBacklog(tasks: Task[], now: number): Task[] {
+  const missed = missedList(tasks, now);
+  if (!missed.length) return [];
+  let top = Math.min(...[...backlogList(tasks), ...missed].map(t => t.order || 0));
+  return missed.map(t => ({ ...t, start: null, order: --top }));
+}
 
 export const doneList = (tasks: Task[]) =>
   tasks.filter(t => t.status === 'done').sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));

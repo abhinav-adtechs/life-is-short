@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCapture, promptContext } from './capture';
-import { focus, backlogList, missedList } from './select';
+import { focus, backlogList, backToBacklog, missedList } from './select';
 import type { Task } from './model';
 
 const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
@@ -117,5 +117,29 @@ describe('backlog and missed', () => {
     const ongoing = task('ongoing', { start: at(26, 13), minutes: 60 });
     const done = task('done', { start: at(26, 9), status: 'done' });
     expect(missedList([missed, ongoing, done], NOW)).toEqual([missed]);
+  });
+
+  it('never counts a Google Calendar event as missed, but does a scheduled Google Task', () => {
+    const meeting = task('Standup', { start: at(26, 9), externalId: 'gcal:primary:ev1' });
+    const gtask = task('Expenses', { start: at(26, 11), externalId: 'gtask:abc' });
+    expect(missedList([meeting, gtask], NOW)).toEqual([gtask]);
+  });
+
+  it('sends missed tasks back to the top of the backlog, the latest miss first', () => {
+    const waiting = task('waiting', { order: 5 });
+    const urgent = task('urgent', { priority: 1, order: 6 });
+    const morning = task('morning', { start: at(26, 9), order: 7 });
+    const noon = task('noon', { start: at(26, 12), order: 8 });
+    const later = task('later', { start: at(26, 16), order: 9 });
+    const back = backToBacklog([waiting, urgent, morning, noon, later], NOW);
+    expect(back.map(t => [t.title, t.start])).toEqual([['morning', null], ['noon', null]]);
+    const list = backlogList([waiting, urgent, later, ...back]);
+    // Priority still comes first; the misses go ahead of the task they tie with.
+    expect(list.map(t => t.title)).toEqual(['urgent', 'noon', 'morning', 'waiting']);
+    expect(focus([waiting, urgent, later, ...back], NOW).now).toBe(urgent);
+  });
+
+  it('has nothing to send back when nothing was missed', () => {
+    expect(backToBacklog([task('a'), task('b', { start: at(26, 16) })], NOW)).toEqual([]);
   });
 });

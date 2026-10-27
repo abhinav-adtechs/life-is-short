@@ -5,7 +5,7 @@ import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
 import { findSlot } from '@/lib/place';
-import { backlogList, doneList, focus, missedList } from '@/lib/select';
+import { backToBacklog, backlogList, doneList, focus } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
 import { atMinutes, ceil15, endOf, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
 import { viewDays } from '@/lib/calview';
@@ -228,6 +228,17 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const unslot = useCallback((id: string) => {
     undoable('Moved to the backlog', store.patch(id, { start: null }));
   }, [store, undoable]);
+
+  // A slot that came and went without a tick sends its task back to the backlog, on top of the stack. Checked every
+  // minute and on every change, so a task put in the past comes straight back too. No Undo: it would only bounce.
+  const { loaded, tasks: allTasks, all: allNow, write } = store;
+  useEffect(() => {
+    if (!loaded) return;
+    const back = backToBacklog(allNow(), now);
+    if (!back.length) return;
+    write(back);
+    toast(back.length === 1 ? `Missed, so back in the backlog: ${shortTitle(back[0].title)}` : `${back.length} missed tasks are back in the backlog`);
+  }, [loaded, allTasks, allNow, write, now, toast]);
 
   const place = useCallback((id: string, start: number) => {
     const t = store.get(id);
@@ -576,11 +587,11 @@ export function useLists() {
   const { tasks: all, now, isOff, inLens } = usePlanner();
   return useMemo(() => {
     const tasks = all.filter(t => !isOff(t));
-    // The lens narrows what can be Now and what waits in the backlog. The calendar, and so Missed, keep everything.
+    // The lens narrows what can be Now and what waits in the backlog. The calendar keeps everything.
     const scoped = tasks.filter(t => t.start != null || inLens(t));
     const f = focus(scoped, now);
     const backlog = backlogList(scoped).filter(t => t.id !== f.now?.id);
     const outside = backlogList(tasks).length - backlogList(scoped).length;
-    return { focus: f, backlog, outside, missed: missedList(tasks, now), done: doneList(tasks).slice(0, 50) };
+    return { focus: f, backlog, outside, done: doneList(tasks).slice(0, 50) };
   }, [all, now, isOff, inLens]);
 }

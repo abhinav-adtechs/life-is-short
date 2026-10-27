@@ -162,11 +162,11 @@ export default function Home() {
             <li className="card">
               <p className="num">03 · Do</p>
               <h3>One thing on the screen.</h3>
-              <p><b>Now</b> is the task on your calendar this minute, or the most important thing in your backlog. Mark it done, or schedule it into the next free gap. Slipped past something? Reslot it in one tap.</p>
+              <p><b>Now</b> is the task on your calendar this minute, or the most important thing in your backlog. Mark it done, or schedule it into the next free gap. Slipped past something? It goes back on top of your backlog.</p>
               <ul className="ill do" aria-hidden="true">
                 <li className="done"><em><CheckIcon size={10} /></em><s>Roadmap draft</s></li>
                 <li className="now"><em />Call the plumber<span>Now</span></li>
-                <li className="missed"><em />Book a haircut<span>Reslot</span></li>
+                <li className="missed"><em />Book a haircut<span>Back to backlog</span></li>
               </ul>
             </li>
           </ol>

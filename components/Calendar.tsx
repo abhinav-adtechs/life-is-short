@@ -37,7 +37,7 @@ function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; 
   const lines = Math.max(1, Math.min(3, Math.floor((h - (mid ? 8 : 14) - 15.5 * fs) / (16.25 * fs))));
   const w = 100 / lanes;
   const live = t.status === 'open' && (t.start as number) <= now && endOf(t) > now;
-  // Over and not done: the same tasks the side lists under Missed.
+  // Over and not done: a Google event, or a task in the moment before it goes back to the backlog.
   const missed = t.status === 'open' && endOf(t) <= now;
   const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
   const color = colorOf(t);
@@ -393,10 +393,10 @@ export function LaptopCalendar() {
 
 export function PhoneCalendar() {
   const { day, setDay, view, prefs, setPhoneView, picked, setPicked, labelOf } = usePlanner();
-  const { backlog, missed, focus: f } = useLists();
+  const { backlog, focus: f } = useLists();
   const nav = useNav();
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
-  const trayTasks = [...(f.now && f.now.start == null ? [f.now] : []), ...missed, ...backlog];
+  const trayTasks = [...(f.now && f.now.start == null ? [f.now] : []), ...backlog];
   const days = viewDays(view, day, prefs);
   const gutter = days.length > 1 ? 40 : 48;
   return (

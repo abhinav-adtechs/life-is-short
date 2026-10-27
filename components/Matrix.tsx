@@ -52,7 +52,7 @@ function Chip({ t, cards }: { t: Task; cards: boolean }) {
  */
 export function Matrix() {
   const { prefs, lens, setLens, split, labelOf, focusLabel, setFocusLabel, drag, store } = usePlanner();
-  const { backlog, outside, missed } = useLists();
+  const { backlog, outside } = useLists();
   const [peek, setPeek] = useState<{ l: string; p: number } | null>(null);
   const peekRef = useRef<HTMLElement>(null);
   // An opened cell can sit below the fold of a narrow backlog: bring its tasks into view.
@@ -92,8 +92,7 @@ export function Matrix() {
   };
 
   if (!backlog.length) {
-    // Missed tasks say enough on their own.
-    if (!store.loaded || (everything && missed.length)) return null;
+    if (!store.loaded) return null;
     return (
       <p className="empty in">
         {everything ? 'Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.' : 'Nothing in this view.'}

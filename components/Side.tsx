@@ -130,8 +130,8 @@ function Check({ t, small }: { t: Task; small?: boolean }) {
   );
 }
 
-function PhoneRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done'; delay: string }) {
-  const { completing, openEditor, slot, now, picked, labelOf } = usePlanner();
+function PhoneRow({ t, kind, delay }: { t: Task; kind: 'open' | 'done'; delay: string }) {
+  const { completing, openEditor, now, picked, labelOf } = usePlanner();
   const lead = useLead(t);
   const label = labelOf(t);
   const cls = 'row' + (t.status === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '') + (label ? ' lab' : '');
@@ -142,26 +142,23 @@ function PhoneRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done
         <div className="rt"><span>{t.title}</span></div>
         {(kind !== 'open' || t.due || lead) && (
           <div className="rp">
-            {kind === 'missed' && t.start != null ? fmtWhen(t.start, now)
-              : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
+            {kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
               : <>{lead}<Due t={t} first={!lead} /></>}
           </div>
         )}
       </button>
-      {kind === 'missed'
-        ? <button type="button" className="txt reslot" onClick={() => slot(t.id)}>Reslot</button>
-        : <span className="rd">{fmtDur(t.minutes)}</span>}
+      <span className="rd">{fmtDur(t.minutes)}</span>
     </div>
   );
 }
 
-function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done'; delay: string }) {
+function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'done'; delay: string }) {
   const { completing, openEditor, slot, now, picked, setPicked, drag, labelOf } = usePlanner();
   const lead = useLead(t);
   const label = labelOf(t);
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'row' + (t.status === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '')
-    + (lifting ? ' lifting' : '') + (kind === 'missed' ? ' wide' : '') + (label ? ' lab' : '');
+    + (lifting ? ' lifting' : '') + (label ? ' lab' : '');
   const canDrag = kind !== 'done';
   return (
     <div className={cls} style={{ animationDelay: delay, ...tint(label?.color) }}>
@@ -179,14 +176,11 @@ function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'don
         onKeyDown={e => { if (e.key === 'e' || e.key === 'E') { e.preventDefault(); openEditor(t.id); } }}>
         <span className="rt"><span>{t.title}</span></span>
         <span className="rp">
-          {kind === 'missed' && t.start != null ? <>{fmtWhen(t.start, now)} · {fmtDur(t.minutes)}</>
-            : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
+          {kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
             : <>{lead && <>{lead} · </>}{fmtDur(t.minutes)}<Due t={t} /></>}
         </span>
       </button>
-      {kind === 'missed' ? (
-        <button type="button" className="txt reslot" aria-label={`Reslot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>Reslot</button>
-      ) : kind === 'open' ? (
+      {kind === 'open' ? (
         <button type="button" className="sched" aria-label={`Put in the next free slot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>
           <CalendarPlusIcon />
         </button>
@@ -216,7 +210,7 @@ function GroupSwitch() {
 
 export function BacklogRows({ phone }: { phone?: boolean }) {
   const { store, prefs, labelOf, now, setLens } = usePlanner();
-  const { backlog, missed, done, outside } = useLists();
+  const { backlog, done, outside } = useLists();
   const [doneOpen, setDoneOpen] = useState(false);
   const stagger = useStagger(phone ? 0.22 : 0.16, phone ? 0.07 : 0.06);
   const Row = phone ? PhoneRow : LaptopRow;
@@ -225,8 +219,6 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
   let i = 0;
   return (
     <>
-      {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
-      {missed.map(t => <Row key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
       {groups.map(g => (
         <Fragment key={g.key || '-'}>
           <div className="gh in"><span className={'ghn' + (g.color ? ' lab' : '')} style={tint(g.color)}>{g.color && <i aria-hidden="true" />}{g.name}</span><span>{g.count}</span></div>
@@ -238,7 +230,7 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
           ))}
         </Fragment>
       ))}
-      {store.loaded && !backlog.length && !missed.length && !outside && (
+      {store.loaded && !backlog.length && !outside && (
         <p className="empty in">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
       )}
       {outside > 0 && (
@@ -303,16 +295,12 @@ export function PhoneScreen() {
   );
 }
 
-/** Laptop: what you missed, the matrix, and what's done. */
+/** Laptop: the matrix, and what's done. */
 function LaptopBacklog() {
-  const { missed, done } = useLists();
+  const { done } = useLists();
   const [doneOpen, setDoneOpen] = useState(false);
-  const stagger = useStagger(0.16, 0.06);
-  let i = 0;
   return (
     <>
-      {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
-      {missed.map(t => <LaptopRow key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
       <Matrix />
       {done.length > 0 && (
         <>
