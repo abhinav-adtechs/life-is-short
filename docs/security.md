@@ -49,7 +49,7 @@ A second Supabase project, in another region, holds a copy of your tasks. It has
 | `PRIMARY_DB_URL` | the primary's **Session pooler** connection string, user `backup_reader.<primary-ref>` |
 | `BACKUP_DB_URL` | the backup's **Session pooler** connection string, user `backup_writer.<backup-ref>` |
 | `OWNER_EMAIL` | your sign-in email |
-| `SUPABASE_CA_CERT` | optional: Supabase's CA certificate (Project Settings → Database → SSL), to pin it |
+| `SUPABASE_CA_CERT` | not needed: the job checks the database against Supabase's CA, bundled in `scripts/backup/supabase-ca-2021.crt`. Set it only if Supabase replaces that CA |
 
 5. Run **Actions → Backup sync → Run workflow** once to confirm it's green.
 
