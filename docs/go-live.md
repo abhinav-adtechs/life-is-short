@@ -52,9 +52,9 @@ Repo → Settings → Secrets and variables → Actions:
 `PRIMARY_DB_URL`, `BACKUP_DB_URL` (from step 3) and `OWNER_EMAIL`. Supabase's certificate authority is bundled with the job, so `SUPABASE_CA_CERT` is only needed if Supabase replaces it.
 Then Actions → **Backup sync** → Run workflow, and confirm it's green.
 
-## 7. Sharing *(optional; account: Resend)*
+## 7. Sharing *(optional; account: Gmail or Resend)*
 
-Only if you want to share view-only links. Follow [setup.md → Sharing](setup.md#5-sharing-optional-view-only-links): make `SHARE_SERVER_KEY`, put its sha256 in the database with `private.set_share_key_hash`, and add `SHARE_SERVER_KEY`, `RESEND_API_KEY` and `SHARE_EMAIL_FROM` to Vercel. Settings → Sharing says if anything is missing.
+Only if you want to share view-only links. Follow [setup.md → Sharing](setup.md#5-sharing-optional-view-only-links): make `SHARE_SERVER_KEY`, put its sha256 in the database with `private.set_share_key_hash`, and add `SHARE_SERVER_KEY` to Vercel. Then add email for the codes: a Gmail app password (`SHARE_SMTP_USER`, `SHARE_SMTP_PASS`), or Resend on a domain you own (`RESEND_API_KEY`, `SHARE_EMAIL_FROM`). Settings → Sharing says if anything is missing.
 
 ## 8. First sign-in
 

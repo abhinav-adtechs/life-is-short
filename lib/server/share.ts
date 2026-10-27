@@ -1,5 +1,7 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
+import nodemailer from 'nodemailer';
+import { codeEmail } from '../code-email';
 import { deviceLabel, isCode } from '../share';
 
 /**
@@ -12,8 +14,20 @@ const url = () => process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const anon = () => process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const key = () => process.env.SHARE_SERVER_KEY || '';
 
+type Env = Record<string, string | undefined>;
+
 export const shareConfigured = () => Boolean(url() && anon() && key().length >= 32);
-export const emailConfigured = () => Boolean(process.env.RESEND_API_KEY && process.env.SHARE_EMAIL_FROM);
+
+/**
+ * How codes go out: through a mailbox over SMTP (Gmail with an app password, no domain needed) when
+ * SHARE_SMTP_USER and SHARE_SMTP_PASS are set, otherwise through Resend (a domain you've verified there).
+ */
+export function mailer(env: Env = process.env): 'smtp' | 'resend' | null {
+  if (env.SHARE_SMTP_USER && env.SHARE_SMTP_PASS) return 'smtp';
+  if (env.RESEND_API_KEY && env.SHARE_EMAIL_FROM) return 'resend';
+  return null;
+}
+export const emailConfigured = () => mailer() != null;
 /** Without an email service, development prints codes to the server log instead. */
 export const canSendCodes = () => emailConfigured() || process.env.NODE_ENV !== 'production';
 
@@ -66,38 +80,73 @@ export const clearCookie = (req: Request) => `${cookieName(req)}=; Path=/; Max-A
 
 /* ---------- the code email ---------- */
 
-/** The email with the code. Plain and short, so it reads well anywhere. */
-export function codeEmail(code: string) {
-  const subject = `${code} is your code for a shared planner`;
-  const text = `Your code to see the planner shared with you:\n\n${code}\n\nIt works for 10 minutes. If you didn’t ask for it, you can ignore this email.\n\nLife is short`;
-  const html = `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;color:#0F0F10">`
-    + `<p>Your code to see the planner shared with you:</p>`
-    + `<p style="font-size:30px;font-weight:600;letter-spacing:.2em;margin:18px 0">${code}</p>`
-    + `<p style="color:#6B6B70">It works for 10 minutes. If you didn’t ask for it, you can ignore this email.</p>`
-    + `<p style="color:#6B6B70">Life is short</p></div>`;
-  return { subject, text, html };
+/** Who the code comes from: SHARE_EMAIL_FROM ("Name <address>" or a bare address), else the SMTP login. */
+export function sender(env: Env = process.env): { name: string; address: string } {
+  const raw = (env.SHARE_EMAIL_FROM || env.SHARE_SMTP_USER || '').trim();
+  const m = /^(.*?)\s*<([^<>]+)>$/.exec(raw);
+  return { name: (m?.[1] || '').replace(/^"|"$/g, '').trim() || 'Life is short', address: (m ? m[2] : raw).trim() };
 }
 
-/** Send a code through Resend. Returns whether it went. */
+/** Gmail unless SHARE_SMTP_HOST says otherwise: TLS on 465, or STARTTLS on 587. Never plain text. */
+export function smtpOptions(env: Env = process.env) {
+  const port = Number(env.SHARE_SMTP_PORT) || 465;
+  return {
+    host: env.SHARE_SMTP_HOST || 'smtp.gmail.com',
+    port,
+    secure: port === 465,
+    requireTLS: true,
+    auth: { user: env.SHARE_SMTP_USER || '', pass: env.SHARE_SMTP_PASS || '' },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+  };
+}
+
+/** What a failed send says, without the mail or the login. */
+const why = (e: unknown) => {
+  const x = e as { code?: string; responseCode?: number; message?: string };
+  return [x.code, x.responseCode, (x.message || String(e)).split('\n')[0].slice(0, 160)].filter(Boolean).join(' ');
+};
+
+/** For Settings → Sharing: can the server log in to the mailbox? Resend can't be checked without sending. */
+export async function checkMailer(): Promise<'ok' | 'login-failed' | 'unreachable'> {
+  if (mailer() !== 'smtp') return 'ok';
+  try {
+    await nodemailer.createTransport(smtpOptions()).verify();
+    return 'ok';
+  } catch (e) {
+    console.error('sharing: SMTP check failed:', why(e));
+    return (e as { code?: string }).code === 'EAUTH' ? 'login-failed' : 'unreachable';
+  }
+}
+
+/** Send a code. Returns whether it went. */
 export async function sendCode(to: string, code: string): Promise<boolean> {
   if (!isCode(code)) return false;
-  if (!emailConfigured()) {
+  const via = mailer();
+  if (!via) {
     if (process.env.NODE_ENV === 'production') return false;
     console.info(`[sharing] no email service set up; the code for ${to} is ${code}`);
     return true;
   }
   const mail = codeEmail(code);
+  const from = sender();
   try {
+    if (via === 'smtp') {
+      // The recipient goes in as a parsed address, so no header parsing happens on it.
+      await nodemailer.createTransport(smtpOptions()).sendMail({ from, to: { name: '', address: to }, ...mail });
+      return true;
+    }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: process.env.SHARE_EMAIL_FROM, to: [to], ...mail }),
+      body: JSON.stringify({ from: `${from.name} <${from.address}>`, to: [to], ...mail }),
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) console.error('sharing: the email service said', res.status);
     return res.ok;
   } catch (e) {
-    console.error('sharing: could not reach the email service:', e instanceof Error ? e.message : e);
+    console.error('sharing: could not send a code:', why(e));
     return false;
   }
 }
