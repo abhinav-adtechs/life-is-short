@@ -49,7 +49,7 @@ Then build the **Session pooler** URLs (Connect → Session pooler), replacing t
 ## 6. GitHub Actions secrets *(account: GitHub)*
 
 Repo → Settings → Secrets and variables → Actions:
-`PRIMARY_DB_URL`, `BACKUP_DB_URL` (from step 3), `OWNER_EMAIL`, and optionally `SUPABASE_CA_CERT` (Supabase → Database → SSL certificate).
+`PRIMARY_DB_URL`, `BACKUP_DB_URL` (from step 3) and `OWNER_EMAIL`. Supabase's certificate authority is bundled with the job, so `SUPABASE_CA_CERT` is only needed if Supabase replaces it.
 Then Actions → **Backup sync** → Run workflow, and confirm it's green.
 
 ## 7. Sharing *(optional; account: Resend)*
