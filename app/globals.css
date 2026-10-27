@@ -1010,6 +1010,7 @@ button{-webkit-user-select:none;user-select:none}
 .lc[aria-pressed="true"] i{opacity:1}
 .ph .lens{margin-top:32px}
 .ph .blist>.lens:first-child{margin-top:0}
+.ph .blist>.lens+.sh{margin-top:24px}
 .ph .lens-v,.ph .lens-f{flex-wrap:nowrap;overflow-x:auto;margin:0 -24px;padding:2px 24px;scrollbar-width:none}
 .ph .lens-v::-webkit-scrollbar,.ph .lens-f::-webkit-scrollbar{display:none}
 .ph .lens-l{flex-wrap:nowrap}
