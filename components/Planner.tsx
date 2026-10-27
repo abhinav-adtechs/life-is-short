@@ -19,6 +19,8 @@ import { DAYS_FOR_VIEW, LP_CHROME, SNAP, VIEW_FOR_DAYS, calendarWidth, daysFor, 
 import { workHours, type CalView, type Prefs } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
+import type { Span } from '@/lib/review';
+import type { Slip } from '@/lib/slips';
 import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
@@ -31,6 +33,8 @@ import { View } from './Scene';
 import { LaptopCalendar, PhoneCalendar } from './Calendar';
 import { Divider } from './Split';
 import { useChat, type Chat } from './Chat';
+import { Review } from './Review';
+import { useSlips } from './slips';
 
 export interface PlannerApi {
   store: Store;
@@ -85,6 +89,11 @@ export interface PlannerApi {
   calTasks: Task[];
   openEditor: (id: string) => void;
   openSettings: (section?: string) => void;
+  /** The review: how a day, week or month went. */
+  openReview: (span?: Span) => void;
+  /** Missed slots you've since moved or deleted, for the review. */
+  slips: Slip[];
+  refreshSlips: () => void;
   undoable: (msg: string, before: Map<string, Task | null>) => void;
   accounts: GoogleAccount[];
   /** Account and calendar of a pulled event. */
@@ -120,12 +129,14 @@ export const usePlanner = () => {
 };
 
 const SETTINGS_HASH = /^#settings(?:\/([a-z]+))?$/;
+const REVIEW_HASH = /^#review(?:\/(day|week|month))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 
 export default function Planner({ repo, email }: { repo: TaskRepo; email: string | null }) {
   const [toastState, setToast] = useState<ToastState | null>(null);
   const toast = useCallback((msg: string, undo?: () => void) => setToast({ key: Date.now() + Math.random(), msg, undo }), []);
-  const store = useTaskStore(repo, msg => toast(msg));
+  const slipLog = useSlips(repo);
+  const store = useTaskStore(repo, msg => toast(msg), slipLog.record);
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
   const [mounted, setMounted] = useState(false);
@@ -134,10 +145,13 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [editorId, setEditorId] = useState<string | null>(null);
   /** Open settings section, from the URL hash (#settings/calendar), or null. */
   const [settings, setSettings] = useState<string | null>(null);
+  /** The review's span when it's open (#review/week), or null. */
+  const [reviewing, setReviewing] = useState<Span | null>(null);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
   const [phoneView, setPhoneView] = useState<'list' | 'calendar'>('list');
   const lastFocus = useRef<HTMLElement | null>(null);
-  const settingsOpenedHere = useRef(false);
+  /** Settings or the review was opened from the app, so Back closes it. */
+  const pageOpenedHere = useRef(false);
   const [accounts, setAccountsState] = useState<GoogleAccount[]>([]);
   const [pulling, setPulling] = useState(false);
   const pullingRef = useRef(false);
@@ -300,10 +314,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     if (el && document.contains(el)) { try { el.focus({ preventScroll: true }); } catch { /* gone */ } }
   }, []);
 
-  /* ---------- settings page, routed by the URL hash so Back closes it ---------- */
+  /* ---------- settings and the review: pages of their own, routed by the URL hash so Back closes them ---------- */
 
   useEffect(() => {
-    const read = () => { const m = SETTINGS_HASH.exec(window.location.hash); setSettings(m ? m[1] || 'appearance' : null); };
+    const read = () => {
+      const h = window.location.hash, m = SETTINGS_HASH.exec(h), r = REVIEW_HASH.exec(h);
+      setSettings(m ? m[1] || 'appearance' : null);
+      setReviewing(r ? (r[1] as Span | undefined) ?? 'week' : null);
+    };
     read();
     window.addEventListener('hashchange', read);
     return () => window.removeEventListener('hashchange', read);
@@ -311,36 +329,44 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   const openSettings = useCallback((section?: string) => {
     lastFocus.current = document.activeElement as HTMLElement | null;
-    settingsOpenedHere.current = true;
+    pageOpenedHere.current = true;
     window.location.hash = section ? `settings/${section}` : 'settings';
   }, []);
 
-  const closeSettings = useCallback(() => {
-    // Opened from the app: step back. Landed on it (e.g. back from Google): drop the hash without leaving.
-    if (settingsOpenedHere.current) { settingsOpenedHere.current = false; history.back(); return; }
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-    setSettings(null);
+  const openReview = useCallback((span?: Span) => {
+    lastFocus.current = document.activeElement as HTMLElement | null;
+    pageOpenedHere.current = true;
+    window.location.hash = span ? `review/${span}` : 'review';
   }, []);
 
-  const wasOpen = useRef(false);
+  const closePage = useCallback(() => {
+    // Opened from the app: step back. Landed on it (e.g. back from Google): drop the hash without leaving.
+    if (pageOpenedHere.current) { pageOpenedHere.current = false; history.back(); return; }
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    setSettings(null);
+    setReviewing(null);
+  }, []);
+
+  const page = settings ? 'settings' : reviewing ? 'review' : null;
+  const wasOpen = useRef<string | null>(null);
   useEffect(() => {
-    if (wasOpen.current && !settings) {
-      // Back where you opened it from; after a trip to Google there's nothing to go back to, so the Settings button.
+    if (wasOpen.current && !page) {
+      // Back where you opened it from; after a trip to Google there's nothing to go back to, so the page's button.
       const prev = lastFocus.current;
-      const el = prev && document.contains(prev) ? prev : document.querySelector<HTMLElement>('[data-settings-button]');
+      const el = prev && document.contains(prev) ? prev : document.querySelector<HTMLElement>(`[data-${wasOpen.current}-button]`);
       try { el?.focus({ preventScroll: true }); } catch { /* gone */ }
     }
-    wasOpen.current = !!settings;
-  }, [settings]);
+    wasOpen.current = page;
+  }, [page]);
 
-  // Esc: close the editor or settings first, then cancel a pick, then stop listening or close the conversation.
+  // Esc: close the editor, settings or the review first, then cancel a pick, then stop listening or close the conversation.
   const chatRef = useRef(chat);
   chatRef.current = chat;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (editorId) { e.preventDefault(); closeEditor(); return; }
-      if (settings) { e.preventDefault(); closeSettings(); return; }
+      if (page) { e.preventDefault(); closePage(); return; }
       if (picked) { e.preventDefault(); setPicked(null); return; }
       const c = chatRef.current;
       if (c.listening) { e.preventDefault(); c.cancelVoice(); return; }
@@ -348,7 +374,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editorId, settings, picked, closeEditor, closeSettings]);
+  }, [editorId, page, picked, closeEditor, closePage]);
 
   // A picked task that disappears (done elsewhere, deleted) can't be placed.
   useEffect(() => { if (picked && !store.get(picked)) setPicked(null); }, [picked, store, store.tasks]);
@@ -534,7 +560,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     store, tasks: store.tasks, now, wide, repo, email, completing, picked, setPicked, drag,
     day, setDay, view, setView, split, setSplit, dragSplit: setSplitDrag, lens, setLens, inLens, focusLabel, setFocusLabel, faded,
     prefs, setPrefs, hours, phoneView, setPhoneView,
-    toast, done, slot, schedule, unslot, place, placeOnDay, chat, calTasks, openEditor, openSettings, undoable,
+    toast, done, slot, schedule, unslot, place, placeOnDay, chat, calTasks, openEditor, openSettings, openReview, undoable,
+    slips: slipLog.slips, refreshSlips: slipLog.refresh,
     accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };
@@ -545,7 +572,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   return (
     <Ctx.Provider value={api}>
       {wide ? (
-        <div className={'lp' + (split.dragging ? ' sizing' : '')} inert={!!settings} style={{ '--side-w': `${split.matrixW}px` } as React.CSSProperties}>
+        <div className={'lp' + (split.dragging ? ' sizing' : '')} inert={!!page} style={{ '--side-w': `${split.matrixW}px` } as React.CSSProperties}>
           <View kind="strip" />
           <LaptopTop />
           <NowBlock />
@@ -554,11 +581,12 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
           <LaptopCalendar />
         </div>
       ) : (
-        <div className="ph" inert={!!settings}>{phoneView === 'list' ? <PhoneScreen /> : <PhoneCalendar />}</div>
+        <div className="ph" inert={!!page}>{phoneView === 'list' ? <PhoneScreen /> : <PhoneCalendar />}</div>
       )}
       {drag.view?.kind === 'row' && <Ghost id={drag.view.id} x={drag.view.x} y={drag.view.y} />}
       {editing && <Editor key={editing.id} task={editing} onClose={closeEditor} />}
-      {settings && <Settings section={settings} onClose={closeSettings} />}
+      {settings && <Settings section={settings} onClose={closePage} />}
+      {!settings && reviewing && <Review span={reviewing} onClose={closePage} />}
       {toastState && <Toast state={toastState} wide={wide} onDone={() => setToast(null)} />}
     </Ctx.Provider>
   );

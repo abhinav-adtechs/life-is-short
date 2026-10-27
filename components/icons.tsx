@@ -44,3 +44,6 @@ export const ArrowUpIcon = ({ size = 16 }: P) => (
 export const HistoryIcon = ({ size = 18 }: P) => (
   <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={1.8} {...base}><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4v4h4" /><path d="M12 7.5V12l3 2" /></svg>
 );
+export const ChartIcon = ({ size = 20 }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={1.8} {...base}><path d="M4 20h16M7 16.5V12M12 16.5V6.5M17 16.5v-7" /></svg>
+);

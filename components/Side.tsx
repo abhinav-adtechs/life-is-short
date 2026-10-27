@@ -12,7 +12,7 @@ import { radio, radioKeys } from './Controls';
 import { LensBar } from './Lens';
 import { Matrix } from './Matrix';
 import { ChatPanel, Composer } from './Chat';
-import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MoreIcon } from './icons';
+import { CalendarIcon, CalendarPlusIcon, CaretIcon, ChartIcon, CheckIcon, MoreIcon } from './icons';
 import { Brand, Logo } from './Brand';
 import { View } from './Scene';
 
@@ -271,7 +271,7 @@ function Inbox() {
 }
 
 export function PhoneScreen() {
-  const { now, setPhoneView, openSettings, chat } = usePlanner();
+  const { now, setPhoneView, openSettings, openReview, chat } = usePlanner();
   const { backlog } = useLists();
   // The conversation and the list are different pages: each opens at its top.
   useEffect(() => { window.scrollTo(0, 0); }, [chat.open]);
@@ -285,6 +285,7 @@ export function PhoneScreen() {
               <span className="date"><Logo size={22} />{longDate(now)}</span>
             <div className="tools">
               <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
+              <button type="button" className="ib" aria-label="Review: how your day, week or month went" data-review-button="" onClick={() => openReview()}><ChartIcon /></button>
               <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
             </div>
           </header>
@@ -327,15 +328,18 @@ function LaptopBacklog() {
   );
 }
 
-/** Across the top on a laptop: the name, the date and time, and Settings. */
+/** Across the top on a laptop: the name, the date and time, the review and Settings. */
 export function LaptopTop() {
-  const { now, openSettings } = usePlanner();
+  const { now, openSettings, openReview } = usePlanner();
   return (
     <header className="top in">
       <Brand />
       <div className="end">
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
-        <button type="button" className="ib" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
+        <div className="tools">
+          <button type="button" className="ib" aria-label="Review: how your day, week or month went" title="Review" data-review-button="" onClick={() => openReview()}><ChartIcon size={18} /></button>
+          <button type="button" className="ib" aria-label="Settings" title="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
+        </div>
       </div>
     </header>
   );
