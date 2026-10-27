@@ -260,7 +260,7 @@ html.resizing-all,html.resizing-all *{cursor:ns-resize!important;-webkit-user-se
 .mx-list{flex:1;min-height:0;overflow-y:auto;border-top:1px solid var(--hair);padding:0 8px 88px}
 .mx-empty{margin:0;padding:12px 8px;font-size:var(--t-13);line-height:18px;color:var(--muted);text-wrap:pretty}
 
-/* Group heads stay put as the list scrolls. Missed and Done fold. */
+/* Group heads stay put as the list scrolls. Done folds. */
 .gh{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;height:36px;padding:0 8px;background:var(--raised);font-size:var(--t-13);font-weight:600}
 .gh-t{display:inline-flex;align-items:center;gap:8px;padding:0;border:0;background:none;font:inherit;color:inherit}
 .gh-n{font-weight:400;color:var(--muted)}
@@ -282,7 +282,6 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .row.ghosted:not(.new) .rt{text-decoration:line-through}
 .due{flex:none;font-size:var(--t-12);color:var(--muted);white-space:nowrap}
 .len{flex:none;width:42px;font-size:var(--t-12);color:var(--muted);text-align:right;white-space:nowrap}
-.row .reslot{margin-left:4px}
 
 /* Every task in its cell, when the matrix has the room. */
 .mx-full{flex:1;min-height:0;overflow:auto;padding:0 12px 88px}
@@ -683,7 +682,6 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .prow-t .tag{margin-top:1px;line-height:19px}
 .prow-m{display:flex;align-items:center;gap:7px;margin-top:2px;font-size:var(--t-13);line-height:18px;color:var(--muted)}
 .prow-m .dot{width:7px;height:7px}
-.prow .reslot{align-self:center;height:36px;margin-left:6px}
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:12px 16px 0}
 .wd{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;height:58px;padding:0;border:1px solid var(--hair);border-radius:var(--r-sm);background:var(--raised);color:var(--ink)}
 .wd-w{font-size:var(--t-12);line-height:15px;font-weight:600;color:var(--muted)}

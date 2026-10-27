@@ -32,7 +32,7 @@ const labelName = (labels: Label[], id: string) => labels.find(l => l.id === id)
 
 /* ---------- one task ---------- */
 
-type Kind = 'open' | 'missed' | 'done' | 'new';
+type Kind = 'open' | 'done' | 'new';
 
 /** The ring you tick a task off with. Done tasks untick. */
 function Ring({ t, kind, size = 10 }: { t: Task; kind: Kind; size?: number }) {
@@ -59,7 +59,7 @@ function useTag(t: Task, kind: Kind) {
 
 /** A backlog row on a laptop: tick it, click then click a time, drag it to the calendar or another cell, double-click to edit. */
 function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, picked, setPicked, openEditor, drag, labelOf, now, slot, plan } = usePlanner();
+  const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
@@ -67,7 +67,7 @@ function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'row' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '')
     + (ticking || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (kind === 'new' ? ' new' : '');
-  const live = kind === 'open' || kind === 'missed';
+  const live = kind === 'open';
   return (
     <div className={cls} style={{ animationDelay: delay }}>
       <Ring t={t} kind={kind} />
@@ -82,13 +82,11 @@ function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
         onKeyDown={e => { if ((e.key === 'e' || e.key === 'E') && kind !== 'new') { e.preventDefault(); openEditor(t.id); } }}>
         <span className="rt"><span className="strike">{t.title}</span></span>
         {tag && <span className={tag.cls}>{tag.text}</span>}
-        {kind === 'missed' && t.start != null && <span className="due">{fmtWhen(t.start, now)}</span>}
         {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
         {due && <span className={'due' + (due.hot ? ' hot' : '')}>{due.text}</span>}
         <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} title={label?.name ?? 'No label'} />
         <span className="len num">{fmtDur(t.minutes)}</span>
       </button>
-      {kind === 'missed' && <button type="button" className="btn sec sm reslot" aria-label={`Reslot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>Reslot</button>}
     </div>
   );
 }
@@ -121,7 +119,7 @@ function Chip({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
 
 /* ---------- groups below the matrix ---------- */
 
-/** A sticky heading over a run of rows. Missed and Done fold away. */
+/** A sticky heading over a run of rows. Done folds away. */
 function GroupHead({ name, count, open, onToggle, action }: {
   name: string; count: number; open?: boolean; onToggle?: () => void; action?: { label: string; onClick: () => void };
 }) {
@@ -138,20 +136,15 @@ function GroupHead({ name, count, open, onToggle, action }: {
   );
 }
 
-/** What you missed, folded to a line with Reslot all; and what's done, folded too. Never a wall of red. */
-function MissedAndDone({ part, Item, stagger, start }: {
-  part: 'missed' | 'done'; Item: typeof TaskRow; stagger: (i: number) => string; start: number;
-}) {
-  const { reslotAll } = usePlanner();
-  const { missed, done } = useLists();
+/** What's done, folded to a line. */
+function Done({ Item, stagger }: { Item: typeof TaskRow; stagger: (i: number) => string }) {
+  const { done } = useLists();
   const [open, setOpen] = useState(false);
-  const list = part === 'missed' ? missed : done;
-  if (!list.length) return null;
+  if (!done.length) return null;
   return (
     <>
-      <GroupHead name={part === 'missed' ? 'Missed' : 'Done'} count={list.length} open={open} onToggle={() => setOpen(o => !o)}
-        action={part === 'missed' ? { label: list.length === 1 ? 'Reslot' : 'Reslot all', onClick: reslotAll } : undefined} />
-      {open && list.map((t, i) => <Item key={t.id} t={t} kind={part} delay={stagger(start + i)} />)}
+      <GroupHead name="Done" count={done.length} open={open} onToggle={() => setOpen(o => !o)} />
+      {open && done.map((t, i) => <Item key={t.id} t={t} kind="done" delay={stagger(i)} />)}
     </>
   );
 }
@@ -237,26 +230,24 @@ export function MatrixPanel() {
 
 function MatrixList() {
   const { filter, setFilter, prefs, store } = usePlanner();
-  const { backlog, missed } = useLists();
+  const { backlog } = useLists();
   const groups = useGroups();
   const stagger = useStagger(32, 18);
   let i = 0;
-  const missedCount = missed.length;
   return (
     <div className="mx-list">
-      <MissedAndDone part="missed" Item={TaskRow} stagger={stagger} start={0} />
       {groups.map(g => (
         <Fragment key={g.key}>
           <GroupHead name={filter ? `${labelName(prefs.labels, filter.label)} · ${PRI[filter.priority]}` : PRI[g.p]} count={g.items.length}
             action={filter ? { label: `Show all ${backlog.length}`, onClick: () => setFilter(null) } : undefined} />
-          {g.items.map(x => <TaskRow key={x.t.id} t={x.t} kind={x.kind} delay={stagger(missedCount + i++)} />)}
+          {g.items.map(x => <TaskRow key={x.t.id} t={x.t} kind={x.kind} delay={stagger(i++)} />)}
           {!g.items.length && <p className="mx-empty">Nothing here yet.</p>}
         </Fragment>
       ))}
       {store.loaded && !backlog.length && !filter && (
         <p className="mx-empty">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
       )}
-      <MissedAndDone part="done" Item={TaskRow} stagger={stagger} start={0} />
+      <Done Item={TaskRow} stagger={stagger} />
     </div>
   );
 }
@@ -295,8 +286,7 @@ function FullMatrix() {
         })}
       </div>
       <div className="mx-after">
-        <MissedAndDone part="missed" Item={TaskRow} stagger={stagger} start={0} />
-        <MissedAndDone part="done" Item={TaskRow} stagger={stagger} start={0} />
+        <Done Item={TaskRow} stagger={stagger} />
       </div>
     </div>
   );
@@ -306,13 +296,12 @@ function FullMatrix() {
 
 /** A backlog row on a phone: a big ring, the title in full, and a line of facts. Tap to open it. */
 function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, openEditor, labelOf, now, slot } = usePlanner();
+  const { completing, openEditor, labelOf, now } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
   const facts = [
     kind === 'new' ? 'New' : null,
-    kind === 'missed' && t.start != null ? fmtWhen(t.start, now) : null,
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
     due?.text ?? null, label?.name ?? null, fmtDur(t.minutes),
   ].filter(Boolean).join(' · ');
@@ -324,7 +313,6 @@ function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
         <span className="prow-t"><span className="rt"><span className="strike">{t.title}</span></span>{tag && <span className={tag.cls}>{tag.text}</span>}</span>
         <span className="prow-m"><span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} /><span className={due?.hot ? 'hot' : undefined}>{facts}</span></span>
       </button>
-      {kind === 'missed' && <button type="button" className="btn sec reslot" aria-label={`Reslot: ${t.title}`} onClick={() => slot(t.id)}>Reslot</button>}
     </div>
   );
 }
@@ -340,7 +328,6 @@ export function PhoneMatrix() {
     <>
       <div className="ph-card mx-card"><CountGrid phone head={92} /></div>
       <div className="ph-list">
-        <MissedAndDone part="missed" Item={PhoneRow} stagger={stagger} start={0} />
         {groups.map(g => (
           <Fragment key={g.key}>
             <GroupHead name={filter ? `${labelName(prefs.labels, filter.label)} · ${PRI[filter.priority]}` : PRI[g.p]} count={g.items.length}
@@ -352,7 +339,7 @@ export function PhoneMatrix() {
         {store.loaded && !backlog.length && !filter && (
           <p className="mx-empty">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
         )}
-        <MissedAndDone part="done" Item={PhoneRow} stagger={stagger} start={0} />
+        <Done Item={PhoneRow} stagger={stagger} />
       </div>
     </>
   );
