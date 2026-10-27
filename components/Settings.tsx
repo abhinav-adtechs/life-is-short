@@ -1,97 +1,64 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { normalizeImport } from '@/lib/importer';
 import { hasSupabase, supabase } from '@/lib/supabase';
-import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, SURFACES, TEXT_SIZES, accentPair, fontHref, palettes, sceneVars, type Prefs } from '@/lib/prefs';
-import { SCENES } from '@/lib/scenes';
+import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, TEXT_SIZES, THEMES, accentColor, fontHref, type Prefs } from '@/lib/prefs';
 import { isHex } from '@/lib/color';
-import { fmtHour, fmtRange, fmtTime } from '@/lib/format';
-import { ACCOUNT_COLORS } from '@/lib/google-client';
-import { atMinutes, startOfDay } from '@/lib/time';
+import { fmtHour } from '@/lib/format';
 import { usePlanner } from './Planner';
-import { useMedia, prefersReducedMotion } from './hooks';
-import { BackIcon, CheckIcon, MicIcon } from './icons';
+import { prefersReducedMotion } from './hooks';
+import { CheckIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
 import { LabelsSection } from './Labels';
-import { View } from './Scene';
-import { SharingSection } from './SharingSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
   { id: 'calendar', name: 'Calendar' },
   { id: 'labels', name: 'Labels' },
-  { id: 'google', name: 'Google accounts' },
-  { id: 'sharing', name: 'Sharing', needsSupabase: true },
-  { id: 'tasks', name: 'Your tasks' },
+  { id: 'google', name: 'Calendars' },
+  { id: 'tasks', name: 'Tasks' },
   { id: 'account', name: 'Account', needsSupabase: true },
 ];
 
-const APPEARANCE_KEYS = ['mode', 'scene', 'surface', 'accent', 'font', 'textSize', 'corners', 'density', 'contrast', 'trueBlack', 'motion', 'clock'] as const;
+const APPEARANCE_KEYS = ['theme', 'accent', 'ambient', 'font', 'textSize', 'density', 'contrast', 'motion', 'clock'] as const;
 
-/** Settings as a full page over the planner. Every change applies straight away; there's nothing to save. */
-export function Settings({ section, onClose }: { section: string; onClose: () => void }) {
-  const page = useRef<HTMLDivElement>(null);
-  const [current, setCurrent] = useState(section);
+/** Settings, in the side panel. Every change applies straight away; there's nothing to save. */
+export function Settings() {
+  const { section } = usePlanner();
+  const root = useRef<HTMLDivElement>(null);
   const sections = SECTIONS.filter(s => !s.needsSupabase || hasSupabase());
 
+  // #settings/google (back from connecting Google, say) opens at that section.
   useEffect(() => {
-    page.current?.focus({ preventScroll: true });
-    if (section !== 'appearance') document.getElementById(`set-${section}`)?.scrollIntoView({ block: 'start' });
-    setCurrent(section);
+    if (section && section !== 'appearance') document.getElementById(`set-${section}`)?.scrollIntoView({ block: 'start' });
   }, [section]);
-
-  // Highlight the section being read.
-  useEffect(() => {
-    const root = page.current;
-    if (!root || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(entries => {
-      const hit = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      if (hit) setCurrent(hit.target.id.replace('set-', ''));
-    }, { root, rootMargin: '-30% 0px -60% 0px' });
-    root.querySelectorAll('.sp-sec').forEach(el => io.observe(el));
-    return () => io.disconnect();
-  }, []);
 
   const go = (id: string) => {
     document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
     history.replaceState(null, '', `#settings/${id}`);
-    setCurrent(id);
   };
 
   return (
-    <div ref={page} className="setpage" role="dialog" aria-modal="true" aria-labelledby="set-h" tabIndex={-1}>
-      <header className="sp-top">
-        <button type="button" className="ib" aria-label="Back to the planner" onClick={onClose}><BackIcon /></button>
-        <h1 id="set-h">Settings</h1>
-        <span className="sp-saved">Changes apply as you make them</span>
-      </header>
-      <div className="sp-body">
-        <nav className="sp-nav" aria-label="Settings sections">
-          {sections.map(s => (
-            <button key={s.id} type="button" aria-current={current === s.id ? 'true' : undefined} onClick={() => go(s.id)}>{s.name}</button>
-          ))}
-        </nav>
-        <div className="sp-main">
-          <Appearance />
-          <CalendarPrefs />
-          <LabelsSection />
-          <GoogleSection />
-          {hasSupabase() && <SharingSection />}
-          <TasksSection />
-          {hasSupabase() && <AccountSection />}
-        </div>
-      </div>
+    <div className="set" ref={root}>
+      <nav className="set-nav" aria-label="Settings sections">
+        {sections.map(s => <button key={s.id} type="button" className="btn ghost sm" onClick={() => go(s.id)}>{s.name}</button>)}
+      </nav>
+      <Appearance />
+      <CalendarPrefs />
+      <LabelsSection />
+      <GoogleSection />
+      <TasksSection />
+      {hasSupabase() && <AccountSection />}
     </div>
   );
 }
 
-function Section({ id, title, lead, children }: { id: string; title: string; lead?: React.ReactNode; children: React.ReactNode }) {
+export function Section({ id, title, sub, children }: { id: string; title: string; sub?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section id={`set-${id}`} className="sp-sec" aria-labelledby={`set-${id}-h`}>
-      <h2 id={`set-${id}-h`}>{title}</h2>
-      {lead && <p className="lead">{lead}</p>}
+    <section id={`set-${id}`} className="set-sec" aria-labelledby={`set-${id}-h`}>
+      <div className="set-h"><h3 id={`set-${id}-h`}>{title}</h3>{sub && <span className="muted sm">{sub}</span>}</div>
       {children}
     </section>
   );
@@ -99,7 +66,7 @@ function Section({ id, title, lead, children }: { id: string; title: string; lea
 
 /* ---------- appearance ---------- */
 
-/** Load every font option once while Settings is open, so each card shows its own face. */
+/** Load every font option once while Settings is open, so each shows its own face. */
 function useFontPreviews() {
   useEffect(() => {
     if (document.querySelector('link[data-font-previews]')) return;
@@ -111,63 +78,11 @@ function useFontPreviews() {
   }, []);
 }
 
-/** A small Now block and calendar column drawn with the current settings. */
-function Preview() {
-  const { accounts, prefs } = usePlanner();
-  const today = startOfDay(Date.now());
-  const colors = accounts.length ? accounts.map(a => a.color) : ACCOUNT_COLORS;
-  const tinted = prefs.colorBy === 'account' || prefs.colorBy === 'calendar';
-  const hour = Math.min(prefs.hourHeight, 56);
-  // By label: a work review, a personal call and a meeting from a calendar labelled for the third label.
-  const label = (i: number) => (prefs.colorBy === 'label' && prefs.labels.length ? prefs.labels[i % prefs.labels.length].color : null);
-  const blocks = [
-    { title: 'Design review', start: 9.5, len: 60, color: label(0) ?? (tinted ? colors[0] : prefs.colorBy === 'priority' ? 'var(--muted)' : null) },
-    { title: 'Call the bank', start: 11, len: 30, color: label(1) ?? (prefs.colorBy === 'priority' ? 'var(--accent)' : null) },
-    { title: 'Team sync', start: 11.75, len: 45, color: label(2) ?? (tinted ? colors[1 % colors.length] : null) },
-  ];
-  return (
-    <div className="preview" aria-hidden="true">
-      <div className="pv-now">
-        <div className="nl"><i />Now</div>
-        <div className="pv-t">Call the bank about the card</div>
-        <div className="nm">Urgent · 30 min · until {fmtTime(atMinutes(today, 11 * 60 + 30))}</div>
-        <div className="acts"><span className="btn pri">Done</span><span className="btn sec">Schedule</span></div>
-        <div className="pv-cap"><span className="field"><span>Dump a task…</span></span><span className="mic"><MicIcon size={20} /></span></div>
-      </div>
-      <div className="pv-cal" style={{ height: hour * 4 }}>
-        {[9, 10, 11, 12].map((h, i) => <span key={h} className="pv-h" style={{ top: i * hour }}>{fmtHour(h)}</span>)}
-        <div className="pv-col">
-          {blocks.map(b => {
-            const h = Math.max(20, (b.len / 60) * hour - 4);
-            return (
-              <div key={b.title} className={'block' + (b.len <= 30 || h < 30 ? ' small' : h < 52 ? ' mid' : '') + (b.color ? ' tint' : '')}
-                style={{ top: (b.start - 9) * hour + 2, height: h, left: 4, right: 4, ...(b.color ? { '--c': b.color } as React.CSSProperties : {}) }}>
-                <div className="bt">{b.title}</div>
-                <div className="bm">{fmtRange(atMinutes(today, b.start * 60), b.len)}</div>
-              </div>
-            );
-          })}
-          <div className="nowline" style={{ top: 1.6 * hour }}><i /></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const VIEWS = [
-  ...SCENES.map(sc => ({ value: sc.id, label: sc.name, note: sc.note, style: sceneVars(sc) as CSSProperties })),
-  { value: 'plain' as const, label: 'Plain', note: 'No window. A still, flat page', style: undefined },
-];
-
 function Appearance() {
-  const { prefs, setPrefs, toast } = usePlanner();
-  const sysDark = useMedia('(prefers-color-scheme: dark)');
-  const dark = prefs.mode === 'dark' || (prefs.mode === 'system' && sysDark);
+  const { prefs, setPrefs, toast, theme } = usePlanner();
   useFontPreviews();
-  const pal = palettes(prefs);
   const custom = isHex(prefs.accent);
-  const shown = accentPair(prefs.accent, pal.light, pal.dark);
-  const nudged = custom && (dark ? shown.adjusted.dark : shown.adjusted.light);
+  const accents = [{ id: null as string | null, name: 'Theme accent', color: accentColor(null, theme) }, ...ACCENTS.map(a => ({ id: a.id as string | null, name: a.name, color: a.color as string }))];
 
   const reset = () => {
     const before = Object.fromEntries(APPEARANCE_KEYS.map(k => [k, prefs[k]])) as Partial<Prefs>;
@@ -176,68 +91,49 @@ function Appearance() {
   };
 
   return (
-    <Section id="appearance" title="Appearance" lead="Light or dark is set per device. Everything else follows you to your other devices.">
-      <Preview />
+    <Section id="appearance" title="Appearance" sub="theme, accent and light stay on this device">
+      <div className="opt stack">
+        <span className="flabel" id="set-theme">Theme</span>
+        <div className="themes" role="radiogroup" aria-labelledby="set-theme" onKeyDown={radioKeys}>
+          {THEMES.map(t => (
+            <button key={t.id} type="button" className="theme" {...radio(theme === t.id)} onClick={() => setPrefs({ theme: t.id })}>
+              <span className="theme-sw" style={{ background: t.bg }} aria-hidden="true"><i style={{ background: t.accent }} /></span>
+              <span className="theme-t"><b>{t.name}</b><span>{t.note}</span></span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <Opt label="Match your device" note="Night train when your device is dark, Tide when it’s light. Picking a theme above turns this off."
+        toggle={{ checked: prefs.theme == null, onChange: on => setPrefs({ theme: on ? null : theme }) }} />
 
-      <Opt label="View" note="What you see out of the window, behind Now and on the sign-in screen. It moves slowly: clouds drift, the light breathes, birds pass now and then." stack>
+      <div className="opt stack">
+        <span className="flabel" id="set-accent">Accent</span>
+        <div className="swatches" role="radiogroup" aria-labelledby="set-accent" onKeyDown={radioKeys}>
+          {accents.map((a, i) => (
+            <button key={a.id ?? 'theme'} type="button" className="swatch" {...radio(prefs.accent === a.id)} tabIndex={prefs.accent === a.id || (custom && i === 0) ? 0 : -1}
+              aria-label={a.name} title={a.name} style={{ '--c': a.color } as React.CSSProperties} onClick={() => setPrefs({ accent: a.id })}>
+              <CheckIcon size={12} w={2.4} />
+            </button>
+          ))}
+          <label className="swatch custom" title="Your own colour" aria-checked={custom} style={custom ? ({ '--c': prefs.accent } as React.CSSProperties) : undefined}>
+            <input type="color" aria-label="Your own colour" value={custom ? (prefs.accent as string).toLowerCase() : '#f04a0c'} onChange={e => setPrefs({ accent: e.target.value.toUpperCase() })} />
+            {custom && <CheckIcon size={12} w={2.4} />}
+          </label>
+        </div>
+        <p className="note">The now line, the dot on Next task, and anything that needs you. A picked colour wins over the theme’s.</p>
+      </div>
+
+      <Opt label="Ambient light" note="Tide’s water under the now line; the light passing through the trains. Quiet halves it, Still holds it." stack>
         {({ labelId }) => (
-          <div className="scenes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
-            {VIEWS.map(v => (
-              <button key={v.value} type="button" className="scn" {...radio(prefs.scene === v.value)} onClick={() => setPrefs({ scene: v.value })}>
-                <span className={'sp' + (v.style ? '' : ' plain')} aria-hidden="true">
-                  {v.style ? <View kind="thumb" style={v.style} /> : <><i style={{ top: '30%' }} /><i style={{ top: '48%', right: '46%' }} /><i style={{ top: '66%' }} /></>}
-                </span>
-                <b>{v.label}</b>
-                <small>{v.note}</small>
-              </button>
-            ))}
-          </div>
+          <Choice labelledBy={labelId} value={prefs.ambient} onChange={ambient => setPrefs({ ambient })}
+            options={[{ value: 'present', label: 'Present' }, { value: 'quiet', label: 'Quiet' }, { value: 'still', label: 'Still' }]} />
         )}
       </Opt>
 
-      <Opt label="Mode" note="This device only. System follows your phone or computer. Dark dims the wall and the panels; the view stays as it is." stack>
+      <Opt label="Motion" note="Reduced stops every animation, the ambient light too. System follows your device." stack>
         {({ labelId }) => (
-          <Choice labelledBy={labelId} value={prefs.mode} onChange={mode => setPrefs({ mode })}
-            options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
-        )}
-      </Opt>
-
-      <Opt label="Theme" note="The colour of the panels (or of the page, with no view) and their lines. Each has a light and a dark side." stack>
-        {({ labelId }) => (
-          <div className="themes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
-            {SURFACES.map(s => (
-              <button key={s.id} type="button" className="theme" {...radio(prefs.surface === s.id)} onClick={() => setPrefs({ surface: s.id })}>
-                <span className="tp" aria-hidden="true">
-                  {[s.light, s.dark].map((p, i) => (
-                    <span key={i} style={{ background: p.bg }}>
-                      <i style={{ background: p.ink, width: '70%' }} /><i style={{ background: p.muted, width: '45%' }} /><i style={{ background: p.block, height: 14 }} />
-                    </span>
-                  ))}
-                </span>
-                <b>{s.name}</b>
-              </button>
-            ))}
-          </div>
-        )}
-      </Opt>
-
-      <Opt label="Accent colour" note={<>The mic, the current-time line, today’s date and drop targets.{nudged ? ' Your colour is adjusted slightly here so it stays readable.' : ''}</>} stack>
-        {({ labelId }) => (
-          <div className="swatches" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
-            {ACCENTS.map((a, i) => (
-              <button key={a.id} type="button" className="swatch" {...radio(prefs.accent === a.id)} tabIndex={prefs.accent === a.id || (custom && i === 0) ? 0 : -1}
-                aria-label={a.name} title={a.name}
-                style={{ '--c': dark ? a.dark : a.light } as React.CSSProperties} onClick={() => setPrefs({ accent: a.id })}>
-                <CheckIcon size={14} />
-              </button>
-            ))}
-            <label className={'swatch custom' + (custom ? ' on' : '')} title="Your own colour"
-              style={custom ? ({ '--c': dark ? shown.dark : shown.light } as React.CSSProperties) : undefined}>
-              <input type="color" aria-label="Your own colour" value={custom ? prefs.accent.toLowerCase() : '#f04a0c'}
-                onChange={e => setPrefs({ accent: e.target.value })} />
-              {custom && <CheckIcon size={14} />}
-            </label>
-          </div>
+          <Choice labelledBy={labelId} value={prefs.motion} onChange={motion => setPrefs({ motion })}
+            options={[{ value: 'system', label: 'System' }, { value: 'full', label: 'Full' }, { value: 'reduce', label: 'Reduced' }]} />
         )}
       </Opt>
 
@@ -245,11 +141,8 @@ function Appearance() {
         {({ labelId }) => (
           <div className="fonts" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
             {FONTS.map(f => (
-              <button key={f.id} type="button" className="fontc" {...radio(prefs.font === f.id)} onClick={() => setPrefs({ font: f.id })}
-                style={{ fontFamily: f.stack }}>
-                <span className="fa" aria-hidden="true">Aa</span>
-                <span className="fn">{f.name}</span>
-                <span className="fd">{f.note}</span>
+              <button key={f.id} type="button" className="fontc" {...radio(prefs.font === f.id)} title={f.note} onClick={() => setPrefs({ font: f.id })} style={{ fontFamily: f.stack }}>
+                <span className="fa" aria-hidden="true">Aa</span><span className="fn">{f.name}</span>
               </button>
             ))}
           </div>
@@ -259,35 +152,18 @@ function Appearance() {
       <Opt label="Text size" stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.textSize} onChange={textSize => setPrefs({ textSize })}
-            options={TEXT_SIZES.map(t => ({ value: t.value, label: <span style={{ fontSize: `${t.value * 14}px` }}>{t.label}</span> }))} />
+            options={TEXT_SIZES.map(t => ({ value: t.value, label: t.label }))} />
         )}
       </Opt>
 
-      <Opt label="Corners" note="How round buttons, cards and calendar blocks are." stack>
-        {({ labelId }) => (
-          <Choice labelledBy={labelId} value={prefs.corners} onChange={corners => setPrefs({ corners })}
-            options={[{ value: 'round', label: 'Round' }, { value: 'soft', label: 'Soft' }, { value: 'square', label: 'Square' }]} />
-        )}
-      </Opt>
-
-      <Opt label="List density" note="Space between rows in the backlog." stack>
+      <Opt label="List density" note="Room between rows in the matrix." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.density} onChange={density => setPrefs({ density })}
             options={[{ value: 'compact', label: 'Compact' }, { value: 'cozy', label: 'Cozy' }, { value: 'roomy', label: 'Roomy' }]} />
         )}
       </Opt>
 
-      <Opt label="Increase contrast" note="Darker secondary text, stronger lines and outlined calendar blocks."
-        toggle={{ checked: prefs.contrast, onChange: contrast => setPrefs({ contrast }) }} />
-      <Opt label="Pure black in dark mode" note="A true black background for OLED screens."
-        toggle={{ checked: prefs.trueBlack, onChange: trueBlack => setPrefs({ trueBlack }) }} />
-
-      <Opt label="Motion" note="Reduced turns off animations: the mic’s ripple, and the view’s drifting clouds, birds and passing fields. System follows your device." stack>
-        {({ labelId }) => (
-          <Choice labelledBy={labelId} value={prefs.motion} onChange={motion => setPrefs({ motion })}
-            options={[{ value: 'system', label: 'System' }, { value: 'full', label: 'On' }, { value: 'reduce', label: 'Reduced' }]} />
-        )}
-      </Opt>
+      <Opt label="Increase contrast" note="Darker secondary text and stronger lines." toggle={{ checked: prefs.contrast, onChange: contrast => setPrefs({ contrast }) }} />
 
       <Opt label="Clock" stack>
         {({ labelId }) => (
@@ -296,7 +172,7 @@ function Appearance() {
         )}
       </Opt>
 
-      <div className="sacts"><button type="button" className="btn sec" onClick={reset}>Reset appearance</button></div>
+      <div className="acts"><button type="button" className="btn sec sm" onClick={reset}>Reset appearance</button></div>
     </Section>
   );
 }
@@ -306,41 +182,12 @@ function Appearance() {
 const hourLabel = (h: number) => (h === 24 ? 'Midnight' : fmtHour(h));
 
 function CalendarPrefs() {
-  const { prefs, setPrefs, view, setView } = usePlanner();
+  const { prefs, setPrefs } = usePlanner();
   return (
     <Section id="calendar" title="Calendar">
-      <Opt label="View" note="This device only. You can also switch from the calendar. On a laptop, picking days also sizes the calendar to fit them." stack>
+      <Opt label="Your day" note="The calendar shows these hours, stretching a little for anything just outside. Next free slot and the AI place tasks inside them." stack>
         {({ labelId }) => (
-          <Choice labelledBy={labelId} value={view} onChange={setView}
-            options={[{ value: 'day', label: 'Day' }, { value: 'three', label: '3 days' }, { value: 'work', label: '5 days' }, { value: 'week', label: '7 days' }, { value: 'month', label: 'Month' }]} />
-        )}
-      </Opt>
-
-      <Opt label="When the backlog is short of room" stack
-        note="On a laptop, a wide calendar leaves the backlog narrow. Counts keeps every priority as a number you can open; Fold keeps the most urgent readable and folds the rest.">
-        {({ labelId }) => (
-          <Choice labelledBy={labelId} value={prefs.tight} onChange={tight => setPrefs({ tight })}
-            options={[{ value: 'counts', label: 'Counts' }, { value: 'fold', label: 'Fold' }]} />
-        )}
-      </Opt>
-
-      <Opt label="5-day view shows" stack>
-        {({ labelId }) => (
-          <Choice labelledBy={labelId} value={prefs.fiveDay} onChange={fiveDay => setPrefs({ fiveDay })}
-            options={[{ value: 'workweek', label: 'Mon to Fri' }, { value: 'rolling', label: 'Next 5 days' }]} />
-        )}
-      </Opt>
-
-      <Opt label="Week starts on" stack>
-        {({ labelId }) => (
-          <Choice labelledBy={labelId} value={prefs.weekStart} onChange={weekStart => setPrefs({ weekStart })}
-            options={[{ value: 1, label: 'Monday' }, { value: 0, label: 'Sunday' }, { value: 6, label: 'Saturday' }]} />
-        )}
-      </Opt>
-
-      <Opt label="Your day" note="The calendar shows these hours and stretches to fit anything outside them. Next free slot and AI sorting place tasks inside them." stack>
-        {({ labelId }) => (
-          <div className="two hours" role="group" aria-labelledby={labelId}>
+          <div className="two" role="group" aria-labelledby={labelId}>
             <div className="fld">
               <label htmlFor="day-start">Starts</label>
               <select id="day-start" value={prefs.dayStart} onChange={e => setPrefs({ dayStart: Number(e.target.value) })}>
@@ -357,7 +204,21 @@ function CalendarPrefs() {
         )}
       </Opt>
 
-      <Opt label="Hour height" note="The least an hour gets on the day and week grids. On a laptop, your day stretches to fill the screen." stack>
+      <Opt label="Week starts on" stack>
+        {({ labelId }) => (
+          <Choice labelledBy={labelId} value={prefs.weekStart} onChange={weekStart => setPrefs({ weekStart })}
+            options={[{ value: 1, label: 'Monday' }, { value: 0, label: 'Sunday' }, { value: 6, label: 'Saturday' }]} />
+        )}
+      </Opt>
+
+      <Opt label="5 days shows" stack>
+        {({ labelId }) => (
+          <Choice labelledBy={labelId} value={prefs.fiveDay} onChange={fiveDay => setPrefs({ fiveDay })}
+            options={[{ value: 'rolling', label: 'The next 5 days' }, { value: 'workweek', label: 'Mon to Fri' }]} />
+        )}
+      </Opt>
+
+      <Opt label="Hour height on a phone" note="A laptop fits your day to the screen." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.hourHeight} onChange={hourHeight => setPrefs({ hourHeight })}
             options={HOUR_HEIGHTS.map(h => ({ value: h.value, label: h.label }))} />
@@ -365,7 +226,7 @@ function CalendarPrefs() {
       </Opt>
 
       <Opt label="Colour events by" stack
-        note="Label colours your tasks, and Google events by their calendar’s or account’s label; events without one keep their account’s colour. Account and Calendar colour only pulled events.">
+        note="Label colours tasks, and Google events by their calendar’s or account’s label. Account and Calendar colour pulled events only.">
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.colorBy} onChange={colorBy => setPrefs({ colorBy })}
             options={[{ value: 'label', label: 'Label' }, { value: 'account', label: 'Account' }, { value: 'calendar', label: 'Calendar', hint: 'Google calendar' }, { value: 'priority', label: 'Priority' }, { value: 'none', label: 'None' }]} />
@@ -374,8 +235,7 @@ function CalendarPrefs() {
 
       <Opt label="Show done tasks" note="Past Google events count as done." toggle={{ checked: prefs.showDone, onChange: showDone => setPrefs({ showDone }) }} />
       <Opt label="Shade weekends" toggle={{ checked: prefs.shadeWeekends, onChange: shadeWeekends => setPrefs({ shadeWeekends }) }} />
-      <Opt label="Week numbers" note="ISO weeks, in the title and down the side of the month."
-        toggle={{ checked: prefs.weekNumbers, onChange: weekNumbers => setPrefs({ weekNumbers }) }} />
+      <Opt label="Week numbers" note="ISO weeks, in the calendar’s title." toggle={{ checked: prefs.weekNumbers, onChange: weekNumbers => setPrefs({ weekNumbers }) }} />
     </Section>
   );
 }
@@ -399,10 +259,10 @@ function TasksSection() {
   };
 
   return (
-    <Section id="tasks" title="Your tasks"
-      lead={repo.kind === 'supabase' ? 'Synced to your account across devices.' : 'Saved in this browser only. Add Supabase keys to sync between devices.'}>
-      <div className="sacts">
-        <button type="button" className="btn sec" onClick={() => file.current?.click()}>Import from a file</button>
+    <Section id="tasks" title="Your tasks" sub={repo.kind === 'supabase' ? 'synced to your account' : 'in this browser only'}>
+      {repo.kind !== 'supabase' && <p className="note">Add Supabase keys to sync between devices.</p>}
+      <div className="acts">
+        <button type="button" className="btn sec sm" onClick={() => file.current?.click()}>Import from a file</button>
         <input ref={file} type="file" accept="application/json,.json" hidden
           onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importFile(f); }} />
       </div>
@@ -443,35 +303,35 @@ function AccountSection() {
   };
 
   return (
-    <Section id="account" title="Account" lead={email ? `Signed in as ${email}` : undefined}>
+    <Section id="account" title="Account" sub={email ? `signed in as ${email}` : undefined}>
       {pwOpen ? (
-        <form onSubmit={changePassword} autoComplete="off" className="pwform">
+        <form onSubmit={changePassword} autoComplete="off" className="set-form">
           <div className="fld"><label htmlFor="new-pw">New password</label>
             <input id="new-pw" type="password" autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)} /></div>
-          <div className="sacts"><button type="submit" className="btn pri">Save password</button>
-            <button type="button" className="btn sec" onClick={() => setPwOpen(false)}>Cancel</button></div>
+          <div className="acts"><button type="submit" className="btn pri sm">Save password</button>
+            <button type="button" className="btn sec sm" onClick={() => setPwOpen(false)}>Cancel</button></div>
         </form>
       ) : pinOpen ? (
         pwRecent ? (
-          <form onSubmit={changePin} autoComplete="off" className="pwform">
+          <form onSubmit={changePin} autoComplete="off" className="set-form">
             <div className="fld"><label htmlFor="new-pin">New PIN (6 to 12 digits)</label>
               <input id="new-pin" type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))} /></div>
             <div className="fld"><label htmlFor="new-pin2">New PIN again</label>
               <input id="new-pin2" type="password" inputMode="numeric" value={pin2} onChange={e => setPin2(e.target.value.replace(/\D/g, '').slice(0, 12))} /></div>
-            <div className="sacts"><button type="submit" className="btn pri">Save PIN</button>
-              <button type="button" className="btn sec" onClick={() => setPinOpen(false)}>Cancel</button></div>
+            <div className="acts"><button type="submit" className="btn pri sm">Save PIN</button>
+              <button type="button" className="btn sec sm" onClick={() => setPinOpen(false)}>Cancel</button></div>
           </form>
         ) : (
           <>
             <p className="note">To change your PIN, sign out and sign in again with your password, then come back here within 10 minutes.</p>
-            <div className="sacts"><button type="button" className="btn sec" onClick={() => setPinOpen(false)}>OK</button></div>
+            <div className="acts"><button type="button" className="btn sec sm" onClick={() => setPinOpen(false)}>OK</button></div>
           </>
         )
       ) : (
-        <div className="sacts">
-          <button type="button" className="btn sec" onClick={() => setPinOpen(true)}>Change PIN</button>
-          <button type="button" className="btn sec" onClick={() => setPwOpen(true)}>Change password</button>
-          <button type="button" className="btn sec" onClick={() => supabase().auth.signOut()}>Sign out</button>
+        <div className="acts">
+          <button type="button" className="btn sec sm" onClick={() => setPinOpen(true)}>Change PIN</button>
+          <button type="button" className="btn sec sm" onClick={() => setPwOpen(true)}>Change password</button>
+          <button type="button" className="btn sec sm" onClick={() => supabase().auth.signOut()}>Sign out</button>
         </div>
       )}
     </Section>

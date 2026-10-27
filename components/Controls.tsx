@@ -28,12 +28,12 @@ export function Choice<T extends string | number | null>({ labelledBy, value, op
 }) {
   const known = options.some(o => o.value === value);
   return (
-    <div className="seg full big" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={radioKeys}>
+    <div className="seg fill" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={radioKeys}>
       {options.map((o, i) => {
         const on = o.value === value;
         return (
           <button key={String(o.value)} type="button" {...radio(on)} tabIndex={on || (!known && i === 0) ? 0 : -1}
-            className={on ? 'on' : ''} title={o.hint} onClick={() => onChange(o.value)}>{o.label}</button>
+            title={o.hint} onClick={() => onChange(o.value)}>{o.label}</button>
         );
       })}
     </div>

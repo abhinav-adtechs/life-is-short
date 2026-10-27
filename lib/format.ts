@@ -77,3 +77,6 @@ export const longDate = (ms: number) => { const d = new Date(ms); return `${DOWL
 export const rangeLabel = (a: Date, b: Date) => `${a.getDate()} ${MON[a.getMonth()]} – ${b.getDate()} ${MON[b.getMonth()]}`;
 
 export const shortTitle = (s: string, n = 40) => (s.length > n ? s.slice(0, n - 2).trimEnd() + '…' : s);
+
+/** "Tue 27 Oct · 5:35 PM", for the clock in the header. */
+export const clockLine = (ms: number) => { const d = new Date(ms); return `${DOW[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]} · ${fmtTime(ms)}`; };

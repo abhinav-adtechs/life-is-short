@@ -22,7 +22,8 @@ export default function GoogleCallback() {
     }).catch(() => setMsg('Could not reach the server. Try again from Settings.'));
   }, []);
   return (
-    <main className="login"><div className="in"><h1 className="nt" style={{ marginTop: 0 }}>{msg}</h1>
-      <p className="nm"><a className="link" href="/app">Back to your planner</a></p></div></main>
+    <main className="auth">
+      <div className="auth-mid"><h1 className="auth-t in">{msg}</h1><p className="nm"><a className="link" href="/app">Back to your planner</a></p></div>
+    </main>
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { monthGrid, stepDay, viewDays, viewTitle } from './calview';
+import { stepDay, viewDays } from './calview';
 import { fmtHour, fmtRange, fmtTime, setClock24 } from './format';
 import { findSlot, placeItem } from './place';
 import { buildPrompt } from './prompt';
@@ -47,33 +47,11 @@ describe('viewDays', () => {
   });
 });
 
-describe('monthGrid', () => {
-  it('covers the month in whole weeks', () => {
-    const g = monthGrid(D('2026-10-14'), 1);
-    expect(g).toHaveLength(5);
-    expect(ymd(g[0][0])).toBe('2026-09-28');
-    expect(ymd(g[4][6])).toBe('2026-11-01');
-    expect(monthGrid(D('2026-08-01'), 1)).toHaveLength(6);
-    expect(monthGrid(D('2021-02-01'), 1)).toHaveLength(4);
-  });
-});
-
 describe('stepDay', () => {
-  it('moves by a day, a week, five days or a month', () => {
+  it('moves by a day, a week or five days', () => {
     expect(ymd(stepDay('day', D('2026-10-26'), 1, P))).toBe('2026-10-27');
     expect(ymd(stepDay('week', D('2026-10-26'), -1, P))).toBe('2026-10-19');
     expect(ymd(stepDay('work', D('2026-10-26'), 1, { ...P, fiveDay: 'rolling' }))).toBe('2026-10-31');
-    expect(ymd(stepDay('month', D('2026-10-26'), 1, P))).toBe('2026-11-01');
-  });
-});
-
-describe('viewTitle', () => {
-  it('names the view relative to today', () => {
-    expect(viewTitle('week', D('2026-10-28'), NOW, P)).toEqual({ title: 'This week', sub: '26 Oct – 1 Nov' });
-    expect(viewTitle('work', D('2026-11-03'), NOW, { ...P, weekNumbers: true })).toEqual({ title: 'Next week', sub: '2 Nov – 6 Nov · Week 45' });
-    expect(viewTitle('work', D('2026-10-26'), NOW, { ...P, fiveDay: 'rolling' }).title).toBe('Next 5 days');
-    expect(viewTitle('month', D('2026-11-01'), NOW, P)).toEqual({ title: 'November', sub: 'Next month' });
-    expect(viewTitle('month', D('2027-02-01'), NOW, P).title).toBe('February 2027');
   });
 });
 

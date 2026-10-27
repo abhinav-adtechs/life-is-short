@@ -12,12 +12,13 @@ import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
-import { prefersReducedMotion, useVoice, type Heard } from './hooks';
+import { useVoice, type Heard } from './hooks';
 import { usePlanner } from './Planner';
 import type { Store } from './store';
 import { LENGTHS, lenLabel } from './Editor';
 import { LabelPicker } from './Labels';
-import { ArrowUpIcon, BackIcon, CalendarIcon, CheckIcon, HistoryIcon, MicIcon, StopIcon, XIcon } from './icons';
+import { ArrowUpIcon, ChatIcon, HistoryIcon, MicIcon, StopIcon, XIcon } from './icons';
+import { Toast } from './Toast';
 
 /* ---------- state ---------- */
 
@@ -69,6 +70,11 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
   const [draft, setDraftState] = useState('');
   const [heard, setHeard] = useState<Heard | null>(null);
   const [history, setHistory] = useState<Past[] | null>(null);
+  const [view, setView] = useState<'thread' | 'history'>('thread');
+  /** A finished conversation opened from History, shown read-only until you say something new. */
+  const [past, setPast] = useState<Past | null>(null);
+  /** Undo for conversations applied while the planner has been open, by when they were filed. */
+  const undos = useRef(new Map<number, () => void>());
   /** Bumped whenever the conversation is cleared, so an answer still on its way lands nowhere. */
   const thread = useRef(0);
   const input = useRef<HTMLTextAreaElement | null>(null);
@@ -87,6 +93,8 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
     // One question at a time: words that arrive mid-answer wait in the box.
     if (busyRef.current) { setDraft(text); return; }
     setOpen(true);
+    setView('thread');
+    if (past) { setPast(null); setMsgs(() => []); }
     setDraft('');
     const t0 = thread.current;
     const prior = msgsRef.current;
@@ -128,7 +136,7 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
       if (thread.current === t0) { busyRef.current = false; setBusy(false); }
     }
     setMsgs(m => m.map(x => (x.id === waitId ? msg : x)));
-  }, [liveTasks, hours, labels, labelId, setDraft, setMsgs]);
+  }, [liveTasks, hours, labels, labelId, setDraft, setMsgs, past]);
 
   const voice = useVoice({
     onHeard: setHeard,
@@ -151,6 +159,7 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
   const mic = useCallback(() => {
     if (voice.listening) { voice.finishVoice(); return; }
     setOpen(true);
+    setView('thread');
     voice.startVoice(draft);
   }, [voice, draft]);
 
@@ -162,9 +171,10 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
     if (words) toast('Recording discarded', () => setDraft(words));
   }, [voice, heard, toast, setDraft]);
 
-  const remember = useCallback((list: string[], did: string) => {
+  const remember = useCallback((list: string[], did: string, undo?: () => void) => {
     if (!list.length) return;
     const entry: Past = { at: Date.now(), said: list.map(s => s.slice(0, 1000)), did };
+    if (undo) undos.current.set(entry.at, undo);
     setHistory(h => (h ? [entry, ...h].slice(0, KEEP) : h));
     // History is a nicety: a failed save never gets in the way.
     repo.getSetting(HISTORY).then(v => repo.setSetting(HISTORY, [entry, ...readHistory(v)].slice(0, KEEP))).catch(() => undefined);
@@ -186,7 +196,7 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
     if (!puts.length) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
     const before = store.write(puts);
     toast(summary, () => store.restore(before));
-    remember(said(msgsRef.current), summary);
+    remember(said(msgsRef.current), summary, () => store.restore(before));
     reset();
     setOpen(false);
   }, [store, toast, remember, reset, labels]);
@@ -195,7 +205,28 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
     remember(said(msgsRef.current), 'Discarded');
     reset();
     setOpen(false);
-  }, [remember, reset]);
+    toast('Plan discarded');
+  }, [remember, reset, toast]);
+
+  /** Undo a conversation applied earlier, from History. */
+  const undoPast = useCallback((h: Past) => {
+    const fn = undos.current.get(h.at);
+    if (!fn) return;
+    fn();
+    undos.current.delete(h.at);
+    toast(`Undid “${h.said[0].length > 40 ? h.said[0].slice(0, 38).trimEnd() + '…' : h.said[0]}”`);
+  }, [toast]);
+  const canUndo = useCallback((h: Past) => undos.current.has(h.at), []);
+
+  /** Start afresh: an empty thread, ready to type. Nothing pending is lost: a plan stays until you apply or discard it. */
+  const newChat = useCallback(() => {
+    setPast(null);
+    setView('thread');
+    if (!lastPlan(msgsRef.current)) setMsgs(() => []);
+    focusInput();
+  }, [setMsgs, focusInput]);
+
+  const openPast = useCallback((h: Past) => { setPast(h); setView('thread'); }, []);
 
   /** Change the plan by talking: the mic if you spoke it, otherwise the box. */
   const modify = useCallback(() => {
@@ -212,7 +243,12 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
       if (words) setDraft(words);
     }
     setOpen(false);
+    setPast(null);
   }, [voice, heard, setDraft]);
+
+  /** ⌘K: open the chat and put the cursor in the box. */
+  const focus = useCallback(() => { setOpen(true); focusInput(); }, [focusInput]);
+  const showHistory = useCallback(() => { setOpen(true); setView('history'); }, []);
 
   const updatePlan = useCallback((fn: (c: Change) => Change) => {
     setMsgs(m => {
@@ -231,14 +267,15 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
   /** Tasks as the open plan would leave them, for the calendar to show. */
   const preview = useMemo(() => {
     const m = new Map<string, Task>();
-    if (open && plan) for (const c of plan.changes) if (!c.skip) m.set(c.id, c.after);
+    if (plan) for (const c of plan.changes) if (!c.skip) m.set(c.id, c.after);
     return m;
-  }, [open, plan]);
+  }, [plan]);
 
   return {
-    open, show: () => setOpen(true), close, msgs, busy, plan, preview,
+    open, show: () => { setOpen(true); setView('thread'); }, close, focus, msgs, busy, plan, preview,
     draft, setDraft, input, heard, listening: voice.listening, onDevice: voice.onDevice,
     send, mic, cancelVoice, accept, discard, modify, edit, toggle, history, loadHistory,
+    view, setView, showHistory, past, openPast, newChat, undoPast, canUndo,
   };
 }
 
@@ -246,175 +283,154 @@ export type Chat = ReturnType<typeof useChat>;
 
 /* ---------- the conversation ---------- */
 
-/** Follow the conversation as it grows. A plan too tall to see at once shows from its top, where it starts. */
-function useFollow(dep: unknown) {
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const tail = end.current, box = tail?.parentElement;
-    if (!tail || !box) return;
-    const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
-    const last = box.querySelector<HTMLElement>('[role="log"] > :last-child');
-    // The laptop's thread scrolls by itself; the phone's scrolls the page, under the header and the dump bar.
-    const room = box.scrollHeight > box.clientHeight ? box.clientHeight : window.innerHeight - 180;
-    if (last && last.offsetHeight > room) last.scrollIntoView({ block: 'start', behavior });
-    else tail.scrollIntoView({ block: 'end', behavior });
-  }, [dep]);
-  return end;
-}
-
-export function ChatPanel({ phone }: { phone?: boolean }) {
-  const { chat } = usePlanner();
-  const [past, setPast] = useState(false);
-  const live = chat.heard ? `${chat.heard.text} ${chat.heard.interim}` : '';
-  const last = chat.msgs.at(-1);
-  // A new message, an answer replacing the dots, words coming in: not edits to the cards.
-  const end = useFollow(`${chat.msgs.length}:${last && 'kind' in last ? last.kind : last?.role}:${live.length}:${past}`);
-  return (
-    <section className={'chat in' + (phone ? ' phone' : '')} aria-label="Dump">
-      <header className="chd">
-        {phone && <button type="button" className="ib" aria-label="Close" onClick={past ? () => setPast(false) : chat.close}><BackIcon /></button>}
-        <h2>{past ? 'History' : chat.plan ? 'Review' : 'Dump'}</h2>
-        <div className="tools">
-          {!past && <button type="button" className="ib quiet" aria-label="History" title="Past conversations" onClick={() => setPast(true)}><HistoryIcon /></button>}
-          {past && !phone && <button type="button" className="txt" onClick={() => setPast(false)}>Back</button>}
-          {!phone && <button type="button" className="ib quiet" aria-label="Close" onClick={chat.close}><XIcon size={16} /></button>}
-        </div>
-      </header>
-      <div className="thread">
-        {past ? <History /> : <Thread />}
-        <div className="tail" ref={end} />
-      </div>
-    </section>
-  );
-}
-
-function Thread() {
-  const { chat } = usePlanner();
-  const { msgs, heard, plan } = chat;
-  return (
-    <div role="log" aria-label="Conversation" aria-live="polite">
-      {!msgs.length && !heard && (
-        <p className="intro">Say or type what’s on your mind. I’ll show you what I’ll add or change, and nothing happens until you accept.</p>
-      )}
-      {msgs.map(m => {
-        if (m.role === 'you') {
-          return <div key={m.id} className="you">{m.spoken && <MicIcon size={13} />}<p>{m.text}</p></div>;
-        }
-        if (m.kind === 'thinking') {
-          return <div key={m.id} className="ai"><p className="think" aria-label="Working it out"><i /><i /><i /></p></div>;
-        }
-        if (m.kind === 'error') return <div key={m.id} className="ai"><p className="say">{m.text}</p></div>;
-        return <Plan key={m.id} m={m} live={m === plan} />;
-      })}
-      {heard && (
-        <div className="you live" aria-live="off">
-          <MicIcon size={13} />
-          <p>{heard.text}{heard.interim && <span> {heard.interim}</span>}{!heard.text && !heard.interim && <span>Listening…</span>}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Plan({ m, live }: { m: PlanMsg; live: boolean }) {
-  const { chat } = usePlanner();
-  const kept = m.changes.filter(c => !c.skip).length;
-  if (!live) {
-    return (
-      <div className="ai old">
-        <p className="say">{m.reply}</p>
-        {m.changes.length > 0 && <p className="aside">Earlier draft · {m.changes.length} change{m.changes.length === 1 ? '' : 's'}</p>}
-      </div>
-    );
-  }
-  return (
-    <div className="ai">
-      <p className="say">{m.reply}</p>
-      {m.note && <p className="aside">{m.note}</p>}
-      {m.changes.length > 0 && (
-        <ul className="cards">{m.changes.map(c => <Card key={c.id} c={c} />)}</ul>
-      )}
-      <div className="plact">
-        {m.changes.length > 0 && (
-          <>
-            <button type="button" className="btn pri" disabled={!kept || chat.busy} onClick={chat.accept}>
-              {kept === m.changes.length ? 'Accept' : `Accept ${kept}`}
-            </button>
-            <button type="button" className="btn sec" disabled={chat.busy} onClick={chat.modify}>Modify</button>
-          </>
-        )}
-        <button type="button" className="link" onClick={chat.discard}>{m.changes.length ? 'Discard' : 'Start over'}</button>
-      </div>
-    </div>
-  );
-}
-
-const TAG: Record<ChangeKind, string> = { add: 'New', done: 'Tick off', move: 'Move', edit: 'Change' };
+const VERB: Record<ChangeKind, string> = { add: 'Add', done: 'Tick off', move: 'Move', edit: 'Change' };
 
 /** "Tomorrow, 9:00 AM", or where it waits when it has no time. */
 const whenText = (t: Pick<Task, 'start'>, now: number) => (t.start != null ? fmtWhen(t.start, now) : 'Backlog');
 
-/** The line of facts under a card's title: everything about a new task, only what changes for an existing one. */
-function facts(c: Change, now: number, labels: Label[]): { key: string; from?: string; to: string; hot?: boolean; cal?: boolean }[] {
+/** The line under a change: everything about a new task, only what changes for one you have. */
+function metaOf(c: Change, now: number, labels: Label[]): { text: string; hot?: boolean }[] {
   const a = c.after;
   const name = (id: string | null | undefined) => labels.find(l => l.id === id)?.name;
   if (!c.before) {
     const label = name(a.label);
+    const due = a.due ? dueLabel(a.due, now) : null;
     return [
-      { key: 'when', to: whenText(a, now), cal: true },
-      { key: 'len', to: fmtDur(a.minutes) },
-      { key: 'pri', to: PRI[a.priority], hot: a.priority === 1 },
-      ...(label ? [{ key: 'label', to: label }] : []),
-      ...(a.due ? [{ key: 'due', to: dueLabel(a.due, now).text, hot: dueLabel(a.due, now).hot }] : []),
+      { text: PRI[a.priority], hot: a.priority === 1 },
+      ...(label ? [{ text: label }] : []),
+      { text: fmtDur(a.minutes) },
+      a.start != null ? { text: fmtWhen(a.start, now) } : due ? { text: due.text, hot: due.hot } : { text: 'Backlog' },
     ];
   }
   const b = c.before;
-  const out: ReturnType<typeof facts> = [];
+  if (kindOf(c) === 'done') return [{ text: 'Marks it done' }];
+  const out: { text: string; hot?: boolean }[] = [];
   for (const f of changedFields(b, a)) {
-    if (f === 'start') out.push({ key: f, from: whenText(b, now), to: whenText(a, now), cal: true });
-    if (f === 'priority') out.push({ key: f, from: PRI[b.priority], to: PRI[a.priority], hot: a.priority === 1 });
-    if (f === 'minutes') out.push({ key: f, from: fmtDur(b.minutes), to: fmtDur(a.minutes) });
-    if (f === 'due') out.push({ key: f, to: a.due ? dueLabel(a.due, now).text : 'No due date' });
-    if (f === 'title') out.push({ key: f, to: `Was “${b.title}”` });
-    if (f === 'label') out.push({ key: f, from: name(b.label) ?? 'No label', to: name(a.label) ?? 'No label' });
+    if (f === 'start') out.push({ text: `${whenText(b, now)} → ${whenText(a, now)}` });
+    if (f === 'priority') out.push({ text: `${PRI[b.priority]} → ${PRI[a.priority]}`, hot: a.priority === 1 });
+    if (f === 'minutes') out.push({ text: `${fmtDur(b.minutes)} → ${fmtDur(a.minutes)}` });
+    if (f === 'due') out.push({ text: a.due ? dueLabel(a.due, now).text : 'No due date' });
+    if (f === 'title') out.push({ text: `Was “${b.title}”` });
+    if (f === 'label') out.push({ text: `${name(b.label) ?? 'No label'} → ${name(a.label) ?? 'No label'}` });
+    if (f === 'notes' && a.notes) out.push({ text: 'Adds a note' });
   }
-  if (!out.length && kindOf(c) === 'done' && b.start != null) out.push({ key: 'when', to: whenText(b, now), cal: true });
   return out;
 }
 
-function Card({ c }: { c: Change }) {
+/** The chat's title: the first clause of what you said. */
+function titleOf(msgs: ChatMsg[], phone?: boolean) {
+  const first = msgs.find((m): m is Extract<ChatMsg, { role: 'you' }> => m.role === 'you')?.text ?? '';
+  const clause = (first.split(/[.;!?\n]/)[0] || first).trim();
+  const max = phone ? 30 : 42;
+  return clause.length > max ? clause.slice(0, max - 2).trimEnd() + '…' : clause || 'New chat';
+}
+
+/** Follow the thread as it grows. A plan too tall to see at once shows from its top. */
+function useFollow(dep: unknown) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const last = el.querySelector<HTMLElement>('[role="log"] > :last-child');
+    if (last && last.offsetHeight > el.clientHeight) el.scrollTop = last.offsetTop - 12;
+    else el.scrollTop = el.scrollHeight;
+  }, [dep]);
+  return box;
+}
+
+const EXAMPLES = ['Call the plumber tomorrow at 9', 'Move the support playbook to Friday at 2', 'Book a haircut at some point'];
+
+function Thread({ phone }: { phone?: boolean }) {
+  const { chat } = usePlanner();
+  const { msgs, heard, plan, past } = chat;
+  const live = heard ? `${heard.text} ${heard.interim}` : '';
+  const last = msgs.at(-1);
+  const box = useFollow(`${msgs.length}:${last && 'kind' in last ? last.kind : last?.role}:${live.length}:${past?.at}`);
+  const use = (t: string) => { chat.setDraft(t); setTimeout(() => chat.input.current?.focus(), 0); };
+  return (
+    <div className="thread" ref={box}>
+      <div className="thread-fill" />
+      <div role="log" aria-label="Conversation" aria-live="polite">
+        {past ? (
+          <>
+            {past.said.map((s, i) => <div key={i} className="you"><p>{s}</p></div>)}
+            <div className="ai"><p>{past.did}.</p></div>
+          </>
+        ) : !msgs.length && !heard ? (
+          <div className="intro">
+            <p className="intro-t">Dump anything, or ask for a change.</p>
+            <p className="note">Nothing changes until you apply it. Try one of these:</p>
+            <div className="examples">
+              {(phone ? EXAMPLES.filter((_, i) => i !== 1) : EXAMPLES).map(x => <button key={x} type="button" className="btn sec" onClick={() => use(x)}>{x}</button>)}
+            </div>
+          </div>
+        ) : null}
+        {!past && msgs.map(m => {
+          if (m.role === 'you') return <div key={m.id} className="you">{m.spoken && <MicIcon size={13} />}<p>{m.text}</p></div>;
+          if (m.kind === 'thinking') return <div key={m.id} className="ai"><p className="think" aria-label="Working it out"><i /><i /><i /></p></div>;
+          if (m.kind === 'error') return <div key={m.id} className="ai"><p>{m.text}</p></div>;
+          return <PlanCard key={m.id} m={m} live={m === plan} phone={phone} />;
+        })}
+        {heard && (
+          <div className="you live" aria-live="off">
+            <MicIcon size={13} />
+            <p>{heard.text}{heard.interim && <span> {heard.interim}</span>}{!heard.text && !heard.interim && <span>Listening…</span>}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The plan: one row per change, ticked to keep. Apply writes the ticked ones; until then they're dashed on the calendar and in the matrix. */
+function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boolean }) {
   const { chat, now, prefs } = usePlanner();
-  const [editing, setEditing] = useState(false);
-  const kind = kindOf(c);
-  const t = c.after;
-  if (c.skip) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const kept = m.changes.filter(c => !c.skip).length;
+  if (!live) {
     return (
-      <li className="card skip">
-        <span className="ct">{t.title}</span>
-        <button type="button" className="txt" onClick={() => chat.toggle(c.id)}>Put back</button>
-      </li>
+      <div className="ai old">
+        <p>{m.reply}</p>
+        {m.changes.length > 0 && <p className="note">Earlier draft · {m.changes.length} change{m.changes.length === 1 ? '' : 's'}</p>}
+      </div>
     );
   }
-  if (editing) return <li className="card editing"><CardEditor c={c} onDone={() => setEditing(false)} /></li>;
-  const newNote = c.before ? (t.notes !== c.before.notes && t.notes.startsWith(c.before.notes) ? t.notes.slice(c.before.notes.length).trim() : t.notes !== c.before.notes ? t.notes : '') : t.notes;
   return (
-    <li className={'card k-' + kind}>
-      <button type="button" className="cbody" disabled={kind === 'done'} aria-label={kind === 'done' ? undefined : `${TAG[kind]}: ${t.title}. Edit`}
-        onClick={() => setEditing(true)}>
-        <span className="tag">{kind === 'done' && <CheckIcon size={9} />}{TAG[kind]}</span>
-        <span className="ct">{t.title}</span>
-        <span className="cm">
-          {facts(c, now, prefs.labels).map(f => (
-            <span key={f.key} className={f.hot ? 'hot' : undefined}>
-              {f.cal && <CalendarIcon size={12} />}
-              {f.from != null && <><s>{f.from}</s> → </>}{f.to}
-            </span>
-          ))}
-        </span>
-        {newNote && <span className="cn">{newNote}</span>}
-      </button>
-      <button type="button" className="cx" aria-label={`Leave out: ${t.title}`} title="Leave out" onClick={() => chat.toggle(c.id)}><XIcon size={13} /></button>
-    </li>
+    <>
+      <div className="ai">
+        <p>{m.reply}</p>
+        {m.note && <p className="note">{m.note}</p>}
+      </div>
+      {m.changes.length > 0 ? (
+        <div className="plan">
+          <div className="plan-h"><b>Plan</b><span className="muted sm">{m.changes.length === 1 ? '1 change' : `${m.changes.length} changes`}</span></div>
+          {m.changes.map(c => {
+            const kind = kindOf(c);
+            if (editing === c.id) return <div key={c.id} className="plan-edit"><CardEditor c={c} onDone={() => setEditing(null)} /></div>;
+            return (
+              <div key={c.id} className={'plan-row' + (c.skip ? ' off' : '')}>
+                <input type="checkbox" checked={!c.skip} aria-label={`${c.skip ? 'Put back' : 'Leave out'}: ${c.after.title}`} onChange={() => chat.toggle(c.id)} />
+                {!phone && <span className="plan-v">{VERB[kind]}</span>}
+                <button type="button" className="plan-b" disabled={kind === 'done' || !!c.skip} title={kind === 'done' ? undefined : 'Edit this change'}
+                  onClick={() => setEditing(c.id)}>
+                  {phone && <span className="plan-v">{VERB[kind]}</span>}
+                  <span className={'plan-t' + (kind === 'done' ? ' struck' : '')}>{c.after.title}</span>
+                  <span className="plan-m">{metaOf(c, now, prefs.labels).map((x, i) => <span key={i} className={x.hot ? 'hot' : undefined}>{i ? ' · ' : ''}{x.text}</span>)}</span>
+                </button>
+              </div>
+            );
+          })}
+          <div className="plan-f">
+            <button type="button" className={'btn pri' + (phone ? ' tall' : ' sm')} disabled={!kept || chat.busy} onClick={chat.accept}>Apply {kept}</button>
+            <button type="button" className={'btn ghost' + (phone ? ' tall' : ' sm')} onClick={chat.discard}>Discard</button>
+            {!phone && <span className="note plan-n">Dashed on the calendar and in the matrix until you apply.</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="acts"><button type="button" className="btn ghost sm" onClick={chat.discard}>Start over</button></div>
+      )}
+      {phone && m.changes.length > 0 && <p className="note">Shown dashed in the matrix and calendar until you apply.</p>}
+    </>
   );
 }
 
@@ -455,16 +471,16 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
   return (
     <form className="ced" onSubmit={save} autoComplete="off"
       onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onDone(); } }}>
-      <div className="fld" style={{ marginTop: 0 }}>
+      <div className="fld">
         <label htmlFor={`${id}-t`} className="sr">Task</label>
-        <textarea ref={first} id={`${id}-t`} className="title" rows={2} value={title} onChange={e => setTitle(e.target.value)}
+        <textarea ref={first} id={`${id}-t`} className="ed-title sm" rows={2} value={title} onChange={e => setTitle(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } }} />
       </div>
       <div className="fld">
         <span className="flabel" id={`${id}-p`}>Priority</span>
-        <div className="seg full" role="radiogroup" aria-labelledby={`${id}-p`}>
+        <div className="seg fill" role="radiogroup" aria-labelledby={`${id}-p`}>
           {([1, 2, 3] as Priority[]).map(p => (
-            <button key={p} type="button" role="radio" aria-checked={priority === p} className={priority === p ? 'on' : ''} onClick={() => setPriority(p)}>{PRI[p]}</button>
+            <button key={p} type="button" role="radio" aria-checked={priority === p} onClick={() => setPriority(p)}>{PRI[p]}</button>
           ))}
         </div>
       </div>
@@ -491,49 +507,72 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
         <label htmlFor={`${id}-n`}>Notes</label>
         <textarea id={`${id}-n`} rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
-      <div className="sacts">
-        <button type="submit" className="btn pri">Save</button>
-        <button type="button" className="btn sec" onClick={onDone}>Cancel</button>
+      <div className="acts">
+        <button type="submit" className="btn pri sm">Save</button>
+        <button type="button" className="btn ghost sm" onClick={onDone}>Cancel</button>
       </div>
     </form>
   );
 }
 
+/** Past conversations: what you said, when, and what came of it. Ones applied since you opened the planner can be undone. */
 function History() {
   const { chat, now } = usePlanner();
   const { loadHistory, history } = chat;
+  const [q, setQ] = useState('');
   useEffect(() => { loadHistory(); }, [loadHistory]);
-  if (!history) return <p className="intro">Opening your history…</p>;
-  if (!history.length) return <p className="intro">Nothing here yet. Each conversation lands here once you accept or discard it.</p>;
+  const today = startOfDay(now).getTime(), yesterday = today - 864e5;
+  const query = q.trim().toLowerCase();
+  const list = (history ?? []).filter(h => !query || h.did.toLowerCase().includes(query) || h.said.some(s => s.toLowerCase().includes(query)));
+  const groups = [
+    { name: 'Today', items: list.filter(h => h.at >= today) },
+    { name: 'Yesterday', items: list.filter(h => h.at >= yesterday && h.at < today) },
+    { name: 'Earlier', items: list.filter(h => h.at < yesterday) },
+  ].filter(g => g.items.length);
   return (
-    <ol className="hist">
-      {history.map(h => (
-        <li key={h.at}>
-          <div className="hw">{fmtWhen(h.at, now)}</div>
-          <div className={'hd' + (h.did === 'Discarded' ? ' quiet' : '')}>{h.did}</div>
-          {h.said.map((s, i) => <p key={i}>{s}</p>)}
-        </li>
-      ))}
-    </ol>
+    <div className="hist">
+      <input className="input hist-q" type="search" placeholder="Search chats" aria-label="Search chats" value={q} onChange={e => setQ(e.target.value)} />
+      {!history ? <p className="note hist-e">Opening your history…</p>
+        : !history.length ? <p className="note hist-e">Nothing here yet. Each conversation lands here once you apply or discard it.</p>
+        : !groups.length ? <p className="note hist-e">No chats match.</p>
+        : groups.map(g => (
+          <div key={g.name}>
+            <div className="hist-g">{g.name}</div>
+            {g.items.map(h => (
+              <div key={h.at} className="hist-row">
+                <button type="button" className="hist-b" onClick={() => chat.openPast(h)}>
+                  <span className="hist-t">{h.said[0]}</span>
+                  <span className="note">{fmtWhen(h.at, now)} · {h.did}</span>
+                </button>
+                {chat.canUndo(h) && <button type="button" className="btn sec sm" onClick={() => chat.undoPast(h)}>Undo</button>}
+              </div>
+            ))}
+          </div>
+        ))}
+    </div>
   );
 }
 
-/* ---------- the box you dump into ---------- */
+/* ---------- the bar ---------- */
 
-/** Text box and mic. Closed, it's the dump bar; with the conversation open, it's where you answer. */
-export function Composer({ phone }: { phone?: boolean }) {
-  const { chat } = usePlanner();
+/**
+ * The chat bar: one box to dump into, a mic, and the way back to past chats. It floats at the bottom of the
+ * laptop; when there's a conversation it grows upward into a panel in the same card. On a phone it rises into a sheet.
+ */
+export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean }) {
+  const { chat, toastState, dismissToast, split } = usePlanner();
   const [tall, setTall] = useState(false);
-  const id = phone ? 'dump-ph' : 'dump-lp';
   const { input } = chat;
+  const open = chat.open;
+  const history = open && chat.view === 'history';
 
-  // Grow with what you type, up to six lines.
+  // Grow with what you type, up to five lines.
   useLayoutEffect(() => {
     const el = input.current;
     if (!el) return;
     el.style.height = 'auto';
-    const line = parseFloat(getComputedStyle(el).lineHeight) || 22;
-    el.style.height = `${Math.min(el.scrollHeight, line * 6)}px`;
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
+    el.style.height = `${Math.min(el.scrollHeight, line * 5)}px`;
     setTall(el.scrollHeight > line * 1.5);
   }, [chat.draft, input, chat.listening]);
 
@@ -541,42 +580,69 @@ export function Composer({ phone }: { phone?: boolean }) {
     if (!chat.draft.trim()) { input.current?.focus(); return; }
     chat.send(chat.draft);
   };
-  const waiting = !chat.open && (chat.busy || !!chat.plan?.changes.length);
+  const waiting = !open && (chat.busy || !!chat.plan?.changes.length);
   const count = chat.plan?.changes.filter(c => !c.skip).length ?? 0;
-  const placeholder = chat.plan && chat.open ? 'Say what to change…' : 'Dump a task…';
+  const width = split.calW + split.matrixW + 38;
+  const placeholder = open && chat.plan ? (phone ? 'Change the plan, or add more' : 'Change something in the plan, or add more') : phone ? 'Dump a task, or ask…' : 'Dump a task, or ask for a change';
 
   return (
     <>
-      {waiting && (
-        <button type="button" className="waiting in" onClick={chat.show}>
-          <i aria-hidden="true" />{chat.busy ? 'Working on your plan…' : `Your plan is waiting · ${count} change${count === 1 ? '' : 's'}`}<b>Review</b>
-        </button>
-      )}
-      <form className="cap" autoComplete="off" onSubmit={e => { e.preventDefault(); submit(); }}>
-        <div className={'field' + (tall ? ' tall' : '') + (chat.listening ? ' live' : '')}>
-          {chat.listening ? (
-            <div className="listen" role="status">
-              <span className="bars" aria-hidden="true"><i /><i /><i /><i /><i /></span>
-              <span className="lt">Listening{chat.onDevice ? ' · on this device' : '…'}</span>
-              <button type="button" className="txt" onClick={chat.cancelVoice}>Cancel</button>
+      {phone && open && <div className="scrim chat-scrim" onClick={chat.close} />}
+      <div className={'dock' + (phone ? ' ph' : '') + (open ? ' open' : '')} style={phone ? undefined : { width: width >= 1100 ? 600 : width - 80 }} inert={inert}>
+        {waiting && (
+          <button type="button" className="waiting" onClick={chat.show}>
+            <span className="nowdot" aria-hidden="true" />{chat.busy ? 'Working on your plan…' : `Your plan is waiting · ${count} change${count === 1 ? '' : 's'}`}<b>Review</b>
+          </button>
+        )}
+        {toastState && !(phone && open) && <Toast key={toastState.key} state={toastState} onDone={dismissToast} />}
+        <div className="chat">
+          {open && (
+            <div className="chat-panel" role="dialog" aria-label="Chat">
+              {phone && <div className="grab" aria-hidden="true" />}
+              <div className="chat-h">
+                <span className="chat-title ell">{history ? 'History' : chat.past ? titleOf([{ id: '', role: 'you', text: chat.past.said[0], spoken: false }], phone) : titleOf(chat.msgs, phone)}</span>
+                <span className="spacer" />
+                {history && <button type="button" className={'btn ghost' + (phone ? ' tall' : ' sm')} onClick={chat.newChat}>New chat</button>}
+                <button type="button" className={'ib bare' + (phone ? ' touch' : '')} aria-pressed={history} aria-label="History" title="History"
+                  onClick={() => chat.setView(history ? 'thread' : 'history')}><HistoryIcon size={phone ? 15 : 14} /></button>
+                <button type="button" className={'ib' + (phone ? ' bare touch' : '')} aria-label="Close" title="Close" onClick={chat.close}><XIcon size={phone ? 16 : 14} /></button>
+              </div>
+              {history ? <History /> : <Thread phone={phone} />}
             </div>
-          ) : (
-            <>
-              <label className="sr" htmlFor={id}>{chat.plan && chat.open ? 'Change the plan' : 'Dump a task'}</label>
-              <textarea id={id} ref={input} rows={1} enterKeyHint="send" placeholder={placeholder} value={chat.draft}
-                onChange={e => chat.setDraft(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
-              {chat.draft.trim() && (
-                <button type="submit" className="send" aria-label="Send" disabled={chat.busy}><ArrowUpIcon /></button>
-              )}
-            </>
           )}
+          <form className={'chat-bar' + (tall ? ' tall' : '') + (open ? ' ruled' : '')} autoComplete="off" onSubmit={e => { e.preventDefault(); submit(); }}>
+            {chat.listening ? (
+              <div className="listen" role="status">
+                <span className="bars" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+                <span className="ell">Listening{chat.onDevice ? ' · on this device' : '…'}</span>
+                <button type="button" className="btn text sm" onClick={chat.cancelVoice}>Cancel</button>
+              </div>
+            ) : (
+              <>
+                <ChatIcon size={phone ? 18 : 17} />
+                <label className="sr" htmlFor={phone ? 'chat-ph' : 'chat-lp'}>{chat.plan && open ? 'Change the plan' : 'Dump a task, or ask for a change'}</label>
+                <textarea id={phone ? 'chat-ph' : 'chat-lp'} ref={input} rows={1} enterKeyHint="send" placeholder={placeholder} value={chat.draft}
+                  onChange={e => { chat.setDraft(e.target.value); if (!open && e.target.value) chat.show(); }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
+                {!phone && <span className="kbd">{open ? 'esc' : '⌘K'}</span>}
+              </>
+            )}
+            <button type="button" className={'mic' + (chat.listening ? ' on' : '')} aria-pressed={chat.listening}
+              aria-label={chat.listening ? 'Stop and send' : 'Speak'} title={chat.listening ? 'Stop and send' : 'Speak'} onClick={chat.mic}>
+              {chat.listening ? <StopIcon size={phone ? 16 : 14} /> : <MicIcon size={phone ? 18 : 15} />}
+            </button>
+            {!chat.listening && chat.draft.trim() && (
+              <button type="submit" className="send" aria-label="Send" disabled={chat.busy}><ArrowUpIcon size={phone ? 16 : 14} /></button>
+            )}
+            {!open && !chat.listening && !(phone && chat.draft.trim()) && (
+              <>
+                {!phone && <span className="vsep" aria-hidden="true" />}
+                <button type="button" className={'ib bare' + (phone ? ' touch hist-btn' : '')} aria-label="Chat history" title="Chat history" onClick={chat.showHistory}><HistoryIcon size={phone ? 15 : 14} /></button>
+              </>
+            )}
+          </form>
         </div>
-        <button type="button" className={'mic' + (chat.listening ? ' on' : '')} aria-pressed={chat.listening}
-          aria-label={chat.listening ? 'Stop and review' : 'Speak'} onClick={chat.mic}>
-          {chat.listening ? <StopIcon size={phone ? 18 : 16} /> : <MicIcon size={phone ? 22 : 20} />}
-        </button>
-      </form>
+      </div>
     </>
   );
 }
