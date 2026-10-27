@@ -8,11 +8,11 @@ import { groupBacklog, type BacklogBy } from '@/lib/select';
 import { DEFAULT_LENS } from '@/lib/labels';
 import { endOf, MIN } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
-import { useVoice } from './hooks';
 import { radio, radioKeys } from './Controls';
 import { LensBar } from './Lens';
 import { Matrix } from './Matrix';
-import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon, StopIcon } from './icons';
+import { ChatPanel, Composer } from './Chat';
+import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MoreIcon } from './icons';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -162,19 +162,6 @@ function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'don
   );
 }
 
-function SortingRow({ text, phone }: { text: string; phone?: boolean }) {
-  return (
-    <div className="row sorting" aria-live="polite">
-      <span className="ck" aria-hidden="true"><span /></span>
-      <div className={phone ? 'main' : 'pick'}>
-        <div className="rt"><span>{text}</span></div>
-        <div className="rp">Sorting…</div>
-      </div>
-      <span />
-    </div>
-  );
-}
-
 const GROUPINGS: { value: BacklogBy; label: string; hint: string }[] = [
   { value: 'label', label: 'Label', hint: 'By label, then by when it’s due' },
   { value: 'time', label: 'Time', hint: 'By when it’s due, labels together' },
@@ -195,7 +182,7 @@ function GroupSwitch() {
 }
 
 export function BacklogRows({ phone }: { phone?: boolean }) {
-  const { pending, store, prefs, labelOf, now, setLens } = usePlanner();
+  const { store, prefs, labelOf, now, setLens } = usePlanner();
   const { backlog, missed, done, outside } = useLists();
   const [doneOpen, setDoneOpen] = useState(false);
   const stagger = useStagger(phone ? 0.22 : 0.16, phone ? 0.07 : 0.06);
@@ -205,7 +192,6 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
   let i = 0;
   return (
     <>
-      {pending.map(p => <SortingRow key={p.id} text={p.text} phone={phone} />)}
       {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
       {missed.map(t => <Row key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
       {groups.map(g => (
@@ -219,7 +205,7 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
           ))}
         </Fragment>
       ))}
-      {store.loaded && !backlog.length && !missed.length && !pending.length && !outside && (
+      {store.loaded && !backlog.length && !missed.length && !outside && (
         <p className="empty in">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
       )}
       {outside > 0 && (
@@ -238,50 +224,6 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
   );
 }
 
-/* ---------- Capture ---------- */
-
-const DRAFT = 'ds.draft';
-
-export function CaptureBar({ phone }: { phone?: boolean }) {
-  const { capture, toast } = usePlanner();
-  const [text, setTextState] = useState('');
-  const textRef = useRef('');
-  const input = useRef<HTMLInputElement>(null);
-  const setText = (v: string) => {
-    textRef.current = v; setTextState(v);
-    try { localStorage.setItem(DRAFT, v); } catch { /* draft is a nicety */ }
-  };
-  useEffect(() => { try { const d = localStorage.getItem(DRAFT); if (d) { textRef.current = d; setTextState(d); } } catch { /* none */ } }, []);
-  const voice = useVoice({
-    getValue: () => textRef.current,
-    setValue: setText,
-    focusField: () => input.current?.focus(),
-    hint: msg => toast(msg),
-  });
-  const id = phone ? 'dump-ph' : 'dump-lp';
-  return (
-    <form className={'cap' + (phone ? '' : ' in')} style={phone ? undefined : { animationDelay: '.3s' }} autoComplete="off"
-      onSubmit={e => {
-        e.preventDefault();
-        const v = textRef.current.trim();
-        if (!v) { input.current?.focus(); return; }
-        voice.stopVoice();
-        setText('');
-        capture(v);
-      }}>
-      <div className="field">
-        <label className="sr" htmlFor={id}>Dump a task</label>
-        <input id={id} ref={input} type="text" enterKeyHint="send" placeholder={voice.listening ? 'Listening…' : 'Dump a task…'}
-          value={text} onChange={e => setText(e.target.value)} />
-      </div>
-      <button type="button" className={'mic' + (voice.listening ? ' on' : '')} aria-pressed={voice.listening}
-        aria-label={voice.listening ? 'Stop listening' : 'Speak a task'} onClick={voice.startVoice}>
-        {voice.listening ? <StopIcon size={phone ? 18 : 16} /> : <MicIcon size={phone ? 22 : 20} />}
-      </button>
-    </form>
-  );
-}
-
 /* ---------- layouts ---------- */
 
 /** Suggestions from people you share with: a quiet way into Settings → Sharing. */
@@ -296,39 +238,41 @@ function Inbox() {
 }
 
 export function PhoneScreen() {
-  const { now, setPhoneView, openSettings } = usePlanner();
+  const { now, setPhoneView, openSettings, chat } = usePlanner();
   const { backlog } = useLists();
+  // The conversation and the list are different pages: each opens at its top.
+  useEffect(() => { window.scrollTo(0, 0); }, [chat.open]);
   return (
     <>
-      <div className="screen">
-        <header className="hdr in">
-          <span className="date">{longDate(now)}</span>
-          <div className="tools">
-            <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
-            <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
-          </div>
-        </header>
-        <Inbox />
-        <NowBlock phone />
-        <LensBar phone />
-        <div className="sh tabs in" style={{ animationDelay: '.16s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
-        <BacklogRows phone />
-      </div>
-      <div className="capwrap in" style={{ animationDelay: '.3s' }}><CaptureBar phone /></div>
+      {chat.open ? <ChatPanel phone /> : (
+        <div className="screen">
+          <header className="hdr in">
+            <span className="date">{longDate(now)}</span>
+            <div className="tools">
+              <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
+              <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
+            </div>
+          </header>
+          <Inbox />
+          <NowBlock phone />
+          <LensBar phone />
+          <div className="sh tabs in" style={{ animationDelay: '.16s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
+          <BacklogRows phone />
+        </div>
+      )}
+      <div className="capwrap in" style={{ animationDelay: chat.open ? '0s' : '.3s' }}><Composer phone /></div>
     </>
   );
 }
 
-/** Laptop: what's still being sorted, what you missed, the matrix, and what's done. */
+/** Laptop: what you missed, the matrix, and what's done. */
 function LaptopBacklog() {
-  const { pending } = usePlanner();
   const { missed, done } = useLists();
   const [doneOpen, setDoneOpen] = useState(false);
   const stagger = useStagger(0.16, 0.06);
   let i = 0;
   return (
     <>
-      {pending.map(p => <SortingRow key={p.id} text={p.text} />)}
       {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
       {missed.map(t => <LaptopRow key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
       <Matrix />
@@ -346,19 +290,23 @@ function LaptopBacklog() {
 }
 
 export function LaptopSide() {
-  const { now, openSettings, drag, split } = usePlanner();
+  const { now, openSettings, drag, split, chat } = usePlanner();
   const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
   return (
-    <aside className={'side' + (dropOk ? ' drop-ok' : '')} style={{ width: split.matrixW }} aria-label="Now and backlog" data-backlog="">
+    <aside className={'side' + (dropOk ? ' drop-ok' : '')} style={{ width: split.matrixW }} aria-label={chat.open ? 'Dump' : 'Now and backlog'} data-backlog={chat.open ? undefined : ''}>
       <div className="dateline in">
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
         <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
       </div>
-      <Inbox />
-      <NowBlock />
-      <LensBar />
-      <div className="rows"><LaptopBacklog /></div>
-      <CaptureBar />
+      {chat.open ? <ChatPanel /> : (
+        <>
+          <Inbox />
+          <NowBlock />
+          <LensBar />
+          <div className="rows"><LaptopBacklog /></div>
+        </>
+      )}
+      <div className="capdock in" style={{ animationDelay: '.3s' }}><Composer /></div>
     </aside>
   );
 }

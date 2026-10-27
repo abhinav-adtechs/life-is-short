@@ -35,3 +35,9 @@ export const MoreIcon = ({ size = 20 }: P) => (
 export const CaretIcon = ({ size = 12 }: P) => (
   <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={2.4} {...base}><path d="M9 6l6 6-6 6" /></svg>
 );
+export const ArrowUpIcon = ({ size = 16 }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={2.4} {...base}><path d="M12 19V5M6 11l6-6 6 6" /></svg>
+);
+export const HistoryIcon = ({ size = 18 }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={1.8} {...base}><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4v4h4" /><path d="M12 7.5V12l3 2" /></svg>
+);

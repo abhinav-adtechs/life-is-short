@@ -23,7 +23,7 @@ function clickMinute(col: HTMLElement, clientY: number) {
 }
 
 function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; lanes: number; dayStart: number; h0: number; hour: number }) {
-  const { drag, openEditor, unslot, now, colorOf, prefs, faded } = usePlanner();
+  const { drag, openEditor, unslot, now, colorOf, prefs, faded, chat } = usePlanner();
   const resizing = drag.view?.kind === 'resize' && drag.view.id === t.id;
   const minutes = resizing && drag.view?.minutes != null ? drag.view.minutes : t.minutes;
   const sMin = Math.max(0, ((t.start as number) - dayStart) / MIN);
@@ -44,9 +44,19 @@ function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; 
   const cls = 'block' + (small ? ' small' : '') + (mid ? ' mid' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '')
     + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (missed ? ' missed' : '') + (color ? ' tint' : '') + (faded(t) ? ' faded' : '');
   const range = fmtRange(t.start as number, minutes);
+  const style = { ...tint(color), top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 4px)`, width: `calc(${w.toFixed(3)}% - 8px)` };
+  // Part of the plan you're reviewing: shown where it would go, but not yours to move until you accept it.
+  if (chat.preview.has(t.id)) {
+    return (
+      <div className={cls + ' proposed'} role="img" aria-label={`In your plan: ${t.title}, ${range}`} style={style}>
+        <div className="bt" style={small ? undefined : { WebkitLineClamp: lines }}>{t.title}</div>
+        <div className="bm">{range}</div>
+      </div>
+    );
+  }
   return (
     <div className={cls} data-block={t.id} role="button" tabIndex={0} aria-label={`${t.title}, ${range}${missed ? ', missed' : ''}. Press Enter to edit.`}
-      style={{ ...tint(color), top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 4px)`, width: `calc(${w.toFixed(3)}% - 8px)` }}
+      style={style}
       onPointerDown={e => {
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
         drag.begin(e, 'block', t.id, { grabY: e.clientY - r.top + 2 });
@@ -128,8 +138,8 @@ function DayCol({ d, h0, h1, sched, hour }: { d: Date; h0: number; h1: number; s
  * Given `fit`, the pixels free under it, hours stretch so your day fills them; Settings → Hour height is the least an hour gets.
  */
 function Grid({ days, gutter, fit = 0 }: { days: Date[]; gutter: number; fit?: number }) {
-  const { tasks, now, drag, picked, prefs, onCalendar } = usePlanner();
-  const sched = tasks.filter(t => t.start != null && onCalendar(t));
+  const { calTasks, now, drag, picked, prefs, onCalendar } = usePlanner();
+  const sched = calTasks.filter(t => t.start != null && onCalendar(t));
   const [h0, h1] = hourRange(days, sched, [prefs.dayStart, prefs.dayEnd]);
   const hour = Math.max(prefs.hourHeight, Math.floor(fit / (h1 - h0)));
   const height = (h1 - h0) * hour;
@@ -176,11 +186,11 @@ function DayHeads({ days, gutter }: { days: Date[]; gutter: number }) {
 
 /** Month view: whole weeks, a few tasks per day. Click a day to open it; with a task picked, click to put it there. */
 function MonthView({ compact }: { compact?: boolean }) {
-  const { day, now, tasks, prefs, setDay, setView, picked, placeOnDay, drag, openEditor, onCalendar, colorOf, faded } = usePlanner();
+  const { day, now, calTasks, prefs, setDay, setView, picked, placeOnDay, drag, openEditor, onCalendar, colorOf, faded, chat } = usePlanner();
   const rows = monthGrid(day, prefs.weekStart);
   const month = day.getMonth();
   const todayKey = ymd(now);
-  const sched = tasks.filter(t => t.start != null && onCalendar(t));
+  const sched = calTasks.filter(t => t.start != null && onCalendar(t));
   const dragging = drag.view && drag.view.kind !== 'resize';
   const open = (d: Date) => { setDay(d); setView('day'); };
   return (
@@ -216,6 +226,14 @@ function MonthView({ compact }: { compact?: boolean }) {
                     {list.slice(0, visible).map(t => {
                       const color = colorOf(t);
                       const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
+                      if (chat.preview.has(t.id)) {
+                        return (
+                          <span key={t.id} role="img" style={tint(color)} className={'mchip proposed' + (color ? ' tint' : '')}
+                            aria-label={`In your plan: ${t.title}, ${fmtRange(t.start as number, t.minutes)}`}>
+                            <time>{fmtShort(t.start as number)}</time><span>{t.title}</span>
+                          </span>
+                        );
+                      }
                       return (
                         <button key={t.id} type="button" style={tint(color)}
                           className={'mchip' + (color ? ' tint' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '') + (faded(t) ? ' faded' : '')}

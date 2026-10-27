@@ -26,7 +26,7 @@ You get about four thousand weeks. That's it. And most to-do apps want you to sp
 
 **Life is short does the opposite.** One box to dump things into. One answer on the screen.
 
-> **Dump it.** Type it or say it. A word, a list or a thirty-second ramble.
+> **Dump it.** Type it or say it. A word, a list or a thirty-second ramble. You see the plan before anything changes.
 >
 > **Slot it.** A day or a time puts it on your calendar. Anything else lands in a backlog, already prioritised.
 >
@@ -48,11 +48,13 @@ No folders. No filing: the AI even picks the label. No "weekly review". You don'
 
 ### 1 · Dump
 
-Type in the bar or tap the big mic and **just talk**. Your words stream in as you speak.
+Type in the bar or tap the big mic and **just talk**. Your words stream in as you speak, and it keeps listening until you tap stop.
 
 *"Finished the roadmap draft. Call the plumber tomorrow at 9, landing page copy is due Friday, and book a haircut at some point."*
 
 The AI reads it like a good assistant would. It pulls out every task, gives each a short title, a priority and a realistic length, and works out dates. It also spots when you're talking about something **already on your list**: "finished the roadmap" ticks it off instead of adding a duplicate.
+
+**Nothing lands until you say so.** When you stop talking you get the full transcript and the plan, one card per change: *new*, *move*, *tick off*. On a laptop the plan shows on the calendar too, dashed, right where it would go. Tap a card to edit it, cross one out, or just keep talking ("make the haircut Thursday afternoon") and the plan updates. **Accept** and it's done, with Undo; the chat clears for next time and lands in your history.
 
 </td>
 <td width="33%" valign="top">

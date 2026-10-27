@@ -2,15 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
-import { PRI, newId } from '@/lib/model';
+import { PRI } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
-import { applyCapture, promptContext } from '@/lib/capture';
-import { buildPrompt } from '@/lib/prompt';
 import { findSlot } from '@/lib/place';
 import { backlogList, doneList, focus, missedList } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
 import { atMinutes, ceil15, endOf, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
-import { sortDump } from '@/lib/api';
+import { viewDays } from '@/lib/calview';
 import { calendarOf, mergeExternal } from '@/lib/google';
 import {
   MAX_ACCOUNTS, PENDING_KEY, addAccount, disconnectGoogle, fetchGoogleItems, mergeCalendars, normalizeAccounts, ownCalendars,
@@ -31,8 +29,7 @@ import { Settings } from './Settings';
 import { PhoneScreen, LaptopSide } from './Side';
 import { LaptopCalendar, PhoneCalendar } from './Calendar';
 import { Divider } from './Split';
-
-export interface Pending { id: string; text: string }
+import { useChat, type Chat } from './Chat';
 
 export interface PlannerApi {
   store: Store;
@@ -41,7 +38,6 @@ export interface PlannerApi {
   wide: boolean;
   repo: TaskRepo;
   email: string | null;
-  pending: Pending[];
   completing: Set<string>;
   picked: string | null;
   setPicked: (id: string | null) => void;
@@ -82,7 +78,10 @@ export interface PlannerApi {
   place: (id: string, start: number) => void;
   /** Put a task on a day without a time: a moved event keeps its time, a backlog task gets that day's first free slot. */
   placeOnDay: (id: string, dayKey: string) => void;
-  capture: (text: string) => void;
+  /** The conversation behind the dump bar. */
+  chat: Chat;
+  /** Tasks for the calendar: what you have, with an open plan's changes shown in place. */
+  calTasks: Task[];
   openEditor: (id: string) => void;
   openSettings: (section?: string) => void;
   undoable: (msg: string, before: Map<string, Task | null>) => void;
@@ -129,7 +128,6 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
   const [mounted, setMounted] = useState(false);
-  const [pending, setPending] = useState<Pending[]>([]);
   const [completing, setCompleting] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<string | null>(null);
   const [editorId, setEditorId] = useState<string | null>(null);
@@ -249,16 +247,27 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     place(id, start);
   }, [store, liveTasks, place, hours]);
 
-  const capture = useCallback(async (text: string) => {
-    const pid = newId();
-    setPending(p => [...p, { id: pid, text }]);
-    const { refs, ctx } = promptContext(liveTasks(), t => labelOf(t)?.id ?? null);
-    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, prefs.labels));
-    setPending(p => p.filter(x => x.id !== pid));
-    const out = applyCapture({ text, tasks: liveTasks(), refs, result, via, hours, labels: prefs.labels });
-    store.write(out.puts);
-    toast(out.summary, out.puts.length ? () => store.restore(out.before) : undefined);
-  }, [store, liveTasks, toast, hours, labelOf, prefs.labels]);
+  const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
+  const chat = useChat({ store, repo, liveTasks, hours, toast, labels: prefs.labels, labelId });
+  const calTasks = useMemo(() => {
+    if (!chat.preview.size) return store.tasks;
+    const out = store.tasks.map(t => chat.preview.get(t.id) ?? t);
+    for (const t of chat.preview.values()) if (!store.get(t.id)) out.push(t);
+    return out;
+  }, [store.tasks, store.get, chat.preview]);
+
+  // A new plan with times on it: bring the calendar to them if none are in view.
+  const shownPlan = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chat.open || !chat.plan || shownPlan.current === chat.plan.id) return;
+    shownPlan.current = chat.plan.id;
+    const starts = [...chat.preview.values()].flatMap(t => (t.start != null && t.status === 'open' ? [t.start] : [])).sort((a, b) => a - b);
+    if (!wide || !starts.length) return;
+    const inView = view === 'month'
+      ? (s: number) => new Date(s).getMonth() === day.getMonth() && new Date(s).getFullYear() === day.getFullYear()
+      : (s: number) => viewDays(view, day, prefs).some(d => ymd(d) === ymd(s));
+    if (!starts.some(inView)) setDay(startOfDay(starts[0]));
+  }, [chat.open, chat.plan, chat.preview, wide, view, day, prefs]);
 
   const drag = useDrag({
     lengthOf: id => store.get(id)?.minutes ?? 30,
@@ -322,13 +331,18 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     wasOpen.current = !!settings;
   }, [settings]);
 
-  // Esc: close the editor or settings first, then cancel a pick.
+  // Esc: close the editor or settings first, then cancel a pick, then stop listening or close the conversation.
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (editorId) { e.preventDefault(); closeEditor(); return; }
       if (settings) { e.preventDefault(); closeSettings(); return; }
-      if (picked) { e.preventDefault(); setPicked(null); }
+      if (picked) { e.preventDefault(); setPicked(null); return; }
+      const c = chatRef.current;
+      if (c.listening) { e.preventDefault(); c.cancelVoice(); return; }
+      if (c.open) { e.preventDefault(); c.close(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -515,10 +529,10 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   }, [prefs.colorBy, labelIndex]);
 
   const api: PlannerApi = {
-    store, tasks: store.tasks, now, wide, repo, email, pending, completing, picked, setPicked, drag,
+    store, tasks: store.tasks, now, wide, repo, email, completing, picked, setPicked, drag,
     day, setDay, view, setView, split, setSplit, dragSplit: setSplitDrag, lens, setLens, inLens, focusLabel, setFocusLabel, faded,
     prefs, setPrefs, hours, phoneView, setPhoneView,
-    toast, done, slot, schedule, unslot, place, placeOnDay, capture, openEditor, openSettings, undoable,
+    toast, done, slot, schedule, unslot, place, placeOnDay, chat, calTasks, openEditor, openSettings, undoable,
     accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };

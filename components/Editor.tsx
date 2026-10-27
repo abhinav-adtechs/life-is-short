@@ -11,8 +11,8 @@ import { useTrap } from './hooks';
 import { XIcon } from './icons';
 import { LabelPicker } from './Labels';
 
-const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
-const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
+export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
+export const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
 
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
   const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf, liveTasks, prefs, labelOf } = usePlanner();

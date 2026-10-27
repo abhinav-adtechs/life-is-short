@@ -51,7 +51,7 @@ function Chip({ t, cards }: { t: Task; cards: boolean }) {
  * (cards, titles, then counts or folded columns), never what's in it: every number opens its tasks.
  */
 export function Matrix() {
-  const { prefs, lens, setLens, split, labelOf, focusLabel, setFocusLabel, drag, store, pending } = usePlanner();
+  const { prefs, lens, setLens, split, labelOf, focusLabel, setFocusLabel, drag, store } = usePlanner();
   const { backlog, outside, missed } = useLists();
   const [peek, setPeek] = useState<{ l: string; p: number } | null>(null);
   const peekRef = useRef<HTMLElement>(null);
@@ -92,8 +92,8 @@ export function Matrix() {
   };
 
   if (!backlog.length) {
-    // Missed tasks or a dump still being sorted say enough on their own.
-    if (!store.loaded || (everything && (missed.length || pending.length))) return null;
+    // Missed tasks say enough on their own.
+    if (!store.loaded || (everything && missed.length)) return null;
     return (
       <p className="empty in">
         {everything ? 'Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.' : 'Nothing in this view.'}
