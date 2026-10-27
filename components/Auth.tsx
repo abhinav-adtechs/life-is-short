@@ -35,6 +35,7 @@ export function SignIn({ notice }: { notice?: string }) {
         </div>
         <button type="submit" className="btn pri" disabled={busy}>Continue</button>
         {msg && <p className="msg" role="alert">{msg}</p>}
+        <a className="legal-link" href="/privacy">Privacy</a>
       </form>
     </main>
   );

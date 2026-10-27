@@ -7,11 +7,11 @@
 //                                        and CONFIRM=overwrite-primary)
 //
 // Env: PRIMARY_DB_URL (backup_reader login), BACKUP_DB_URL (backup_writer login), OWNER_EMAIL,
-//      optional SUPABASE_CA_CERT (PEM) to pin Supabase's certificate authority, optional FORCE=true.
+//      optional SUPABASE_CA_CERT (PEM) to replace the bundled Supabase certificate authority, optional FORCE=true.
 // Output is safe for public logs: check names and counts only.
 
 import { createHash } from 'node:crypto';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 import { compareData, countLost, evaluate } from './checks.mjs';
 
@@ -30,15 +30,16 @@ function summary() {
 
 function ssl(url) {
   if (/@(localhost|127\.0\.0\.1)[:/]/.test(url) || /sslmode=disable/.test(url)) return false;
-  // Always verify the server certificate; pin Supabase's CA when given.
-  return SUPABASE_CA_CERT ? { ca: SUPABASE_CA_CERT, rejectUnauthorized: true } : { rejectUnauthorized: true };
+  // Always verify the server certificate against Supabase's own root CA ("Supabase Root 2021 CA",
+  // public, valid to April 2031, from the dashboard's SSL download). SUPABASE_CA_CERT replaces it.
+  return { ca: SUPABASE_CA_CERT || readFileSync(new URL('./supabase-ca-2021.crt', import.meta.url), 'utf8'), rejectUnauthorized: true };
 }
 
 async function connect(url, name) {
   const c = new pg.Client({ connectionString: url.replace(/[?&]sslmode=[^&]*/, ''), ssl: ssl(url), application_name: `life-is-short-${mode}` });
   try { await c.connect(); } catch (e) {
     const cert = /certificate|self[- ]signed/i.test(e.message);
-    throw new Error(`Can't connect to the ${name} database${cert ? ': its certificate isn’t trusted. Add Supabase’s CA as the SUPABASE_CA_CERT secret.' : '.'}`);
+    throw new Error(`Can't connect to the ${name} database${cert ? ': its certificate isn’t signed by the bundled Supabase CA. If Supabase has a new one (Project Settings → Database → SSL), add it as the SUPABASE_CA_CERT secret.' : '.'}`);
   }
   return c;
 }
