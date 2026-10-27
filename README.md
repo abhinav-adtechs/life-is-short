@@ -91,6 +91,8 @@ Every capture, move and tick comes with **Undo**. A half-typed thought is still 
 
 There are only two heavy things on any screen: **the task you're on, and the mic.** Everything else stays quiet.
 
+You get the **window seat**. The task you're on sits on a painted view out of a train window: summer fields and big clouds, drifting slowly, the light breathing, a few birds crossing now and then. The rest of the planner sits on paper panels around it. Pick another view in Settings: golden hour, a night train, after the rain, a balloon, or above the clouds. Prefer a plain page? It's one switch.
+
 <p align="center">
   <img alt="Three phone screens: Now with the backlog, a day calendar, and the dark theme" src="docs/images/phone.png" width="100%">
 </p>
@@ -119,7 +121,8 @@ It feels fast because it is fast: rows ease in, ticked tasks get a satisfying ch
   <img alt="Five phone screens in the Neutral, Paper, Slate, Sage and Lilac themes with different accent colours" src="docs/images/themes.png" width="100%">
 </p>
 
-- **5 themes** (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side, plus **true black** for OLED screens.
+- **6 views** out of the window (Summer meadow, Golden hour, Night train, After the rain, Balloon, Above the clouds), or a plain page. Reduced motion holds the view still.
+- **5 themes** (Paper, Neutral, Slate, Sage, Lilac), each with a light and a dark side, plus **true black** for OLED screens.
 - **10 accent colours**, or pick your own. Life is short adjusts it until it's readable on your background.
 - **9 fonts**, including **Lexend** and **Atkinson Hyperlegible** for easier reading.
 - Text size, corner style, list density, **high contrast**, reduced motion, and a 12- or 24-hour clock.

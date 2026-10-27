@@ -26,6 +26,9 @@ export const ChevronLeft = ({ size = 18 }: P) => (
 export const ChevronRight = ({ size = 18 }: P) => (
   <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={2} {...base}><path d="M9 6l6 6-6 6" /></svg>
 );
+export const ArrowIcon = ({ size = 16 }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={2} {...base}><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+);
 export const BackIcon = ({ size = 20 }: P) => (
   <svg width={size} height={size} viewBox="0 0 24 24" strokeWidth={1.8} {...base}><path d="M19 12H5M11 6l-6 6 6 6" /></svg>
 );

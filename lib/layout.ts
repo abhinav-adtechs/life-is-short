@@ -13,6 +13,9 @@ export type Days = 1 | 3 | 5 | 7;
 export const SNAP: Record<Days, number> = { 1: 380, 3: 620, 5: 820, 7: 1020 };
 export const DEFAULT_SPLIT: Split = { mode: 'pinned', cal: SNAP[3] };
 
+/** With a view out of the window, the laptop's panels sit 14px in from each edge and 14px apart. */
+export const LP_CHROME = 3 * 14;
+
 export const CAL_MIN = 360;
 export const MATRIX_MIN = 420;
 /** The calendar's gutter and padding, and the least a day column needs. */

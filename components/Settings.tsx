@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { normalizeImport } from '@/lib/importer';
 import { hasSupabase, supabase } from '@/lib/supabase';
-import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, SURFACES, TEXT_SIZES, accentPair, fontHref, palettes, type Prefs } from '@/lib/prefs';
+import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, SURFACES, TEXT_SIZES, accentPair, fontHref, palettes, sceneVars, type Prefs } from '@/lib/prefs';
+import { SCENES } from '@/lib/scenes';
 import { isHex } from '@/lib/color';
 import { fmtHour, fmtRange, fmtTime } from '@/lib/format';
 import { ACCOUNT_COLORS } from '@/lib/google-client';
@@ -14,6 +15,7 @@ import { BackIcon, CheckIcon, MicIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
 import { LabelsSection } from './Labels';
+import { View } from './Scene';
 import { SharingSection } from './SharingSection';
 
 const SECTIONS = [
@@ -26,7 +28,7 @@ const SECTIONS = [
   { id: 'account', name: 'Account', needsSupabase: true },
 ];
 
-const APPEARANCE_KEYS = ['mode', 'surface', 'accent', 'font', 'textSize', 'corners', 'density', 'contrast', 'trueBlack', 'motion', 'clock'] as const;
+const APPEARANCE_KEYS = ['mode', 'scene', 'surface', 'accent', 'font', 'textSize', 'corners', 'density', 'contrast', 'trueBlack', 'motion', 'clock'] as const;
 
 /** Settings as a full page over the planner. Every change applies straight away; there's nothing to save. */
 export function Settings({ section, onClose }: { section: string; onClose: () => void }) {
@@ -152,6 +154,11 @@ function Preview() {
   );
 }
 
+const VIEWS = [
+  ...SCENES.map(sc => ({ value: sc.id, label: sc.name, note: sc.note, style: sceneVars(sc) as CSSProperties })),
+  { value: 'plain' as const, label: 'Plain', note: 'No window. A still, flat page', style: undefined },
+];
+
 function Appearance() {
   const { prefs, setPrefs, toast } = usePlanner();
   const sysDark = useMedia('(prefers-color-scheme: dark)');
@@ -172,14 +179,30 @@ function Appearance() {
     <Section id="appearance" title="Appearance" lead="Light or dark is set per device. Everything else follows you to your other devices.">
       <Preview />
 
-      <Opt label="Mode" note="This device only. System follows your phone or computer." stack>
+      <Opt label="View" note="What you see out of the window, behind Now and on the sign-in screen. It moves slowly: clouds drift, the light breathes, birds pass now and then." stack>
+        {({ labelId }) => (
+          <div className="scenes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
+            {VIEWS.map(v => (
+              <button key={v.value} type="button" className="scn" {...radio(prefs.scene === v.value)} onClick={() => setPrefs({ scene: v.value })}>
+                <span className={'sp' + (v.style ? '' : ' plain')} aria-hidden="true">
+                  {v.style ? <View kind="thumb" style={v.style} /> : <><i style={{ top: '30%' }} /><i style={{ top: '48%', right: '46%' }} /><i style={{ top: '66%' }} /></>}
+                </span>
+                <b>{v.label}</b>
+                <small>{v.note}</small>
+              </button>
+            ))}
+          </div>
+        )}
+      </Opt>
+
+      <Opt label="Mode" note="This device only. System follows your phone or computer. Dark dims the wall and the panels; the view stays as it is." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.mode} onChange={mode => setPrefs({ mode })}
             options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
         )}
       </Opt>
 
-      <Opt label="Theme" note="The colour of the page, cards and lines. Each has a light and a dark side." stack>
+      <Opt label="Theme" note="The colour of the panels (or of the page, with no view) and their lines. Each has a light and a dark side." stack>
         {({ labelId }) => (
           <div className="themes" role="radiogroup" aria-labelledby={labelId} onKeyDown={radioKeys}>
             {SURFACES.map(s => (
@@ -259,7 +282,7 @@ function Appearance() {
       <Opt label="Pure black in dark mode" note="A true black background for OLED screens."
         toggle={{ checked: prefs.trueBlack, onChange: trueBlack => setPrefs({ trueBlack }) }} />
 
-      <Opt label="Motion" note="Reduced turns off animations, the mic’s ripple included. System follows your device." stack>
+      <Opt label="Motion" note="Reduced turns off animations: the mic’s ripple, and the view’s drifting clouds, birds and passing fields. System follows your device." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.motion} onChange={motion => setPrefs({ motion })}
             options={[{ value: 'system', label: 'System' }, { value: 'full', label: 'On' }, { value: 'reduce', label: 'Reduced' }]} />

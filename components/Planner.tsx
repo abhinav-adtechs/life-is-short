@@ -15,7 +15,7 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { inLens as lensHas, lensIds, resolveLabel, type Label, type Lens } from '@/lib/labels';
-import { DAYS_FOR_VIEW, SNAP, VIEW_FOR_DAYS, calendarWidth, daysFor, type Days, type Split } from '@/lib/layout';
+import { DAYS_FOR_VIEW, LP_CHROME, SNAP, VIEW_FOR_DAYS, calendarWidth, daysFor, type Days, type Split } from '@/lib/layout';
 import { workHours, type CalView, type Prefs } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
@@ -26,7 +26,8 @@ import { useDrag, type DragKind } from './drag';
 import { Toast, type ToastState } from './Toast';
 import { Editor } from './Editor';
 import { Settings } from './Settings';
-import { PhoneScreen, LaptopSide } from './Side';
+import { NowBlock, PhoneScreen, LaptopSide, LaptopTop } from './Side';
+import { View } from './Scene';
 import { LaptopCalendar, PhoneCalendar } from './Calendar';
 import { Divider } from './Split';
 import { useChat, type Chat } from './Chat';
@@ -145,7 +146,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   /* ---------- the laptop split: one width, set by Auto, the day picker or the divider ---------- */
 
-  const width = useWidth();
+  // With a view, the panels sit 14px in from the edges and apart (LP_CHROME), so they share a little less.
+  const width = useWidth() - (prefs.scene === 'plain' ? 0 : LP_CHROME);
   const [splitDrag, setSplitDrag] = useState<number | null>(null);
   const calW = calendarWidth(width, splitDrag != null ? { mode: 'pinned', cal: splitDrag } : prefs.split, prefs.lens.pri);
   const days = daysFor(calW);
@@ -543,7 +545,10 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   return (
     <Ctx.Provider value={api}>
       {wide ? (
-        <div className={'lp' + (split.dragging ? ' sizing' : '')} inert={!!settings}>
+        <div className={'lp' + (split.dragging ? ' sizing' : '')} inert={!!settings} style={{ '--side-w': `${split.matrixW}px` } as React.CSSProperties}>
+          <View kind="strip" />
+          <LaptopTop />
+          <NowBlock />
           <LaptopSide />
           <Divider />
           <LaptopCalendar />

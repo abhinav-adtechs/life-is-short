@@ -13,6 +13,8 @@ import { LensBar } from './Lens';
 import { Matrix } from './Matrix';
 import { ChatPanel, Composer } from './Chat';
 import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MoreIcon } from './icons';
+import { Brand, Logo } from './Brand';
+import { View } from './Scene';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -41,8 +43,15 @@ function useLead(t: Task) {
 
 /* ---------- Now ---------- */
 
+/** When the next task is: "in 5 min" within the hour, its time after that, or Backlog when it has none. */
+function whenLabel(t: Task, now: number) {
+  if (t.start == null) return 'Backlog';
+  if (t.start - now < 3600000) return `in ${Math.max(1, Math.round((t.start - now) / MIN))} min`;
+  return fmtTime(t.start);
+}
+
 export function NowBlock({ phone }: { phone?: boolean }) {
-  const { store, now, done, schedule, openEditor, labelOf } = usePlanner();
+  const { store, now, done, schedule, openEditor, labelOf, split } = usePlanner();
   const { focus: f } = useLists();
   const cur = f.now;
   let meta: React.ReactNode = 'Dump the next thing below.';
@@ -54,14 +63,10 @@ export function NowBlock({ phone }: { phone?: boolean }) {
       {PRI[cur.priority]} · {fmtDur(cur.minutes)}{f.live ? ` · until ${fmtTime(endOf(cur))}` : <Due t={cur} />}
     </>;
   }
-  let nextWhen = '';
-  if (f.next) {
-    if (f.next.start == null) nextWhen = 'Backlog';
-    else if (f.next.start - now < 3600000) nextWhen = `in ${Math.max(1, Math.round((f.next.start - now) / MIN))} min`;
-    else nextWhen = fmtTime(f.next.start);
-  }
+  const nextWhen = f.next ? whenLabel(f.next, now) : '';
   return (
-    <section className="now in" aria-label="Now" aria-live="polite" style={{ animationDelay: phone ? '.08s' : '.06s' }}>
+    // Tight: on the plain laptop, Now heads a narrow column, so its buttons go under it.
+    <section className={'now in' + (!phone && split.matrixW < 600 ? ' tight' : '')} aria-label="Now" aria-live="polite" style={{ animationDelay: phone ? '.08s' : '.06s' }}>
       <div className="nl"><i aria-hidden="true" />Now</div>
       {!store.loaded ? (
         <h1 className="nt quiet">Opening your list…</h1>
@@ -81,6 +86,34 @@ export function NowBlock({ phone }: { phone?: boolean }) {
         <div className="next"><span>Next · {nextWhen}</span><button type="button" onClick={() => openEditor(f.next!.id)}>{f.next.title}</button></div>
       )}
     </section>
+  );
+}
+
+/* ---------- Next, on a split-flap board (laptop, with a view) ---------- */
+
+function Flaps({ text, max }: { text: string; max: number }) {
+  const t = text.length > max ? text.slice(0, max - 1).trimEnd() + '…' : text;
+  // Keyed by the text, so a change flips every tile in.
+  return (
+    <span className="flaps" key={t} aria-hidden="true">
+      {[...t.toUpperCase()].map((c, i) => (
+        <span key={i} className={'flap' + (c === ' ' ? ' gap' : '')} style={{ animationDelay: `${(i * 0.03).toFixed(2)}s` }}>{c === ' ' ? '' : c}</span>
+      ))}
+    </span>
+  );
+}
+
+export function NextBoard() {
+  const { now, openEditor } = usePlanner();
+  const { focus: f } = useLists();
+  const next = f.next;
+  const when = next ? whenLabel(next, now) : '';
+  return (
+    <button type="button" className="board in" disabled={!next} aria-label={next ? `Next, ${when}: ${next.title}` : 'Nothing next'}
+      onClick={() => next && openEditor(next.id)}>
+      <span className="bh"><span>Next</span>{next && <Flaps text={when} max={9} />}</span>
+      <Flaps text={next ? next.title : 'Nothing next'} max={18} />
+    </button>
   );
 }
 
@@ -246,18 +279,23 @@ export function PhoneScreen() {
     <>
       {chat.open ? <ChatPanel phone /> : (
         <div className="screen">
-          <header className="hdr in">
-            <span className="date">{longDate(now)}</span>
+          <div className="hero">
+            <View kind="strip" />
+            <header className="hdr in">
+              <span className="date"><Logo size={22} />{longDate(now)}</span>
             <div className="tools">
               <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
               <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>
             </div>
           </header>
-          <Inbox />
-          <NowBlock phone />
-          <LensBar phone />
-          <div className="sh tabs in" style={{ animationDelay: '.16s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
-          <BacklogRows phone />
+            <NowBlock phone />
+          </div>
+          <section className="blist in" aria-label="Backlog" style={{ animationDelay: '.16s' }}>
+            <Inbox />
+            <LensBar phone />
+            <div className="sh tabs"><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
+            <BacklogRows phone />
+          </section>
         </div>
       )}
       <div className="capwrap in" style={{ animationDelay: chat.open ? '0s' : '.3s' }}><Composer phone /></div>
@@ -289,19 +327,30 @@ function LaptopBacklog() {
   );
 }
 
-export function LaptopSide() {
-  const { now, openSettings, drag, split, chat } = usePlanner();
-  const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
+/** Across the top on a laptop: the name, the date and time, and Settings. */
+export function LaptopTop() {
+  const { now, openSettings } = usePlanner();
   return (
-    <aside className={'side' + (dropOk ? ' drop-ok' : '')} style={{ width: split.matrixW }} aria-label={chat.open ? 'Dump' : 'Now and backlog'} data-backlog={chat.open ? undefined : ''}>
-      <div className="dateline in">
+    <header className="top in">
+      <Brand />
+      <div className="end">
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
-        <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
+        <button type="button" className="ib" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
       </div>
+    </header>
+  );
+}
+
+export function LaptopSide() {
+  const { drag, chat } = usePlanner();
+  const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
+  // Its width is the split's, set on the layout around it.
+  return (
+    <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label={chat.open ? 'Dump' : 'Backlog'} data-backlog={chat.open ? undefined : ''}>
       {chat.open ? <ChatPanel /> : (
         <>
+          <NextBoard />
           <Inbox />
-          <NowBlock />
           <LensBar />
           <div className="rows"><LaptopBacklog /></div>
         </>

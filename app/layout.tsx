@@ -2,18 +2,30 @@ import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import './globals.css';
 
+// The icons, the install manifest and the link preview are files next to this one (icon.svg, favicon.ico,
+// apple-icon.png, manifest.ts, opengraph-image.png); scripts/brand/README.md says how they're made.
 export const metadata: Metadata = {
   title: 'Life is short',
-  description: 'Dump tasks the moment they come to mind; the screen tells you the one thing to do now.',
+  description: 'Dump a task the moment it comes to mind; the screen tells you the one thing to do now.',
+  applicationName: 'Life is short',
+  appleWebApp: { title: 'Life is short', capable: true, statusBarStyle: 'default' },
+  openGraph: {
+    title: 'Life is short',
+    description: 'A day planner with a window seat. Dump a task, slot it, then look outside.',
+    siteName: 'Life is short',
+    type: 'website',
+  },
+  twitter: { card: 'summary_large_image', title: 'Life is short', description: 'A day planner with a window seat. Dump a task, slot it, then look outside.' },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // The wall around the window; components/prefs.ts changes it to match Settings.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#FFFFFF' },
-    { media: '(prefers-color-scheme: dark)', color: '#0B0B0C' },
+    { media: '(prefers-color-scheme: light)', color: '#1F5E58' },
+    { media: '(prefers-color-scheme: dark)', color: '#0E2826' },
   ],
 };
 
@@ -28,7 +40,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // The CSP nonce from proxy.ts; reading headers also makes every page render per request.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
-    <html lang="en" suppressHydrationWarning>
+    // Summer meadow is the default view; the startup script swaps in a saved one before first paint.
+    <html lang="en" data-scene="meadow" suppressHydrationWarning>
       <head>
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

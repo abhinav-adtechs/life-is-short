@@ -8,7 +8,7 @@ import { hasSupabase, supabase } from '@/lib/supabase';
 import { mfaState } from '@/lib/mfa';
 import { nextStep, type PinStatus } from '@/lib/pin';
 import Planner from './Planner';
-import { CodeCheck, CreatePin, EnrollTotp, PinUnlock, SignIn } from './Auth';
+import { CodeCheck, CreatePin, EnrollTotp, PinUnlock, Shell, SignIn } from './Auth';
 
 type State =
   | { phase: 'boot' }
@@ -91,9 +91,10 @@ export default function App() {
     case 'create-pin': return <CreatePin onDone={check} onSignOut={signOut} />;
     case 'pin': return <PinUnlock factorId={state.factorId} email={state.email} codeDone={state.codeDone} onDone={check} onLocked={locked} onSignOut={signOut} />;
     case 'error': return (
-      <main className="login"><div className="in"><h1>Can’t reach your account</h1>
+      <Shell title="Can’t reach your account">
         <p className="nm">Check your connection and try again.</p>
-        <button type="button" className="btn pri" onClick={check}>Try again</button></div></main>
+        <button type="button" className="btn pri" onClick={check}>Try again</button>
+      </Shell>
     );
     default: return <Planner key={state.userId ?? 'local'} repo={state.repo} email={state.email} />;
   }
