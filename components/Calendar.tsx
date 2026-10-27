@@ -46,7 +46,7 @@ function useItems() {
       if (plan.moves.has(t.id)) cls.push('faded');
       if (plan.ticks.has(t.id)) cls.push('ticking');
       if (drag.view?.kind === 'block' && drag.view.id === t.id) cls.push('lifted');
-      return { key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? 'Missed · drag to reslot' : fmtRange(t.start as number, t.minutes), cls, color, task: t, live: true };
+      return { key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? 'Missed · back to the backlog' : fmtRange(t.start as number, t.minutes), cls, color, task: t, live: true };
     });
     for (const t of tasksOn(plan.proposed, d)) {
       out.push({ key: `plan:${t.id}`, start: t.start as number, minutes: t.minutes, title: t.title, meta: `Proposed · ${fmtRange(t.start as number, t.minutes)}`, cls: ['task', 'proposed'] });

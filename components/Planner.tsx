@@ -5,7 +5,7 @@ import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
 import { findSlot } from '@/lib/place';
-import { backlogList, doneList, focus, isEvent, missedList } from '@/lib/select';
+import { backToBacklog, backlogList, doneList, focus, isEvent } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
 import { atMinutes, ceil15, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
 import { VIEW_FOR_DAYS, viewDays, type CalView } from '@/lib/calview';
@@ -20,17 +20,22 @@ import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
+import type { Slip } from '@/lib/slips';
 import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
+import { useSlips } from './slips';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
 import type { ToastState } from './Toast';
 import { Laptop } from './Laptop';
 import { Phone } from './Phone';
 
-/** The side panels on a laptop, bottom sheets on a phone. Settings, Share and Analytics live in the URL hash, so Back closes them. */
-export type SheetKind = 'analytics' | 'share' | 'settings';
+/**
+ * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
+ * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
+ */
+export type SheetKind = 'analytics' | 'review' | 'share' | 'settings';
 
 /** The matrix filter: one label ('' for no label) at one priority. */
 export interface Filter { label: string; priority: Priority }
@@ -48,7 +53,7 @@ export interface PlanView {
 }
 
 export interface PlannerApi {
-  /** Now, Next, the backlog, Missed and Done. */
+  /** Now, Next, the backlog and Done. */
   lists: Lists;
   store: Store;
   tasks: Task[];
@@ -88,8 +93,6 @@ export interface PlannerApi {
   done: (id: string, animate?: boolean) => void;
   /** Next free slot. */
   slot: (id: string) => void;
-  /** Every missed task into the next free slots, in order. */
-  reslotAll: () => void;
   /** Pick a time for it: the calendar waits for a click (on a phone, a tap, with the best slot suggested). */
   schedule: (id: string) => void;
   unslot: (id: string) => void;
@@ -102,11 +105,14 @@ export interface PlannerApi {
   editorId: string | null;
   closeEditor: () => void;
   sheet: SheetKind | null;
-  /** Settings section to show, from #settings/<section>. */
+  /** Settings section to show, from #settings/<section>; the review's span, from #review/<span>. */
   section: string | null;
   openSheet: (kind: SheetKind, section?: string) => void;
   closeSheet: () => void;
   undoable: (msg: string, before: Map<string, Task | null>) => void;
+  /** Missed slots the task has since left (back to the backlog, moved or deleted), for Analytics and the review. */
+  slips: Slip[];
+  refreshSlips: () => void;
   accounts: GoogleAccount[];
   /** Account and calendar of a pulled event. */
   sourceOf: (t: Task) => Source | null;
@@ -140,7 +146,7 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(settings|share|analytics)(?:\/([a-z]+))?$/;
+const SHEET_HASH = /^#(settings|share|analytics|review)(?:\/([a-z]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -149,7 +155,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [toastState, setToast] = useState<ToastState | null>(null);
   const toast = useCallback((msg: string, undo?: () => void) => setToast({ key: Date.now() + Math.random(), msg, undo }), []);
   const dismissToast = useCallback(() => setToast(null), []);
-  const store = useTaskStore(repo, msg => toast(msg));
+  const slipLog = useSlips(repo);
+  const store = useTaskStore(repo, msg => toast(msg), slipLog.record);
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
   const systemDark = useMedia('(prefers-color-scheme: dark)');
@@ -311,20 +318,16 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${name} · ${PRI[cell.priority]}`, store.patch(id, patch));
   }, [store, labelOf, prefs.labels, undoable]);
 
-  const reslotAll = useCallback(() => {
-    const list = missedList(liveTasks().filter(t => !isEvent(t)), Date.now());
-    let pool = liveTasks();
-    const puts: Task[] = [];
-    for (const t of list) {
-      const s = findSlot(pool, t.minutes, { exclude: t.id, hours });
-      if (s == null) continue;
-      const moved = { ...t, start: s };
-      puts.push(moved);
-      pool = pool.map(x => (x.id === t.id ? moved : x));
-    }
-    if (!puts.length) { toast('No free slots in the next two weeks.'); return; }
-    undoable(`Reslotted ${puts.length} · from ${fmtWhen(puts[0].start as number)}`, store.write(puts));
-  }, [liveTasks, hours, store, toast, undoable]);
+  // A slot that came and went without a tick sends its task back to the backlog, on top of the stack. Checked every
+  // minute and on every change, so a task put in the past comes straight back too. No Undo: it would only bounce.
+  const { loaded, tasks: allTasks, all: allNow, write } = store;
+  useEffect(() => {
+    if (!loaded) return;
+    const back = backToBacklog(allNow(), now);
+    if (!back.length) return;
+    write(back);
+    toast(back.length === 1 ? `Missed, so back in the backlog: ${shortTitle(back[0].title)}` : `${back.length} missed tasks are back in the backlog`);
+  }, [loaded, allTasks, allNow, write, now, toast]);
 
   const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
   const chat = useChat({ store, repo, liveTasks, hours, toast, labels: prefs.labels, labelId });
@@ -578,8 +581,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
-    toast, toastState, dismissToast, done, slot, reslotAll, schedule, unslot, place, moveToCell, chat, plan,
+    toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, plan,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
+    slips: slipLog.slips, refreshSlips: slipLog.refresh,
     accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };
@@ -602,7 +606,7 @@ function Ghost({ id, x, y }: { id: string; x: number; y: number }) {
   return <div className="drag-ghost" style={{ left: x + 12, top: y + 10 }} aria-hidden="true">{t.title}</div>;
 }
 
-/** Now, Next, the backlog, Missed and Done, shared by phone and laptop. Google events are calendar items, not tasks to do. */
+/** Now, Next, the backlog and Done, shared by phone and laptop. Google events are calendar items, not tasks to do. */
 function lists(all: Task[], now: number, isOff: (t: Task) => boolean) {
   const live = all.filter(t => !isOff(t));
   const mine = live.filter(t => !isEvent(t));
@@ -612,7 +616,7 @@ function lists(all: Task[], now: number, isOff: (t: Task) => boolean) {
   const sched = live.filter(t => t.status === 'open' && t.start != null).sort((a, b) => (a.start as number) - (b.start as number));
   const busy = sched.find(t => isEvent(t) && (t.start as number) <= now && (t.start as number) + t.minutes * 60000 > now) ?? null;
   const freeUntil = f.now && !f.live ? sched.find(t => (t.start as number) > now && (t.start as number) < dayEnd) ?? null : null;
-  return { focus: f, busy, freeUntil, backlog: backlogList(mine), missed: missedList(mine, now), done: doneList(mine).slice(0, 50) };
+  return { focus: f, busy, freeUntil, backlog: backlogList(mine), done: doneList(mine).slice(0, 50) };
 }
 
 export type Lists = ReturnType<typeof lists>;

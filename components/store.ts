@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Task } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
+import type { Change } from '@/lib/slips';
 
 const newer = (a: Task | undefined, b: Task) => !!a && (a.updatedAt || 0) > (b.updatedAt || 0);
 
@@ -14,8 +15,11 @@ function mergeList(local: Map<string, Task>, server: Task[], now: number): Map<s
   return out;
 }
 
-/** Tasks in memory, written through to the repository. Writes are optimistic and queued in order. */
-export function useTaskStore(repo: TaskRepo, onError: (msg: string) => void) {
+/**
+ * Tasks in memory, written through to the repository. Writes are optimistic and queued in order.
+ * `onWrite` hears every write made here (not ones synced in from elsewhere), with each task before and after.
+ */
+export function useTaskStore(repo: TaskRepo, onError: (msg: string) => void, onWrite?: (changes: Change[]) => void) {
   const [map, setMap] = useState<Map<string, Task>>(new Map());
   const [loaded, setLoaded] = useState(false);
   const ref = useRef(map);
@@ -23,6 +27,8 @@ export function useTaskStore(repo: TaskRepo, onError: (msg: string) => void) {
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const err = useRef(onError);
   err.current = onError;
+  const heard = useRef(onWrite);
+  heard.current = onWrite;
 
   const enqueue = useCallback((fn: () => Promise<void>) => {
     queue.current = queue.current.then(fn).catch(e => err.current(e instanceof Error ? e.message : 'That change didn’t save.'));
@@ -62,6 +68,7 @@ export function useTaskStore(repo: TaskRepo, onError: (msg: string) => void) {
     ref.current = next;
     setMap(next);
     enqueue(() => repo.put(stamped));
+    heard.current?.(stamped.map(t => ({ before: before.get(t.id) ?? null, after: t })));
     return before;
   }, [repo, enqueue]);
 
@@ -77,6 +84,7 @@ export function useTaskStore(repo: TaskRepo, onError: (msg: string) => void) {
     ref.current = next;
     setMap(next);
     enqueue(() => repo.remove(ids));
+    heard.current?.([...before.values()].flatMap(t => (t ? [{ before: t, after: null }] : [])));
     return before;
   }, [repo, enqueue]);
 

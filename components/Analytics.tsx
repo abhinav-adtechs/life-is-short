@@ -10,10 +10,10 @@ import { usePlanner } from './Planner';
 const tint = (color: string) => ({ '--c': color } as React.CSSProperties);
 const pct = (a: number, b: number) => `${b ? ((a / b) * 100).toFixed(1) : 0}%`;
 
-/** How the week is going: what got done each day, where the time went, and what waits. */
+/** How the week is going: what got done each day, where the time went, and what waits. The review goes further. */
 export function Analytics() {
-  const { tasks, now, prefs, labelOf, wide } = usePlanner();
-  const s = weekStats(tasks, now, { firstDow: prefs.weekStart, labelOf: t => labelOf(t)?.id ?? null });
+  const { tasks, now, prefs, labelOf, wide, slips, openSheet } = usePlanner();
+  const s = weekStats(tasks, now, { firstDow: prefs.weekStart, labelOf: t => labelOf(t)?.id ?? null, slips });
   const unit = 96 / Math.max(3, ...s.days.map(d => d.total));
   const rows = [...prefs.labels.map(l => ({ key: l.id, name: l.name, color: l.color as string | null })), { key: '', name: 'No label', color: null }]
     .map(r => ({ ...r, minutes: s.byLabel.get(r.key) ?? 0 }));
@@ -24,7 +24,11 @@ export function Analytics() {
   return (
     <div className="an">
       <section>
-        <div className="an-h"><b>This week</b><span className="muted sm">{rangeTitle(s.days.map(d => d.day), { weekNumbers: false })}</span></div>
+        <div className="an-h">
+          <b>This week</b><span className="muted sm">{rangeTitle(s.days.map(d => d.day), { weekNumbers: false })}</span>
+          <span className="spacer" />
+          <button type="button" className="link sm" onClick={() => openSheet('review', 'week')}>Full review</button>
+        </div>
         <div className="an-big"><span className="num">{s.done}</span><span className="muted">of {s.total} done</span></div>
         <div className="an-bars">
           {s.days.map(d => (
@@ -78,7 +82,7 @@ export function Analytics() {
             </div>
           ))}
         </div>
-        <p className="note">{s.overdue} overdue · {s.missed} {s.missed === 1 ? 'block' : 'blocks'} missed on the calendar</p>
+        <p className="note">{s.overdue} overdue · {s.missed} missed this week</p>
       </section>
     </div>
   );
