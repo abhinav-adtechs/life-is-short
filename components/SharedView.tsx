@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import { PRI } from '@/lib/model';
-import { dueLabel, fmtDur, fmtHour, fmtRange, fmtTime, rangeLabel } from '@/lib/format';
-import { viewDays, viewTitle } from '@/lib/calview';
+import { dueLabel, fmtDur, fmtHour, fmtRange } from '@/lib/format';
+import { rangeTitle, viewDays } from '@/lib/calview';
 import { hourRange, layoutDay, tasksOn } from '@/lib/select';
-import { DOW, DOWL, MIN, MON, MONL, addDays, endOf, minsOf, startOfDay, ymd } from '@/lib/time';
+import { DOW, MIN, MON, addDays, endOf, minsOf, startOfDay, ymd } from '@/lib/time';
 import { todayDays, type SharedData, type SharedItem } from '@/lib/share';
 import { ChevronLeft, ChevronRight } from './icons';
 
@@ -38,7 +38,7 @@ export function SharedView({ data, wide, now, top, extra }: {
 function SharedBacklog({ items, now }: { items: NonNullable<SharedData['backlog']>; now: number }) {
   return (
     <section className="vw-bl" aria-label="Backlog">
-      <div className="sh"><span>Backlog</span><span>{items.length}</span></div>
+      <div className="gh"><span className="gh-t">Backlog<span className="gh-n num">{items.length}</span></span></div>
       {items.length ? (
         <ul className="vw-rows">
           {items.map((t, i) => {
@@ -51,7 +51,7 @@ function SharedBacklog({ items, now }: { items: NonNullable<SharedData['backlog'
             );
           })}
         </ul>
-      ) : <p className="empty">Nothing waiting in the backlog.</p>}
+      ) : <p className="mx-empty">Nothing waiting in the backlog.</p>}
     </section>
   );
 }
@@ -73,38 +73,36 @@ function SharedCalendar({ data, wide, now }: { data: SharedData; wide: boolean; 
   const step = view === 'week' ? 7 : 1;
   const canPrev = !today && (!first || days[0] > first);
   const canNext = !today && (!last || days[days.length - 1] < last);
-  const title = today
-    ? { title: 'Today', sub: days.length > 1 ? rangeLabel(days[0], days[days.length - 1]) : `${DOWL[days[0].getDay()]} ${days[0].getDate()} ${MONL[days[0].getMonth()]}` }
-    : viewTitle(view === 'week' && days.length > 1 ? 'week' : 'day', days[0], now, VIEW_PREFS(data));
+  const title = today ? 'Today' : rangeTitle(days, { weekNumbers: false });
   const shown = days.some(d => tasksOn(cal.items, d).length > 0);
 
   return (
     <>
-      <div className="ctop">
-        <div className="ctitle"><h2>{title.title}</h2><span>{title.sub}</span></div>
+      <div className="cal-bar">
         {!today && (
-          <div className="navg">
+          <>
             <button type="button" className="ib" aria-label={`Previous ${view}`} disabled={!canPrev} onClick={() => setDay(addDays(day, -step))}><ChevronLeft /></button>
-            <button type="button" className="tdy" onClick={() => setDay(startOfDay(now))}>Today</button>
+            <button type="button" className="btn sec sm" onClick={() => setDay(startOfDay(now))}>Today</button>
             <button type="button" className="ib" aria-label={`Next ${view}`} disabled={!canNext} onClick={() => setDay(addDays(day, step))}><ChevronRight /></button>
-          </div>
+          </>
         )}
+        <h2 className="cal-title ell">{title}</h2>
       </div>
-      {!shown && <p className="empty vw-none">{days.length > 1 ? 'Nothing on the calendar these days.' : 'Nothing on the calendar this day.'}</p>}
-      {days.length > 1 && <SharedHeads days={days} now={now} gutter={wide ? 56 : 40} />}
-      <SharedGrid days={days} items={cal.items} hours={data.hours} now={now} gutter={days.length > 1 && !wide ? 40 : wide ? 56 : 48} />
+      {!shown && <p className="mx-empty vw-none">{days.length > 1 ? 'Nothing on the calendar these days.' : 'Nothing on the calendar this day.'}</p>}
+      <SharedHeads days={days} now={now} />
+      <SharedGrid days={days} items={cal.items} hours={data.hours} now={now} />
     </>
   );
 }
 
-function SharedHeads({ days, now, gutter }: { days: Date[]; now: number; gutter: number }) {
+function SharedHeads({ days, now }: { days: Date[]; now: number }) {
   const todayKey = ymd(now);
   return (
-    <div className="whead" style={{ gridTemplateColumns: `${gutter}px repeat(${days.length}, minmax(0, 1fr))` }}>
+    <div className="cal-heads" style={{ gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))` }}>
       <span />
       {days.map(d => (
-        <div key={ymd(d)} className={'dh' + (ymd(d) === todayKey ? ' today' : '')} aria-label={`${DOWL[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`}>
-          <span>{DOW[d.getDay()].toUpperCase()}</span> <b>{d.getDate()}</b>
+        <div key={ymd(d)} className={'dh' + (ymd(d) === todayKey ? ' today' : '')}>
+          <span className="dh-w">{DOW[d.getDay()]}</span><span className="dh-n num" aria-label={`${d.getDate()} ${MON[d.getMonth()]}`}>{d.getDate()}</span>
         </div>
       ))}
     </div>
@@ -113,42 +111,34 @@ function SharedHeads({ days, now, gutter }: { days: Date[]; now: number; gutter:
 
 const HOUR = 52;
 
-function SharedGrid({ days, items, hours, now, gutter }: { days: Date[]; items: SharedItem[]; hours: SharedData['hours']; now: number; gutter: number }) {
+function SharedGrid({ days, items, hours, now }: { days: Date[]; items: SharedItem[]; hours: SharedData['hours']; now: number }) {
   const [h0, h1] = hourRange(days, items, [hours.start, Math.max(hours.start + 1, hours.end)]);
   const height = (h1 - h0) * HOUR;
   const nowMin = minsOf(now);
-  const nowVisible = days.some(d => ymd(d) === ymd(now)) && nowMin >= h0 * 60 && nowMin <= h1 * 60;
   return (
-    <div className="wbody vw-grid" style={{ gridTemplateColumns: `${gutter}px repeat(${days.length}, minmax(0, 1fr))`, '--hour': `${HOUR}px` } as React.CSSProperties}>
-      <div className="gut" aria-hidden="true" style={{ height }}>
-        {Array.from({ length: h1 - h0 + 1 }, (_, i) => h0 + i).map(h => {
-          if (nowVisible && Math.abs(nowMin - h * 60) < 12) return null;
-          return <span key={h} style={{ top: h === h1 ? height - 4 : (h - h0) * HOUR }}>{fmtHour(h)}</span>;
-        })}
-        {nowVisible && <span className="nowt" style={{ top: ((nowMin - h0 * 60) / 60) * HOUR }}>{fmtTime(now, false)}</span>}
+    <div className="cal-grid vw-grid" style={{ gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))`, height, '--hour': `${HOUR}px` } as React.CSSProperties}>
+      <div className="gut" aria-hidden="true">
+        {Array.from({ length: h1 - h0 - 1 }, (_, i) => h0 + i + 1).map(h => <span key={h} style={{ top: (h - h0) * HOUR }}>{fmtHour(h)}</span>)}
       </div>
       {days.map(d => {
         const dayStart = startOfDay(d).getTime();
         return (
-          <div key={ymd(d)} className="daycol" style={{ height }}>
-            {Array.from({ length: h1 - h0 }, (_, i) => <div className="cell" key={i} />)}
+          <div key={ymd(d)} className="col">
             {ymd(d) === ymd(now) && nowMin >= h0 * 60 && nowMin <= h1 * 60 && (
               <div className="nowline" style={{ top: ((nowMin - h0 * 60) / 60) * HOUR }}><i /></div>
             )}
             {layoutDay(tasksOn(items, d)).map(({ task: t, lane, lanes }, i) => {
               const sMin = Math.max(0, (t.start - dayStart) / MIN);
               const eMin = Math.min(24 * 60, (endOf(t) - dayStart) / MIN);
-              const top = ((sMin - h0 * 60) / 60) * HOUR + 2;
-              const h = Math.max(22, Math.round(((eMin - sMin) / 60) * HOUR) - 4);
-              const small = t.minutes <= 30 || h < 30;
+              const top = ((sMin - h0 * 60) / 60) * HOUR + 1;
+              const h = Math.max(18, ((eMin - sMin) / 60) * HOUR - 2);
               const w = 100 / lanes;
               const range = fmtRange(t.start, t.minutes);
               return (
-                <div key={i} className={'block static' + (small ? ' small' : h < 52 ? ' mid' : '') + (t.done ? ' done' : '') + (t.title == null ? ' busy' : '')}
-                  role="img" aria-label={`${t.title ?? 'Busy'}, ${range}`}
-                  style={{ top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 4px)`, width: `calc(${w.toFixed(3)}% - 8px)` }}>
-                  <div className="bt">{t.title ?? 'Busy'}</div>
-                  <div className="bm">{range}</div>
+                <div key={i} className={'blk event' + (h < 26 ? ' small' : '') + (t.done ? ' done' : '')} role="img" aria-label={`${t.title ?? 'Busy'}, ${range}`}
+                  style={{ top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 3px)`, width: `calc(${w.toFixed(3)}% - 6px)` }}>
+                  <div className="blk-t"><span className="blk-title" style={{ WebkitLineClamp: Math.max(1, Math.floor((h - 8) / 16) - (h >= 40 ? 1 : 0)) }}>{t.title ?? 'Busy'}</span></div>
+                  {h >= 40 && <div className="blk-m num">{range}</div>}
                 </div>
               );
             })}

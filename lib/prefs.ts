@@ -1,34 +1,29 @@
-import { contrast, ensureContrast, isHex, mix, onColor, rgba } from './color';
-import { DEFAULT_LABELS, DEFAULT_LENS, DEFAULT_PRESETS, normalizeLabels, normalizeLens, normalizePresets, type Label, type Lens, type Preset } from './labels';
-import { DEFAULT_SPLIT, type Split, type Tight } from './layout';
-import type { BacklogBy } from './select';
-import { DEFAULT_SCENE, LAYERS, SCENES, sceneById, type Scene, type SceneId } from './scenes';
+import { ensureContrast, isHex } from './color';
+import { DEFAULT_LABELS, normalizeLabels, type Label } from './labels';
+import { DEFAULT_SPLIT, normalizeSplit } from './layout';
 
-/** How things look and how the calendar behaves. Stored per device and synced through your settings row. */
+/**
+ * How things look and how the calendar behaves. The theme, its accent, the ambient light and the split stay on this
+ * device; everything else is stored in your settings row and follows you to your other devices.
+ */
 export interface Prefs {
-  /** Light or dark. Per device: a phone can follow the system while a laptop stays dark. */
-  mode: 'system' | 'light' | 'dark';
-  /** The view out of the window (lib/scenes.ts), or a plain page. */
-  scene: SceneId | 'plain';
-  surface: SurfaceId;
-  /** An accent preset id, or a custom #RRGGBB. */
-  accent: string;
+  /** Tide, Night train or Day train. Null matches the device: Night train when it's dark, Tide when it's light. */
+  theme: ThemeId | null;
+  /** An accent preset, your own #RRGGBB, or null for the theme's own accent. */
+  accent: string | null;
+  /** The light moving through the planner: all of it, at half strength, or holding still. */
+  ambient: Ambient;
   font: FontId;
   /** Multiplies every font size. */
   textSize: number;
-  corners: 'round' | 'soft' | 'square';
   density: 'compact' | 'cozy' | 'roomy';
   contrast: boolean;
-  trueBlack: boolean;
+  /** Reduced stops every animation, the ambient light included. System follows the device. */
   motion: 'system' | 'full' | 'reduce';
   clock: '12' | '24';
 
-  /** Calendar view. Per device; null picks Day on a phone. On a laptop the split decides, except for Month. */
-  calView: CalView | null;
-  /** How a laptop screen is shared between the backlog and the calendar. Per device. */
-  split: Split;
-  /** What the backlog and calendar focus on. Per device, so the laptop can stay on work while the phone shows everything. */
-  lens: Lens;
+  /** The calendar's share of a laptop screen (lib/layout.ts). */
+  split: number;
   /** 0 Sunday, 1 Monday, 6 Saturday. */
   weekStart: 0 | 1 | 6;
   /** What the 5-day view shows. */
@@ -36,98 +31,82 @@ export interface Prefs {
   /** Your day, in whole hours: the calendar shows it and auto-slotting stays inside it. */
   dayStart: number;
   dayEnd: number;
-  /** Pixels per hour on the time grid. */
+  /** Pixels per hour on the phone's timeline. A laptop fits your day to the screen. */
   hourHeight: number;
   colorBy: 'none' | 'label' | 'account' | 'calendar' | 'priority';
   showDone: boolean;
   shadeWeekends: boolean;
   weekNumbers: boolean;
 
-  /** Your labels, in the order the backlog shows them. */
+  /** Your labels, in the order the matrix shows them. */
   labels: Label[];
-  /** How the phone's backlog list is split: by label then when it's due, by when it's due, or by priority. */
-  backlogBy: BacklogBy;
-  /** Lenses you can pick in one tap. */
-  presets: Preset[];
-  /** When the laptop's backlog is short of room: numbers in every column, or fold the lowest priorities. */
-  tight: Tight;
 
   /** Last change to a synced field, so the newest device wins. */
   updatedAt: number;
 }
 
-export type CalView = 'day' | 'three' | 'work' | 'week' | 'month';
+export type Ambient = 'present' | 'quiet' | 'still';
 
 /** These stay on this device; everything else follows you between devices. */
-export const DEVICE_KEYS = ['mode', 'calView', 'split', 'lens'] as const;
+export const DEVICE_KEYS = ['theme', 'accent', 'ambient', 'split'] as const;
 
 export const DEFAULT_PREFS: Prefs = {
-  mode: 'system', scene: DEFAULT_SCENE, surface: 'paper', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
-  contrast: false, trueBlack: false, motion: 'system', clock: '12',
-  calView: null, split: DEFAULT_SPLIT, lens: DEFAULT_LENS, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
-  colorBy: 'label', showDone: true, shadeWeekends: false, weekNumbers: false,
-  labels: DEFAULT_LABELS, backlogBy: 'label', presets: DEFAULT_PRESETS, tight: 'counts',
+  theme: null, accent: null, ambient: 'present', font: 'geist', textSize: 1, density: 'cozy', contrast: false, motion: 'system', clock: '12',
+  split: DEFAULT_SPLIT, weekStart: 1, fiveDay: 'rolling', dayStart: 9, dayEnd: 21, hourHeight: 56,
+  colorBy: 'label', showDone: true, shadeWeekends: true, weekNumbers: false,
+  labels: DEFAULT_LABELS,
   updatedAt: 0,
 };
 
-/* ---------- surfaces ---------- */
+/* ---------- themes ---------- */
 
-export interface Palette { bg: string; ink: string; muted: string; hair: string; hair2: string; soft: string; block: string; blockH: string }
-export interface Surface { id: string; name: string; light: Palette; dark: Palette }
+/** The main colours of each theme; globals.css holds the full token set. These are for Settings, the browser bar and tests. */
+export interface Theme {
+  id: string; name: string; note: string; dark: boolean;
+  page: string; bg: string; raised: string; ink: string; muted: string; soft: string; block: string; accent: string;
+}
 
-export const SURFACES = [
-  {
-    id: 'neutral', name: 'Neutral',
-    light: { bg: '#FFFFFF', ink: '#0F0F10', muted: '#6B6B70', hair: '#EDEDEF', hair2: '#F6F6F7', soft: '#F4F4F5', block: '#F1F1F3', blockH: '#E8E8EB' },
-    dark: { bg: '#0B0B0C', ink: '#F2F2F3', muted: '#8E8E93', hair: '#1F1F22', hair2: '#141416', soft: '#18181B', block: '#1C1C1F', blockH: '#26262A' },
-  },
-  {
-    id: 'paper', name: 'Paper',
-    light: { bg: '#FBF8F2', ink: '#1F1B16', muted: '#68604F', hair: '#EAE3D6', hair2: '#F4EFE6', soft: '#F1EBE0', block: '#EDE6D8', blockH: '#E3DAC8' },
-    dark: { bg: '#14110D', ink: '#F3EDE4', muted: '#9C9384', hair: '#2A241D', hair2: '#1A1611', soft: '#201B15', block: '#251F18', blockH: '#302820' },
-  },
-  {
-    id: 'slate', name: 'Slate',
-    light: { bg: '#F8FAFC', ink: '#0F172A', muted: '#556072', hair: '#E2E8F0', hair2: '#F1F5F9', soft: '#EDF1F6', block: '#E8EDF4', blockH: '#DCE3ED' },
-    dark: { bg: '#0A0F1A', ink: '#E6EBF3', muted: '#8994A7', hair: '#1B2333', hair2: '#111725', soft: '#151C2B', block: '#1A2233', blockH: '#232D41' },
-  },
-  {
-    id: 'sage', name: 'Sage',
-    light: { bg: '#F7F9F6', ink: '#141A14', muted: '#596659', hair: '#E1E8E0', hair2: '#EFF3EE', soft: '#ECF1EB', block: '#E6ECE5', blockH: '#DAE4D9' },
-    dark: { bg: '#0C110D', ink: '#E9F0E9', muted: '#8B998C', hair: '#1C251D', hair2: '#121912', soft: '#162017', block: '#1A241B', blockH: '#233025' },
-  },
-  {
-    id: 'lilac', name: 'Lilac',
-    light: { bg: '#FAF8FD', ink: '#19142A', muted: '#635B74', hair: '#E8E3F1', hair2: '#F4F1F9', soft: '#F0ECF7', block: '#EBE6F4', blockH: '#E1DAEE' },
-    dark: { bg: '#0F0C16', ink: '#EDE9F5', muted: '#978EAA', hair: '#241F31', hair2: '#17131F', soft: '#1C1727', block: '#211B2E', blockH: '#2B243B' },
-  },
-] as const satisfies readonly Surface[];
+export const THEMES = [
+  { id: 'tide', name: 'Tide', note: 'Light · the rest of today as calm water', dark: false,
+    page: '#E5EBEE', bg: '#EDF2F4', raised: '#FFFFFF', ink: '#12202A', muted: '#4F5E69', soft: '#EBF1F4', block: '#E8EFF2', accent: '#0A7DB2' },
+  { id: 'night', name: 'Night train', note: 'Dark · light from passing platforms', dark: true,
+    page: '#0A0D12', bg: '#0D1117', raised: '#141A22', ink: '#E9E7E2', muted: '#9DA4AE', soft: '#1A212A', block: '#1C232D', accent: '#F2A541' },
+  { id: 'day', name: 'Day train', note: 'Light · a sunlit carriage', dark: false,
+    page: '#ECE6DA', bg: '#F3EEE4', raised: '#FFFCF6', ink: '#1B2230', muted: '#545C69', soft: '#EFE9DE', block: '#EEE8DC', accent: '#D98A1C' },
+] as const satisfies readonly Theme[];
 
-export type SurfaceId = (typeof SURFACES)[number]['id'];
+export type ThemeId = (typeof THEMES)[number]['id'];
+
+export const themeById = (id: ThemeId) => THEMES.find(t => t.id === id) ?? THEMES[0];
+
+/** The theme showing: the one you picked, or for "match the device", Night train in the dark and Tide in the light. */
+export const resolveTheme = (p: Pick<Prefs, 'theme'>, systemDark: boolean): ThemeId => p.theme ?? (systemDark ? 'night' : 'tide');
 
 /* ---------- accents ---------- */
 
-export interface Accent { id: string; name: string; light: string; dark: string }
-
+/** A picked accent wins over the theme's own. */
 export const ACCENTS = [
-  { id: 'ember', name: 'Ember', light: '#F04A0C', dark: '#FF6A33' },
-  { id: 'ruby', name: 'Ruby', light: '#DC2E45', dark: '#FF5C70' },
-  { id: 'rose', name: 'Rose', light: '#D6337A', dark: '#F7609D' },
-  { id: 'violet', name: 'Violet', light: '#7C4DDB', dark: '#A385F5' },
-  { id: 'indigo', name: 'Indigo', light: '#3B5BDB', dark: '#7591FF' },
-  { id: 'ocean', name: 'Ocean', light: '#0B78C9', dark: '#4AAFFF' },
-  { id: 'teal', name: 'Teal', light: '#0E8579', dark: '#2DC5B3' },
-  { id: 'green', name: 'Green', light: '#2D8539', dark: '#4CC764' },
-  { id: 'amber', name: 'Amber', light: '#B86E00', dark: '#FFB224' },
-  { id: 'graphite', name: 'Graphite', light: '#3A3A3F', dark: '#C9C9CE' },
-] as const satisfies readonly Accent[];
+  { id: 'ember', name: 'Ember', color: '#F04A0C' },
+  { id: 'coral', name: 'Coral', color: '#E5484D' },
+  { id: 'amber', name: 'Amber', color: '#D98E04' },
+  { id: 'moss', name: 'Moss', color: '#3E8E41' },
+  { id: 'teal', name: 'Teal', color: '#0F9488' },
+  { id: 'ocean', name: 'Ocean', color: '#0B84D8' },
+  { id: 'indigo', name: 'Indigo', color: '#4F5BD5' },
+  { id: 'violet', name: 'Violet', color: '#8E4EC6' },
+  { id: 'rose', name: 'Rose', color: '#D6409F' },
+  { id: 'graphite', name: 'Graphite', color: '#3F3F46' },
+] as const;
 
-/** The light and dark versions of an accent. A custom colour is nudged until it reads on the background; `adjusted` says where. */
-export function accentPair(accent: string, light: Palette, dark: Palette) {
+/** Accent ids from before the redesign that have a new name. */
+const OLD_ACCENTS: Record<string, string> = { ruby: 'coral', green: 'moss' };
+
+/** The accent colour on a theme. Your own colour is nudged until it reads against the panels. */
+export function accentColor(accent: string | null, theme: ThemeId): string {
+  const t = themeById(theme);
+  if (accent == null) return t.accent;
   const preset = ACCENTS.find(a => a.id === accent);
-  const base = preset ? { light: preset.light, dark: preset.dark } : isHex(accent) ? { light: accent.toUpperCase(), dark: mix(accent, '#FFFFFF', 0.15) } : ACCENTS[0];
-  const out = { light: ensureContrast(base.light, light.bg, 3), dark: ensureContrast(base.dark, dark.bg, 3) };
-  return { ...out, adjusted: { light: out.light !== base.light.toUpperCase(), dark: out.dark !== base.dark.toUpperCase() } };
+  return preset ? preset.color : ensureContrast(accent, t.raised, 3);
 }
 
 /* ---------- fonts ---------- */
@@ -136,14 +115,14 @@ export interface Font { id: string; name: string; note: string; stack: string; /
 
 export const FONTS = [
   { id: 'geist', name: 'Geist', note: 'Clean. The default', stack: "'Geist',system-ui,-apple-system,sans-serif", gf: null },
-  { id: 'inter', name: 'Inter', note: 'Neutral and compact', stack: "'Inter',system-ui,-apple-system,sans-serif", gf: 'Inter:wght@400..600' },
+  { id: 'inter', name: 'Inter', note: 'Neutral and compact', stack: "'Inter',system-ui,-apple-system,sans-serif", gf: 'Inter:wght@400..700' },
   { id: 'system', name: 'System', note: 'Your device’s own font', stack: "system-ui,-apple-system,'Segoe UI',Roboto,sans-serif", gf: null },
-  { id: 'dm', name: 'DM Sans', note: 'Friendly, geometric', stack: "'DM Sans',system-ui,sans-serif", gf: 'DM+Sans:opsz,wght@9..40,400..600' },
+  { id: 'dm', name: 'DM Sans', note: 'Friendly, geometric', stack: "'DM Sans',system-ui,sans-serif", gf: 'DM+Sans:opsz,wght@9..40,400..700' },
   { id: 'nunito', name: 'Nunito', note: 'Soft and rounded', stack: "'Nunito',system-ui,sans-serif", gf: 'Nunito:wght@400..700' },
-  { id: 'lexend', name: 'Lexend', note: 'Made for easy reading', stack: "'Lexend',system-ui,sans-serif", gf: 'Lexend:wght@400..600' },
+  { id: 'lexend', name: 'Lexend', note: 'Made for easy reading', stack: "'Lexend',system-ui,sans-serif", gf: 'Lexend:wght@400..700' },
   { id: 'atkinson', name: 'Atkinson', note: 'Clear letters for low vision', stack: "'Atkinson Hyperlegible Next',system-ui,sans-serif", gf: 'Atkinson+Hyperlegible+Next:wght@400..700' },
-  { id: 'serif', name: 'Source Serif', note: 'Bookish serif', stack: "'Source Serif 4',Georgia,serif", gf: 'Source+Serif+4:opsz,wght@8..60,400..600' },
-  { id: 'mono', name: 'Geist Mono', note: 'Monospaced', stack: "'Geist Mono',ui-monospace,Menlo,monospace", gf: 'Geist+Mono:wght@400..600' },
+  { id: 'serif', name: 'Source Serif', note: 'Bookish serif', stack: "'Source Serif 4',Georgia,serif", gf: 'Source+Serif+4:opsz,wght@8..60,400..700' },
+  { id: 'mono', name: 'Geist Mono', note: 'Monospaced', stack: "'Geist Mono',ui-monospace,Menlo,monospace", gf: null },
 ] as const satisfies readonly Font[];
 
 export type FontId = (typeof FONTS)[number]['id'];
@@ -154,64 +133,59 @@ export const fontHref = (gf: string) => `https://fonts.googleapis.com/css2?famil
 
 export const TEXT_SIZES = [{ value: 0.875, label: 'Small' }, { value: 1, label: 'Default' }, { value: 1.125, label: 'Large' }, { value: 1.25, label: 'Larger' }];
 export const HOUR_HEIGHTS = [{ value: 44, label: 'Compact' }, { value: 56, label: 'Default' }, { value: 72, label: 'Tall' }];
-const CORNERS = { round: { round: 1, pill: '999px' }, soft: { round: 0.6, pill: '12px' }, square: { round: 0.3, pill: '5px' } };
-const DENSITY = { compact: 0.5, cozy: 1, roomy: 1.6 };
+const DENSITY = { compact: 0.6, cozy: 1, roomy: 1.5 };
 
 /* ---------- normalising stored values ---------- */
 
 const oneOf = <T>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
 const bool = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
 const ids = <T extends { id: string }>(list: readonly T[]) => list.map(x => x.id as T['id']);
+/** Keys only prefs from before the themes have. */
+const LEGACY_KEYS = ['scene', 'surface', 'mode', 'corners', 'lens', 'presets', 'tight', 'backlogBy', 'calView'];
+
+function normalizeAccent(v: unknown, legacy: boolean): string | null {
+  if (isHex(v)) return v.toUpperCase();
+  if (typeof v !== 'string') return null;
+  // Ember was everyone's accent before the themes, so it reads as "the theme's own" rather than a choice.
+  if (legacy && v === 'ember') return null;
+  const id = OLD_ACCENTS[v] ?? v;
+  return ACCENTS.some(a => a.id === id) ? id : null;
+}
 
 /** Anything read from storage or another device, turned into valid prefs. */
 export function normalizePrefs(raw: unknown): Prefs {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_PREFS;
-  const accent = ACCENTS.some(a => a.id === o.accent) ? (o.accent as string) : isHex(o.accent) ? o.accent.toUpperCase() : d.accent;
+  // Saved before the themes: a view out of the window, light or dark, and the old calendar defaults.
+  const legacy = LEGACY_KEYS.some(k => k in o);
   let dayStart = Number.isInteger(o.dayStart) ? Math.max(0, Math.min(23, o.dayStart as number)) : d.dayStart;
   let dayEnd = Number.isInteger(o.dayEnd) ? Math.max(1, Math.min(24, o.dayEnd as number)) : d.dayEnd;
   if (dayEnd - dayStart < 2) { dayStart = d.dayStart; dayEnd = d.dayEnd; }
-  // Prefs saved before the window have no scene; their Neutral was the old default, so they get the window's Paper.
-  const surface = o.scene === undefined && o.surface === 'neutral' ? d.surface : oneOf(o.surface, ids(SURFACES), d.surface);
-  // An early build called the only view 'sky'.
-  const scene = o.scene === 'sky' ? d.scene : oneOf(o.scene, [...ids(SCENES), 'plain'] as const, d.scene);
+  const theme = oneOf(o.theme, [...ids(THEMES), null] as const, null)
+    ?? (legacy ? (o.mode === 'dark' ? 'night' : o.mode === 'light' ? 'tide' : null) : null);
   return {
-    mode: oneOf(o.mode, ['system', 'light', 'dark'] as const, d.mode),
-    scene,
-    surface,
-    accent,
+    theme,
+    accent: normalizeAccent(o.accent, legacy),
+    ambient: oneOf(o.ambient, ['present', 'quiet', 'still'] as const, d.ambient),
     font: oneOf(o.font, ids(FONTS), d.font),
     textSize: oneOf(o.textSize, TEXT_SIZES.map(s => s.value), d.textSize),
-    corners: oneOf(o.corners, ['round', 'soft', 'square'] as const, d.corners),
     density: oneOf(o.density, ['compact', 'cozy', 'roomy'] as const, d.density),
     contrast: bool(o.contrast, d.contrast),
-    trueBlack: bool(o.trueBlack, d.trueBlack),
     motion: oneOf(o.motion, ['system', 'full', 'reduce'] as const, d.motion),
     clock: oneOf(o.clock, ['12', '24'] as const, d.clock),
-    calView: oneOf(o.calView, ['day', 'three', 'work', 'week', 'month', null] as const, d.calView),
     split: normalizeSplit(o.split),
-    lens: normalizeLens(o.lens),
     weekStart: oneOf(o.weekStart, [0, 1, 6] as const, d.weekStart),
-    fiveDay: oneOf(o.fiveDay, ['workweek', 'rolling'] as const, d.fiveDay),
+    fiveDay: legacy ? d.fiveDay : oneOf(o.fiveDay, ['workweek', 'rolling'] as const, d.fiveDay),
     dayStart, dayEnd,
     hourHeight: oneOf(o.hourHeight, HOUR_HEIGHTS.map(h => h.value), d.hourHeight),
     // Account was the default before labels. Label colours events the same way until something has a label.
     colorBy: o.colorBy === 'account' && !Array.isArray(o.labels) ? 'label' : oneOf(o.colorBy, ['none', 'label', 'account', 'calendar', 'priority'] as const, d.colorBy),
     showDone: bool(o.showDone, d.showDone),
-    shadeWeekends: bool(o.shadeWeekends, d.shadeWeekends),
+    shadeWeekends: legacy ? d.shadeWeekends : bool(o.shadeWeekends, d.shadeWeekends),
     weekNumbers: bool(o.weekNumbers, d.weekNumbers),
     labels: normalizeLabels(o.labels),
-    backlogBy: oneOf(o.backlogBy, ['label', 'time', 'priority'] as const, d.backlogBy),
-    presets: normalizePresets(o.presets),
-    tight: oneOf(o.tight, ['counts', 'fold'] as const, d.tight),
     updatedAt: typeof o.updatedAt === 'number' && isFinite(o.updatedAt) ? o.updatedAt : 0,
   };
-}
-
-function normalizeSplit(raw: unknown): Split {
-  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const cal = typeof o.cal === 'number' && isFinite(o.cal) ? Math.round(Math.max(200, Math.min(4000, o.cal))) : DEFAULT_SPLIT.cal;
-  return { mode: o.mode === 'auto' ? 'auto' : 'pinned', cal };
 }
 
 /** The synced part: everything but the per-device keys. */
@@ -224,112 +198,44 @@ export function syncable(p: Prefs): Partial<Prefs> {
 /** Your day as minutes from midnight, for slotting. */
 export const workHours = (p: Pick<Prefs, 'dayStart' | 'dayEnd'>) => ({ start: p.dayStart * 60, end: p.dayEnd * 60 });
 
-/* ---------- prefs → CSS ---------- */
-
-/** Stronger secondary text and lines for the contrast setting. */
-function boost(p: Palette): Palette {
-  return {
-    ...p,
-    muted: mix(p.muted, p.ink, 0.42), hair: mix(p.hair, p.ink, 0.2), hair2: mix(p.hair2, p.ink, 0.06),
-    soft: mix(p.soft, p.ink, 0.03), block: mix(p.block, p.ink, 0.05), blockH: mix(p.blockH, p.ink, 0.08),
-  };
-}
-
-/** Pure black for OLED screens, with surfaces a step darker so they still separate. */
-function black(p: Palette): Palette {
-  const dim = (c: string) => mix(c, '#000000', 0.3);
-  return { ...p, bg: '#000000', hair2: dim(p.hair2), soft: dim(p.soft), block: dim(p.block), blockH: dim(p.blockH), hair: mix(p.hair, '#000000', 0.15) };
-}
-
-export function palettes(p: Prefs): { light: Palette; dark: Palette } {
-  const s = SURFACES.find(x => x.id === p.surface) ?? SURFACES[0];
-  let light: Palette = { ...s.light }, dark: Palette = { ...s.dark };
-  if (p.trueBlack) dark = black(dark);
-  if (p.contrast) { light = boost(light); dark = boost(dark); }
-  return { light, dark };
-}
-
-const TOKENS: [keyof Palette, string][] = [['bg', 'bg'], ['ink', 'ink'], ['muted', 'muted'], ['hair', 'hair'], ['hair2', 'hair2'], ['soft', 'soft'], ['block', 'block'], ['blockH', 'block-h']];
+/* ---------- prefs → the root element ---------- */
 
 export interface Look {
   /** CSS custom properties for the root element. */
   vars: Record<string, string>;
   /** Attributes for the root element; null removes one. */
   attrs: Record<string, string | null>;
+  /** True when the theme follows the device, so the startup script picks it from the system before first paint. */
+  auto: boolean;
   /** Stylesheet for the chosen font, if it needs loading. */
   font: string | null;
-  /** Browser chrome colours. */
-  themeColor: { light: string; dark: string };
+  /** The browser bar's colour: the theme's outermost wall. */
+  themeColor: string;
 }
 
-export function computeLook(p: Prefs): Look {
-  const { light, dark } = palettes(p);
-  const acc = accentPair(p.accent, light, dark);
-  const vars: Record<string, string> = {};
-  for (const [k, name] of TOKENS) { vars[`--l-${name}`] = light[k]; vars[`--d-${name}`] = dark[k]; }
-  vars['--l-accent'] = acc.light;
-  vars['--l-on-accent'] = onColor(acc.light);
-  vars['--l-accent-soft'] = rgba(acc.light, 0.08);
-  vars['--l-accent-line'] = rgba(acc.light, 0.5);
-  vars['--d-accent'] = acc.dark;
-  vars['--d-on-accent'] = onColor(acc.dark, dark.bg === '#000000' ? '#000000' : '#0B0B0C');
-  vars['--d-accent-soft'] = rgba(acc.dark, 0.12);
-  vars['--d-accent-line'] = rgba(acc.dark, 0.55);
+export function computeLook(p: Prefs, systemDark = false): Look {
+  const theme = resolveTheme(p, systemDark);
   const font = FONTS.find(f => f.id === p.font) ?? FONTS[0];
-  vars['--font'] = font.stack;
-  vars['--fs'] = String(p.textSize);
-  vars['--round'] = String(CORNERS[p.corners].round);
-  vars['--pill'] = CORNERS[p.corners].pill;
-  vars['--dens'] = String(DENSITY[p.density]);
-  const scene = sceneById(p.scene);
-  if (scene) Object.assign(vars, sceneVars(scene));
-  // The browser bar continues the page: the wall around the window, or the plain page.
-  const top = scene ? { light: scene.wall.light, dark: scene.wall.dark } : { light: light.bg, dark: dark.bg };
+  const vars: Record<string, string> = {
+    '--font-ui': font.stack,
+    '--fs': String(p.textSize),
+    '--dens': String(DENSITY[p.density]),
+  };
+  if (p.accent != null) vars['--accent-user'] = accentColor(p.accent, theme);
   return {
     vars,
     attrs: {
-      'data-theme': p.mode === 'system' ? null : p.mode,
+      'data-theme': theme,
+      'data-accent': p.accent == null ? null : ACCENTS.some(a => a.id === p.accent) ? p.accent : 'custom',
+      'data-ambient': p.ambient === 'present' ? null : p.ambient,
       'data-motion': p.motion === 'system' ? null : p.motion,
       'data-contrast': p.contrast ? 'more' : null,
-      'data-scene': p.scene,
     },
+    auto: p.theme == null,
     font: font.gf ? fontHref(font.gf) : null,
-    themeColor: p.mode === 'system' ? top : p.mode === 'light' ? { light: top.light, dark: top.light } : { light: top.dark, dark: top.dark },
+    themeColor: themeById(theme).page,
   };
 }
 
-/** Lowest contrast between text tokens and the surfaces they sit on, for tests and sanity checks. */
-export function worstTextContrast(pal: Palette) {
-  return Math.min(...[pal.bg, pal.soft, pal.block, pal.hair2].flatMap(bg => [contrast(pal.ink, bg), contrast(pal.muted, bg)]));
-}
-
-/** The window's CSS: its layers, where the light comes from, and the colours around it. */
-export function sceneVars(s: Scene): Record<string, string> {
-  const v: Record<string, string> = {};
-  for (const l of LAYERS) v[`--img-${l}`] = s.layers.includes(l) ? `url("/scenes/${s.id}/${l}.svg")` : 'none';
-  v['--sun'] = `${s.sun[0]}% ${s.sun[1]}%`;
-  v['--band'] = String(s.band);
-  v['--across'] = String(s.across);
-  v['--sky-c'] = s.sky;
-  v['--l-wall'] = s.wall.light;
-  v['--d-wall'] = s.wall.dark;
-  v['--l-wall-ink'] = s.wall.ink;
-  v['--d-wall-ink'] = s.wall.inkDark;
-  v['--wall-art'] = s.wall.texture ?? 'none';
-  v['--frame'] = s.frame;
-  v['--win-r'] = `${s.radius}px`;
-  v['--view-ink'] = s.view.ink;
-  v['--view-shade'] = s.view.shade;
-  v['--paper'] = s.paper.bg;
-  v['--paper-ink'] = s.paper.ink;
-  v['--paper-muted'] = s.paper.muted;
-  v['--paper-line'] = s.paper.line;
-  v['--paper-mark'] = s.paper.mark;
-  v['--cta'] = s.paper.cta;
-  v['--cta-ink'] = s.paper.ctaInk;
-  v['--bird'] = s.bird;
-  v['--mote'] = s.mote ?? 'transparent';
-  v['--motes'] = s.mote ? 'block' : 'none';
-  v['--drips'] = s.layers.includes('drops') ? 'block' : 'none';
-  return v;
-}
+/** The look's own variables, so applying a new look can clear ones the old one set. */
+export const LOOK_VARS = ['--font-ui', '--fs', '--dens', '--accent-user'];

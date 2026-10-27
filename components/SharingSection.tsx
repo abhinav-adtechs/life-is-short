@@ -9,7 +9,7 @@ import {
 import { createShare, decideRequest, deleteShare, loadShares, previewShare, revokeShare, sharingProblem, updateShare } from '@/lib/share-client';
 import { usePlanner } from './Planner';
 import { useMedia } from './hooks';
-import { BackIcon, CaretIcon } from './icons';
+import { ChevronDown, ChevronLeft } from './icons';
 import { Choice, Opt } from './Controls';
 import { SharedView } from './SharedView';
 
@@ -69,15 +69,15 @@ export function SharingSection() {
   const lastSeen = Math.max(0, ...live.map(s => s.lastSeenAt ?? 0));
 
   return (
-    <section id="set-sharing" className="sp-sec" aria-labelledby="set-sharing-h">
-      <h2 id="set-sharing-h">Sharing</h2>
-      <p className="lead">
-        Let someone see your planner, view only. They sign in with a code sent to their email, see only what you pick, and can
+    <section id="set-sharing" className="set-sec share" aria-labelledby="set-sharing-h">
+      <div className="set-h"><h3 id="set-sharing-h">Share your planner</h3></div>
+      <p className="note">
+        Anyone you share with can view. Nobody can edit. They sign in with a code sent to their email, see only what you pick, and can
         suggest tasks for you to approve. Notes and the words of your dumps are never shared.
       </p>
-      {problem && PROBLEMS[problem] && failed !== 'migration' && <p className="sh-warn" role="status">{PROBLEMS[problem]}</p>}
-      {failed === 'migration' && <p className="sh-warn" role="alert">Sharing needs the database update in supabase/migrations/0005_sharing.sql. Run it in the Supabase SQL editor.</p>}
-      {failed === 'error' && <p className="sh-warn" role="alert">Couldn’t load your shares. <button type="button" className="link" onClick={reload}>Try again</button></p>}
+      {problem && PROBLEMS[problem] && failed !== 'migration' && <p className="warnbox" role="status">{PROBLEMS[problem]}</p>}
+      {failed === 'migration' && <p className="warnbox" role="alert">Sharing needs the database update in supabase/migrations/0005_sharing.sql. Run it in the Supabase SQL editor.</p>}
+      {failed === 'error' && <p className="warnbox" role="alert">Couldn’t load your shares. <button type="button" className="link" onClick={reload}>Try again</button></p>}
 
       {list && (
         <p className="sh-sum" role="status">
@@ -89,12 +89,12 @@ export function SharingSection() {
 
       {pending.length > 0 && (
         <>
-          <div className="gh"><span>Suggestions waiting for you</span><span>{pending.length}</span></div>
+          <div className="gh"><span className="gh-t">Suggestions waiting for you<span className="gh-n num">{pending.length}</span></span></div>
           {pending.map(r => <RequestCard key={r.id} r={r} now={now} reload={reload} />)}
         </>
       )}
 
-      {live.length > 0 && <div className="gh"><span>Who can see it</span><span>{live.length}</span></div>}
+      {live.length > 0 && <div className="gh"><span className="gh-t">Who can see it<span className="gh-n num">{live.length}</span></span></div>}
       {live.map(s => (
         <ShareCard key={s.id} s={s} now={now} fresh={fresh === s.id} reload={reload}
           onPreview={async () => {
@@ -105,8 +105,8 @@ export function SharingSection() {
       {creating ? (
         <ShareForm onCancel={() => setCreating(false)} onSaved={id => { setCreating(false); setFresh(id); reload(); }} />
       ) : (
-        <div className="sacts">
-          <button type="button" className={'btn ' + (live.length ? 'sec' : 'pri')} disabled={!list} onClick={() => { setCreating(true); setFresh(null); }}>
+        <div className="acts">
+          <button type="button" className={'btn sm ' + (live.length ? 'sec' : 'pri')} disabled={!list} onClick={() => { setCreating(true); setFresh(null); }}>
             New share
           </button>
         </div>
@@ -158,9 +158,9 @@ function RequestCard({ r, now, reload }: { r: ShareRequest; now: number; reload:
       </div>
       <p className="sh-meta">From {whoOf(r)} · {when(r.createdAt, now)}</p>
       {r.note && <p className="sh-note">“{r.note}”</p>}
-      <div className="sacts">
-        <button type="button" className="btn pri" disabled={busy} onClick={approve}>{r.kind === 'calendar' ? 'Add to calendar' : 'Add to backlog'}</button>
-        <button type="button" className="btn sec" disabled={busy} onClick={decline}>Decline</button>
+      <div className="acts">
+        <button type="button" className="btn pri sm" disabled={busy} onClick={approve}>{r.kind === 'calendar' ? 'Add to calendar' : 'Add to backlog'}</button>
+        <button type="button" className="btn sec sm" disabled={busy} onClick={decline}>Decline</button>
       </div>
     </div>
   );
@@ -180,8 +180,8 @@ function LinkBox({ s, highlight }: { s: Share; highlight?: boolean }) {
   return (
     <div className={'sh-link' + (highlight ? ' fresh' : '')}>
       <input readOnly aria-label={`Link for ${s.email}`} value={url} onFocus={e => e.currentTarget.select()} />
-      <button type="button" className="btn pri" onClick={copy}>Copy link</button>
-      {canShare && <button type="button" className="btn sec" onClick={() => navigator.share({ title: 'My planner', url }).catch(() => undefined)}>Share…</button>}
+      <button type="button" className="btn pri sm" onClick={copy}>Copy link</button>
+      {canShare && <button type="button" className="btn sec sm" onClick={() => navigator.share({ title: 'My planner', url }).catch(() => undefined)}>Share…</button>}
     </div>
   );
 }
@@ -209,7 +209,7 @@ function ShareCard({ s, now, fresh, reload, onPreview }: { s: Share; now: number
     <div className={'sh-card' + (fresh ? ' fresh' : '')}>
       <div className="sh-h">
         <div className="who"><b>{whoOf(s)}</b><span>{s.name ? `${s.email} · ` : ''}{shareEnds(s, now)}</span></div>
-        <button type="button" className="btn sec" aria-expanded={linkOpen} onClick={() => setLinkOpen(o => !o)}>Link</button>
+        <button type="button" className="btn sec sm" aria-expanded={linkOpen} onClick={() => setLinkOpen(o => !o)}>Link</button>
       </div>
       {linkOpen && (
         <>
@@ -217,7 +217,7 @@ function ShareCard({ s, now, fresh, reload, onPreview }: { s: Share; now: number
           <p className="note">{fresh ? 'Your link is ready. ' : ''}Send it to {s.email}. They sign in with a code sent to that address, so the link alone isn’t enough.</p>
         </>
       )}
-      {s.locked && <p className="sh-warn" role="status">Signing in is paused: 10 wrong codes in the last day. It starts again on its own a day after the last one. Not them? Stop sharing.</p>}
+      {s.locked && <p className="warnbox" role="status">Signing in is paused: 10 wrong codes in the last day. It starts again on its own a day after the last one. Not them? Stop sharing.</p>}
       <p className="sh-scope">{scopeParts(s.scope).join(' · ')}</p>
       <p className="sh-meta">
         {s.lastSeenAt ? `Last viewed ${when(s.lastSeenAt, now)}` : 'Not opened yet'}
@@ -230,7 +230,7 @@ function ShareCard({ s, now, fresh, reload, onPreview }: { s: Share; now: number
         {confirm ? (
           <>
             <span>Stop sharing with {whoOf(s)}? The link stops working and they’re signed out.</span>
-            <button type="button" className="btn sec" onClick={stop}>Stop sharing</button>
+            <button type="button" className="btn sec sm" onClick={stop}>Stop sharing</button>
             <button type="button" className="link" onClick={() => setConfirm(false)}>Cancel</button>
           </>
         ) : (
@@ -322,9 +322,9 @@ function ShareForm({ share, onCancel, onSaved }: { share?: Share; onCancel: () =
         {({ labelId }) => <Choice labelledBy={labelId} value={days} onChange={setDays} options={durations} />}
       </Opt>
 
-      <div className="sacts">
-        <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : share ? 'Save changes' : 'Create link'}</button>
-        <button type="button" className="btn sec" onClick={onCancel}>Cancel</button>
+      <div className="acts">
+        <button type="submit" className="btn pri sm" disabled={busy}>{busy ? 'Saving…' : share ? 'Save changes' : 'Create link'}</button>
+        <button type="button" className="btn sec sm" onClick={onCancel}>Cancel</button>
       </div>
       {msg && <p className="note" role="alert">{msg}</p>}
     </form>
@@ -339,7 +339,7 @@ function Activity({ list, now }: { list: ShareList; now: number }) {
   const shown = all ? list.events : list.events.slice(0, 12);
   return (
     <>
-      <div className="gh"><span>Activity</span><span>{list.events.length ? (list.events.length >= 200 ? 'latest 200' : list.events.length) : ''}</span></div>
+      <div className="gh"><span className="gh-t">Activity<span className="gh-n num">{list.events.length ? (list.events.length >= 200 ? 'latest 200' : list.events.length) : ''}</span></span></div>
       {list.events.length ? (
         <ul className="sh-log">
           {shown.map((e, i) => (
@@ -350,7 +350,7 @@ function Activity({ list, now }: { list: ShareList; now: number }) {
           ))}
         </ul>
       ) : <p className="note">Every sign-in, view, wrong code and suggestion shows up here.</p>}
-      {list.events.length > shown.length && <div className="sacts"><button type="button" className="link" onClick={() => setAll(true)}>Show all activity</button></div>}
+      {list.events.length > shown.length && <div className="acts"><button type="button" className="link" onClick={() => setAll(true)}>Show all activity</button></div>}
     </>
   );
 }
@@ -366,8 +366,7 @@ function Ended({ shares, now, reload }: { shares: Share[]; now: number; reload: 
   return (
     <>
       <div className="gh">
-        <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}><CaretIcon /> Ended</button>
-        <span>{shares.length}</span>
+        <button type="button" className="gh-t" aria-expanded={open} onClick={() => setOpen(o => !o)}>Ended<span className="gh-n num">{shares.length}</span><ChevronDown /></button>
       </div>
       {open && shares.map(s => (
         <div key={s.id} className="sh-card ended">
@@ -405,7 +404,7 @@ function Preview({ share, data, onClose }: { share: Share; data: SharedData; onC
   return (
     <div className="setpage vw-preview" role="dialog" aria-modal="true" aria-labelledby="pv-h" tabIndex={-1} ref={page}>
       <header className="sp-top">
-        <button type="button" className="ib" aria-label="Back to Sharing" onClick={onClose}><BackIcon /></button>
+        <button type="button" className="ib" aria-label="Back to Sharing" onClick={onClose}><ChevronLeft /></button>
         <h1 id="pv-h">What {whoOf(share)} sees</h1>
         <span className="sp-saved">Right now, as they’d see it</span>
       </header>

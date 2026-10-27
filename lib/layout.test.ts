@@ -1,117 +1,108 @@
 import { describe, expect, it } from 'vitest';
-import { CAL_MIN, DEFAULT_SPLIT, MATRIX_MIN, SNAP, calendarWidth, daysFor, matrixLayout, snapWidth } from './layout';
-import { DEFAULT_LABELS, DEFAULT_LENS, DEFAULT_PRESETS, inLens, lensIds, normalizeLens, normalizePresets, sameLens, toggleLensLabel, usablePresets } from './labels';
+import { DAYS, DEFAULT_SPLIT, PRESETS, SPLIT_MAX, SPLIT_MIN, clampSplit, daysFor, fullMatrix, normalizeSplit, snapSplit, splitFor, stepSplit } from './layout';
 import { DEFAULT_PREFS, normalizePrefs, syncable } from './prefs';
-import { stepDay, viewDays, viewTitle } from './calview';
+import { progress, visibleRange } from './select';
+import { rangeTitle, stepDay, viewDays } from './calview';
+import type { Task } from './model';
 
-const P = { weekStart: 1, fiveDay: 'workweek', weekNumbers: false } as const;
+const P = { weekStart: 1, fiveDay: 'rolling', weekNumbers: false } as const;
 
 describe('the split', () => {
-  it('fits as many days as the calendar has room for, and each snap width holds its own count', () => {
-    expect(daysFor(380)).toBe(1);
-    expect(daysFor(620)).toBe(3);
-    expect(daysFor(820)).toBe(5);
-    expect(daysFor(1020)).toBe(7);
-    for (const [d, w] of Object.entries(SNAP)) expect(daysFor(w)).toBe(Number(d));
+  it('shows 1, 2, 3, 5 and 7 days at its presets', () => {
+    expect(PRESETS.map(daysFor)).toEqual(DAYS);
+    for (const d of DAYS) expect(daysFor(splitFor(d))).toBe(d);
   });
 
-  it('starts pinned to 3 days', () => {
-    expect(DEFAULT_SPLIT).toEqual({ mode: 'pinned', cal: SNAP[3] });
-    expect(daysFor(calendarWidth(1440, DEFAULT_SPLIT, 3))).toBe(3);
+  it('starts at 60%, three days', () => {
+    expect(DEFAULT_SPLIT).toBe(0.6);
+    expect(daysFor(DEFAULT_SPLIT)).toBe(3);
+    expect(DEFAULT_PREFS.split).toBe(0.6);
   });
 
-  it('in Auto, gives the calendar what the backlog columns leave: fewer priorities, more days', () => {
-    const auto = { mode: 'auto', cal: 0 } as const;
-    expect(daysFor(calendarWidth(1440, auto, 3))).toBe(3);
-    expect(daysFor(calendarWidth(1440, auto, 2))).toBe(5);
-    expect(daysFor(calendarWidth(1440, auto, 1))).toBe(7);
+  it('settles a dragged divider on the nearest preset', () => {
+    expect(snapSplit(0.63)).toBe(0.6);
+    expect(snapSplit(0.79)).toBe(0.84);
+    expect(snapSplit(0.4)).toBe(0.42);
   });
 
-  it('keeps both sides a minimum, whatever was pinned', () => {
-    expect(calendarWidth(1200, { mode: 'pinned', cal: 2000 }, 3)).toBe(1200 - MATRIX_MIN);
-    expect(calendarWidth(1200, { mode: 'pinned', cal: 100 }, 3)).toBe(CAL_MIN);
-    expect(calendarWidth(700, { mode: 'pinned', cal: 600 }, 3)).toBe(CAL_MIN);
+  it('steps through the presets with the arrow keys, and stops at the ends', () => {
+    expect(stepSplit(0.6, 1)).toBe(0.72);
+    expect(stepSplit(0.6, -1)).toBe(0.42);
+    expect(stepSplit(0.84, 1)).toBe(0.84);
+    expect(stepSplit(0.34, -1)).toBe(0.34);
   });
 
-  it('settles a dragged divider on a nearby day count, and leaves it elsewhere', () => {
-    expect(snapWidth(650)).toBe(620);
-    expect(snapWidth(790)).toBe(820);
-    expect(snapWidth(720)).toBe(720);
-  });
-});
-
-describe('matrix density', () => {
-  it('goes cards, titles, then counts as it narrows', () => {
-    expect(matrixLayout(904, [1, 2, 3], 'counts')).toMatchObject({ density: 'cards', open: [1, 2, 3], folded: [] });
-    expect(matrixLayout(620, [1, 2, 3], 'counts')).toMatchObject({ density: 'titles', headW: 118 });
-    expect(matrixLayout(420, [1, 2, 3], 'counts')).toMatchObject({ density: 'counts', open: [1, 2, 3], folded: [] });
+  it('keeps both sides some room', () => {
+    expect(clampSplit(0.1)).toBe(SPLIT_MIN);
+    expect(clampSplit(0.99)).toBe(SPLIT_MAX);
   });
 
-  it('with Fold, folds the lowest priorities first and keeps the rest readable', () => {
-    expect(matrixLayout(420, [1, 2, 3], 'fold')).toMatchObject({ density: 'titles', open: [1], folded: [2, 3] });
-    expect(matrixLayout(500, [1, 2, 3], 'fold')).toMatchObject({ open: [1, 2], folded: [3] });
+  it('draws the whole matrix at half the width or less', () => {
+    expect(fullMatrix(0.42)).toBe(true);
+    expect(fullMatrix(0.5)).toBe(true);
+    expect(fullMatrix(0.6)).toBe(false);
   });
 
-  it('never needs to fold one column', () => {
-    expect(matrixLayout(420, [1], 'fold')).toMatchObject({ density: 'cards', open: [1], folded: [] });
+  it('starts an old pixel width from the default, and keeps the split on this device', () => {
+    expect(normalizeSplit({ mode: 'pinned', cal: 620 })).toBe(DEFAULT_SPLIT);
+    expect(normalizePrefs({ split: 0.72 }).split).toBe(0.72);
+    expect(syncable(normalizePrefs({ split: 0.72 }))).not.toHaveProperty('split');
   });
 });
 
-describe('the lens', () => {
-  const L = DEFAULT_LABELS;
-  it('keeps what it names, with no label as its own choice', () => {
-    expect(inLens(DEFAULT_LENS, 3, null)).toBe(true);
-    const work = { pri: 2, labels: ['work'] } as const;
-    expect(inLens({ ...work, labels: [...work.labels] }, 2, 'work')).toBe(true);
-    expect(inLens({ ...work, labels: [...work.labels] }, 3, 'work')).toBe(false);
-    expect(inLens({ ...work, labels: [...work.labels] }, 1, 'personal')).toBe(false);
-    expect(inLens({ pri: 3, labels: [''] }, 1, null)).toBe(true);
-  });
-
-  it('toggles labels without ever showing nothing, and all of them reads as every label', () => {
-    const off = toggleLensLabel(DEFAULT_LENS, 'work', L);
-    expect(off.labels).toEqual(['personal', 'others', '']);
-    expect(toggleLensLabel(off, 'work', L).labels).toBeNull();
-    const one = { pri: 3, labels: ['work'] } as const;
-    expect(toggleLensLabel({ ...one, labels: [...one.labels] }, 'work', L).labels).toEqual(['work']);
-  });
-
-  it('matches presets by what they show', () => {
-    expect(sameLens(DEFAULT_LENS, { pri: 3, labels: ['work', 'personal', 'others', ''] }, L)).toBe(true);
-    expect(sameLens(DEFAULT_LENS, DEFAULT_PRESETS[3], L)).toBe(false);
-    expect(lensIds(DEFAULT_PRESETS[1], L)).toEqual(['work']);
-  });
-
-  it('drops presets whose labels are all gone, and cleans what is stored', () => {
-    const noWork = L.filter(l => l.id !== 'work');
-    expect(usablePresets(DEFAULT_PRESETS, noWork).map(p => p.id)).toEqual(['all', 'life', 'urgent']);
-    expect(normalizeLens({ pri: 7, labels: ['bad id', 'work', 'work', 4] })).toEqual({ pri: 3, labels: ['work'] });
-    expect(normalizePresets(undefined)).toEqual(DEFAULT_PRESETS);
-    expect(normalizePresets([{ id: 'x', name: ' Deep  work ', pri: 1, labels: [] }, { id: 'x', name: 'dup' }, { name: 'no id' }]))
-      .toEqual([{ id: 'x', name: 'Deep work', pri: 1, labels: null }]);
-  });
-});
-
-describe('layout prefs', () => {
-  it('defaults to 3 days pinned, every label in view, and counts when tight', () => {
-    expect(DEFAULT_PREFS).toMatchObject({ split: { mode: 'pinned', cal: 620 }, lens: { pri: 3, labels: null }, tight: 'counts' });
-    expect(normalizePrefs({ split: { mode: 'auto', cal: 'wide' }, tight: 'squeeze' })).toMatchObject({ split: { mode: 'auto', cal: 620 }, tight: 'counts' });
-  });
-
-  it('keeps the split and the lens on this device', () => {
-    const s = syncable(normalizePrefs({ split: { mode: 'auto', cal: 900 }, lens: { pri: 1 } }));
-    expect(s).not.toHaveProperty('split');
-    expect(s).not.toHaveProperty('lens');
-    expect(s).toHaveProperty('presets');
-  });
-});
-
-describe('3-day view', () => {
-  const tue = new Date(2026, 9, 27), now = tue.getTime() + 10 * 3600000;
-  it('shows the day and the two after it, and steps three at a time', () => {
+describe('calendar days', () => {
+  const tue = new Date(2026, 9, 27);
+  it('shows the day and the ones after it, and steps by as many', () => {
+    expect(viewDays('two', tue, P).map(d => d.getDate())).toEqual([27, 28]);
     expect(viewDays('three', tue, P).map(d => d.getDate())).toEqual([27, 28, 29]);
+    expect(viewDays('work', tue, P).map(d => d.getDate())).toEqual([27, 28, 29, 30, 31]);
+    expect(stepDay('two', tue, 1, P).getDate()).toBe(29);
     expect(stepDay('three', tue, 1, P).getDate()).toBe(30);
-    expect(viewTitle('three', tue, now, P)).toEqual({ title: 'Next 3 days', sub: '27 Oct – 29 Oct' });
-    expect(viewTitle('three', new Date(2026, 9, 30), now, P).title).toBe('From Friday');
+  });
+
+  it('titles a run of days, and one day in full', () => {
+    expect(rangeTitle(viewDays('three', tue, P), P)).toBe('Tue 27 – Thu 29 Oct');
+    expect(rangeTitle(viewDays('week', tue, P), P)).toBe('Mon 26 Oct – Sun 1 Nov');
+    expect(rangeTitle([tue], P)).toBe('Tuesday 27 Oct');
+    expect(rangeTitle(viewDays('three', tue, P), { weekNumbers: true })).toBe('Tue 27 – Thu 29 Oct · Week 44');
+  });
+});
+
+let n = 0;
+const task = (extra: Partial<Task>): Task => ({
+  id: 'id' + n++, title: 'x', raw: '', notes: '', priority: 2, minutes: 60, start: null, due: null,
+  status: 'open', created: 0, order: n, doneAt: null, ...extra,
+});
+const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
+
+describe('the hours the calendar shows', () => {
+  const days = [new Date(2026, 9, 27), new Date(2026, 9, 28)];
+  it('is your day when nothing falls outside it', () => {
+    expect(visibleRange(days, [task({ start: at(27, 10) })], [9, 21])).toEqual({ h0: 9, h1: 21, earlier: [0, 0], later: [0, 0] });
+  });
+
+  it('stretches a little for things just outside, and counts the rest', () => {
+    const r = visibleRange(days, [task({ start: at(27, 21, 30) }), task({ start: at(28, 0) }), task({ start: at(28, 7, 30), minutes: 30 })], [9, 21]);
+    expect(r).toEqual({ h0: 7, h1: 23, earlier: [0, 1], later: [0, 0] });
+  });
+
+  it('counts what starts long after your day as later', () => {
+    expect(visibleRange(days, [task({ start: at(27, 23, 45), minutes: 15 })], [9, 21]).later).toEqual([1, 0]);
+  });
+});
+
+describe('progress', () => {
+  const now = at(27, 17, 35);
+  it('counts today and this week, your tasks only, and what waits in the backlog', () => {
+    const tasks = [
+      task({ start: at(27, 10), status: 'done', doneAt: at(27, 11) }),
+      task({ start: at(27, 12, 30) }),
+      task({ start: at(27, 9), status: 'done', doneAt: at(27, 10), externalId: 'gcal:c:e' }),
+      task({ status: 'done', doneAt: at(27, 9, 14) }),
+      task({ start: at(26, 9, 30), status: 'done', doneAt: at(26, 10) }),
+      task({ start: at(29, 9, 30) }),
+      task({ priority: 1 }), task({ priority: 1 }), task({ priority: 2 }),
+    ];
+    expect(progress(tasks, now)).toEqual({ today: { done: 2, total: 3 }, week: { done: 3, total: 5 }, backlog: { open: 3, urgent: 2 } });
   });
 });

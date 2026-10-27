@@ -187,7 +187,7 @@ function Viewer({ link, data, reload, onSignedOut }: { link: string; data: Share
   const top = (
     <header className="vw-top">
       <div className="vw-h">
-        <Logo size={28} />
+        <Logo size={24} />
         <h1>Shared planner</h1>
         <span className="vw-pill">View only</span>
         <button type="button" className="link" onClick={signOut}>Sign out</button>
@@ -198,8 +198,8 @@ function Viewer({ link, data, reload, onSignedOut }: { link: string; data: Share
       </p>
       {canSuggest && (
         <div className="vw-acts">
-          {kinds.includes('backlog') && <button type="button" className="btn sec" onClick={() => setSuggesting('backlog')}>Suggest a task</button>}
-          {kinds.includes('calendar') && <button type="button" className="btn sec" onClick={() => setSuggesting('calendar')}>Suggest a time</button>}
+          {kinds.includes('backlog') && <button type="button" className="btn sec sm" onClick={() => setSuggesting('backlog')}>Suggest a task</button>}
+          {kinds.includes('calendar') && <button type="button" className="btn sec sm" onClick={() => setSuggesting('calendar')}>Suggest a time</button>}
         </div>
       )}
     </header>
@@ -208,7 +208,7 @@ function Viewer({ link, data, reload, onSignedOut }: { link: string; data: Share
   const mine = data.requests || [];
   const extra = mine.length > 0 && (
     <section className="vw-sug" aria-label="Your suggestions">
-      <div className="sh"><span>Your suggestions</span><span>{mine.length}</span></div>
+      <div className="gh"><span className="gh-t">Your suggestions<span className="gh-n num">{mine.length}</span></span></div>
       <ul className="vw-rows">
         {mine.map(r => (
           <li key={r.id} className="vw-row">
@@ -228,7 +228,7 @@ function Viewer({ link, data, reload, onSignedOut }: { link: string; data: Share
           onSent={() => { setSuggesting(null); say('Sent. You’ll see here when it’s added.'); reload(); }}
           onSignedOut={() => { setSuggesting(null); onSignedOut(); }} />
       )}
-      {toast && <Toast state={toast} wide={wide} onDone={() => setToast(null)} />}
+      {toast && <div className="dock ph solo"><Toast key={toast.key} state={toast} onDone={() => setToast(null)} /></div>}
     </>
   );
 }
@@ -276,16 +276,19 @@ function SuggestSheet({ link, kinds, initial, wide, onClose, onSent, onSignedOut
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <div ref={sheet} className={'sheet' + (wide ? ' dialog' : '')} role="dialog" aria-modal="true" aria-labelledby="sg-h" tabIndex={-1}>
-        <form onSubmit={send} autoComplete="off">
-          <div className="stop">
-            <span className="eyebrow" id="sg-h">{kind === 'calendar' ? 'Suggest a time on their calendar' : 'Suggest a task for their backlog'}</span>
-            <button type="button" className="ib" aria-label="Close" onClick={onClose}><XIcon size={18} /></button>
-          </div>
+      <div ref={sheet} className={wide ? 'side' : 'sheet'} role="dialog" aria-modal="true" aria-labelledby="sg-h" tabIndex={-1}>
+        {!wide && <div className="grab" aria-hidden="true" />}
+        <div className="side-h">
+          <h2 id="sg-h">{kind === 'calendar' ? 'Suggest a time' : 'Suggest a task'}</h2>
+          <span className="spacer" />
+          {wide && <span className="kbd">esc</span>}
+          <button type="button" className={'ib' + (wide ? '' : ' bare touch')} aria-label="Close" onClick={onClose}><XIcon size={wide ? 14 : 16} /></button>
+        </div>
+        <form className="side-b sg" onSubmit={send} autoComplete="off">
           {kinds.length > 1 && (
-            <div className="seg full" role="radiogroup" aria-label="Where it goes">
+            <div className="seg fill" role="radiogroup" aria-label="Where it goes">
               {kinds.map(k => (
-                <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
+                <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)}>
                   {k === 'calendar' ? 'Calendar' : 'Backlog'}
                 </button>
               ))}
@@ -293,7 +296,7 @@ function SuggestSheet({ link, kinds, initial, wide, onClose, onSent, onSignedOut
           )}
           <div className="fld">
             <label htmlFor="sg-title">What</label>
-            <textarea id="sg-title" className="title" rows={2} maxLength={160} autoFocus value={title} onChange={e => setTitle(e.target.value)}
+            <textarea id="sg-title" className="ed-title" rows={2} maxLength={160} autoFocus value={title} onChange={e => setTitle(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
           </div>
           {kind === 'calendar' ? (
@@ -317,9 +320,9 @@ function SuggestSheet({ link, kinds, initial, wide, onClose, onSent, onSignedOut
             <label htmlFor="sg-note">Note (optional)</label>
             <textarea id="sg-note" rows={3} maxLength={500} value={note} onChange={e => setNote(e.target.value)} />
           </div>
-          <div className="sacts">
+          <div className="acts">
             <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Sending…' : 'Send suggestion'}</button>
-            <button type="button" className="btn sec" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
           </div>
           {msg && <p className="note" role="alert">{msg}</p>}
           <p className="note">Nothing changes until they approve it.</p>

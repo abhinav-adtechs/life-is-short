@@ -13,7 +13,7 @@ and shows you the one thing to do **right now**.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-  <img alt="Life is short on a laptop and a phone: today's task at the top, a prioritised backlog, and a week calendar" src="docs/images/hero-light.png">
+  <img alt="Life is short on a laptop and a phone: the Next task at the top, the Priority matrix, and a calendar that fits the day" src="docs/images/hero-light.png">
 </picture>
 
 </div>
@@ -39,7 +39,7 @@ No folders. No filing: the AI even picks the label. No "weekly review". You don'
 ## How it works
 
 <p align="center">
-  <img alt="Typing a rambling note into the dump bar: the AI adds three tasks, puts one on Wednesday at 9 AM, and ticks off a finished task" src="docs/images/dump.gif" width="100%">
+  <img alt="Typing a rambling note into the chat bar: the AI adds three tasks, puts one on Wednesday at 3 PM, and ticks off a finished task" src="docs/images/dump.gif" width="100%">
 </p>
 
 <table>
@@ -48,13 +48,13 @@ No folders. No filing: the AI even picks the label. No "weekly review". You don'
 
 ### 1 · Dump
 
-Type in the bar or tap the big mic and **just talk**. Your words stream in as you speak, and it keeps listening until you tap stop.
+Type in the chat bar or tap the mic and **just talk**. Your words stream in as you speak, and it keeps listening until you tap stop.
 
 *"Finished the roadmap draft. Call the plumber tomorrow at 9, landing page copy is due Friday, and book a haircut at some point."*
 
 The AI reads it like a good assistant would. It pulls out every task, gives each a short title, a priority and a realistic length, and works out dates. It also spots when you're talking about something **already on your list**: "finished the roadmap" ticks it off instead of adding a duplicate.
 
-**Nothing lands until you say so.** When you stop talking you get the full transcript and the plan, one card per change: *new*, *move*, *tick off*. On a laptop the plan shows on the calendar too, dashed, right where it would go. Tap a card to edit it, cross one out, or just keep talking ("make the haircut Thursday afternoon") and the plan updates. **Accept** and it's done, with Undo; the chat clears for next time and lands in your history.
+**Nothing lands until you say so.** When you stop talking you get the full transcript and the plan, one row per change: *add*, *move*, *tick off*. On a laptop the plan shows on the calendar too, dashed, right where it would go. Tap a change to edit it, untick one you don't want, or just keep talking ("make the haircut Thursday afternoon") and the plan updates. **Apply** and it's done, with Undo; the chat clears for next time and lands in your history.
 
 </td>
 <td width="33%" valign="top">
@@ -73,9 +73,9 @@ When you're ready, one tap finds the **next free gap in your day**, on a 15-minu
 
 ### 3 · Do
 
-The top of the screen is always **Now**: the task on your calendar at this minute, or the most important thing in your backlog.
+The top of the screen is always the **Next task**: the task on your calendar at this minute, or the most important thing in your backlog, with how long you have for it.
 
-**Done.** Or **Schedule**, which moves it to the next free slot. Below it you see what's **Next**.
+**Done.** Or **Schedule**: click a time, or take the next free slot. Below it you see what comes **Next**.
 
 Slipped past something? It turns up under **Missed** with a one-tap **Reslot**. No guilt, no lost tasks.
 
@@ -91,50 +91,50 @@ Every capture, move and tick comes with **Undo**. A half-typed thought is still 
 
 There are only two heavy things on any screen: **the task you're on, and the mic.** Everything else stays quiet.
 
-You get the **window seat**. The task you're on sits on a painted view out of a train window: summer fields and big clouds, drifting slowly, the light breathing, a few birds crossing now and then. The rest of the planner sits on paper panels around it. Pick another view in Settings: golden hour, a night train, after the rain, a balloon, or above the clouds. Prefer a plain page? It's one switch.
+Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the current time, and a hairline across the Next task fills as your day goes. **Night train** is warm amber on deep blue, with the light of a passing platform sweeping across now and then and a lamp glowing by the task you're on. **Day train** is the same carriage by daylight. Prefer stillness? Turn the ambient light down to Quiet or Still.
 
 <p align="center">
-  <img alt="Three phone screens: Now with the backlog, a day calendar, and the dark theme" src="docs/images/phone.png" width="100%">
+  <img alt="Three phone screens: the Next task above the Priority matrix, the day's timeline with a suggested slot, and Night train" src="docs/images/phone.png" width="100%">
 </p>
 
-**On your phone** it's a focused list: Now on top, backlog below, the dump bar under your thumb. Tap the calendar for your day, then tap a task and tap a time to place it. The backlog groups by label and time (Today, This week, Next week and later), by time, or by priority.
+**On your phone** it's focused: the Next task on top with Done and Schedule, then the Priority matrix or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. How the day and week are going, Analytics, Share and Settings are in the `•••` menu.
 
-**On your laptop** it opens up into a full planner: Now and the backlog on the left, a calendar on the right.
+**On your laptop** it opens up into a full planner: the Next task and the Priority matrix on the left, a calendar that fits your day on the right, and the chat bar floating over it.
 
-- **The backlog is a matrix:** a row per label, a column per priority. Drag a task to another cell to change its label or priority.
-- **One split, sized your way.** Pick Day, 3 days (the default), 5 days or Week and the calendar widens to fit them. Or drag the divider: the calendar shows as many days as fit, and settles on the nearest. Or turn on **Auto layout** and your filters size it.
-- **Views:** Everything, Work focus, Personal time and Just urgent are one tap away, or filter by priority and label and save your own. What you filter out fades on the calendar. Click a label to spotlight it.
-- **Never hidden, just smaller:** when the calendar is wide, the matrix shrinks to titles, then to counts you can open (or folds the lowest priorities, if you prefer).
-- **Drag** a task from the backlog onto any time. Drag it back to unschedule it.
+- **The matrix is your backlog:** a row per label, a column per priority, each cell a count that darkens as it fills. Click a cell to filter the list to it; what you filter out fades on the calendar. Drag a task onto another cell to change its label or priority.
+- **One divider, sized your way.** Drag it and the calendar shows 1, 2, 3, 5 or 7 days, settling on the nearest. Arrow keys step it, a double-click resets it. Give the matrix the room and it opens into the full grid of tasks.
+- **The calendar fits your day:** your hours fill the height, with one tap for anything earlier or later, and a live wave (or line) at the current time.
+- **Drag** a task from the matrix onto any time. Drag it back to unschedule it.
 - **Drag the edge** of a block to make it longer or shorter.
-- **Click, then click.** Pick a task, then click a time slot.
-- **Day, 3 days, 5 days, Week or Month**, with a live line for the current time.
-- **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the backlog, `Esc` closes anything.
+- **Click, then click.** Pick a task, then click a time slot, or take the next free one.
+- **The chat bar** (`⌘K`) grows into a panel: the plan comes back as a list of changes to tick on or off before you apply them, and History keeps every past chat with its Undo.
+- **Analytics, Share and Settings** slide in from the side, so the planner stays in view.
+- **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the matrix, `Esc` closes anything.
 
-It feels fast because it is fast: rows ease in, ticked tasks get a satisfying check-and-strike, and your theme loads before the first frame, so it never flashes.
+It feels fast because it is fast: rows rise in, ticked tasks get a check-and-strike, the next task's time flips in, and your theme loads before the first frame, so it never flashes. Reduced motion keeps all of it still.
 
 <br>
 
 ## Make it yours
 
 <p align="center">
-  <img alt="Five phone screens in the Neutral, Paper, Slate, Sage and Lilac themes with different accent colours" src="docs/images/themes.png" width="100%">
+  <img alt="The planner in the Tide, Night train and Day train themes" src="docs/images/themes.png" width="100%">
 </p>
 
-- **6 views** out of the window (Summer meadow, Golden hour, Night train, After the rain, Balloon, Above the clouds), or a plain page. Reduced motion holds the view still.
-- **5 themes** (Paper, Neutral, Slate, Sage, Lilac), each with a light and a dark side, plus **true black** for OLED screens.
-- **10 accent colours**, or pick your own. Life is short adjusts it until it's readable on your background.
+- **3 themes:** Tide, Night train and Day train, or match your device (Night train after dark, Tide by day).
+- **Ambient light:** Present, Quiet or Still. Reduced motion holds it still too.
+- **10 accent colours**, each theme's own, or pick your own. Life is short adjusts it until it's readable on your background.
 - **9 fonts**, including **Lexend** and **Atkinson Hyperlegible** for easier reading.
-- Text size, corner style, list density, **high contrast**, reduced motion, and a 12- or 24-hour clock.
+- Text size, list density, **increased contrast**, reduced motion, and a 12- or 24-hour clock.
 - **Your day:** set the hours you work. The calendar shows them, auto-slotting stays inside them, and the AI plans around them.
 - **Your labels:** the parts of your life, named, coloured and ordered your way. Every task wears its label's colour, so work time and personal time read at a glance.
 - Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by label, account, calendar or priority.
 
 <p align="center">
-  <img alt="The Appearance settings page with a live preview, mode, theme and accent pickers" src="docs/images/settings.png" width="100%">
+  <img alt="Settings → Appearance in a side panel: theme cards, accent colours and ambient light" src="docs/images/settings.png" width="100%">
 </p>
 
-Every change previews live and **follows you to your other devices**. Light or dark stays per device, so your phone can follow the sun while your laptop stays dark.
+Every change previews live and **follows you to your other devices**. The theme, accent and ambient light stay per device, so your phone can follow the sun while your laptop rides the night train.
 
 <br>
 

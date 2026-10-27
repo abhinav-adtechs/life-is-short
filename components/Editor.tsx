@@ -1,51 +1,54 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
+import { PRI } from '@/lib/model';
 import { findSlot } from '@/lib/place';
-import { fmtWhen, shortTitle } from '@/lib/format';
+import { fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { gcalUrl } from '@/lib/links';
-import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
+import { addDays, fromYmd, startOfDay, ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
-import { useTrap } from './hooks';
-import { XIcon } from './icons';
-import { LabelPicker } from './Labels';
 
 export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
 export const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
+/** The lengths offered as chips; the rest are under Other. */
+const QUICK = [15, 30, 45, 60, 120, 240];
 
+/** Due-date shortcuts: today, tomorrow, the coming Friday and next Monday. */
+function dueChoices(now: number) {
+  const today = startOfDay(now);
+  const fri = addDays(today, ((5 - today.getDay() + 7) % 7) || 7);
+  const mon = addDays(today, ((1 - today.getDay() + 7) % 7) || 7);
+  return [
+    { v: null as string | null, name: 'No date' },
+    { v: ymd(today), name: 'Today' },
+    { v: ymd(addDays(today, 1)), name: 'Tomorrow' },
+    ...(fri.getTime() !== addDays(today, 1).getTime() ? [{ v: ymd(fri), name: 'Friday' }] : []),
+    ...(mon.getTime() !== addDays(today, 1).getTime() ? [{ v: ymd(mon), name: 'Next Monday' }] : []),
+  ];
+}
+
+/** Edit one task: everything about it, and where it sits on the calendar. Changes save with Save; nothing else waits on it. */
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf, liveTasks, prefs, labelOf } = usePlanner();
+  const { store, wide, now, toast, undoable, hours, sourceOf, liveTasks, prefs, labelOf, schedule } = usePlanner();
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
-  const [date, setDate] = useState(t.start != null ? ymd(t.start) : '');
-  const [time, setTime] = useState(t.start != null ? `${pad(new Date(t.start).getHours())}:${pad(new Date(t.start).getMinutes())}` : '');
   const [minutes, setMinutes] = useState(t.minutes);
-  const [due, setDue] = useState(t.due || '');
+  const [due, setDue] = useState<string | null>(t.due || null);
   const [notes, setNotes] = useState(t.notes || '');
   const [label, setLabel] = useState<string | null>(t.label ?? null);
   const [armedDelete, setArmedDelete] = useState(false);
-  const sheet = useRef<HTMLDivElement>(null);
-  useTrap(sheet);
 
   const values = () => ({
     title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title,
-    priority, minutes, due: due || null, notes: notes.trim(), label,
+    priority, minutes, due, notes: notes.trim(), label,
   });
 
   const save = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const v = values();
-    let start: number | null = null;
-    if (date || time) {
-      const day = date ? fromYmd(date) : startOfDay(Date.now());
-      if (time) { const [h, m] = time.split(':').map(Number); start = atMinutes(day, h * 60 + m); }
-      else if (t.start != null && ymd(t.start) === ymd(day)) start = t.start;
-      else start = findSlot(liveTasks(), v.minutes, { onDate: day, sameDay: true, exclude: t.id, hours }) ?? atMinutes(day, hours.start);
-    }
-    const before = store.write([{ ...t, ...v, start }]);
+    const before = store.write([{ ...t, ...values() }]);
     onClose();
-    undoable(start != null ? `Saved · ${fmtWhen(start)}` : 'Saved to the backlog', before);
+    undoable(`Saved · ${shortTitle(values().title, 34)}`, before);
   };
 
   const nextSlot = () => {
@@ -60,104 +63,126 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
   const toBacklog = () => {
     const before = store.write([{ ...t, ...values(), start: null }]);
     onClose();
-    undoable('Moved to the backlog', before);
+    undoable('Removed from the calendar', before);
   };
 
   const toggleDone = () => {
     const isDone = t.status !== 'done';
     const before = store.write([{ ...t, ...values(), status: isDone ? 'done' : 'open', doneAt: isDone ? Date.now() : null }]);
     onClose();
-    undoable(isDone ? `Done: ${shortTitle(t.title)}` : 'Back on the list', before);
+    undoable(isDone ? `Done · ${shortTitle(t.title, 34)}` : 'Back on the list', before);
   };
 
   const remove = () => {
     if (!armedDelete) { setArmedDelete(true); return; }
     const before = store.remove([t.id]);
     onClose();
-    undoable('Deleted', before);
+    undoable(`Deleted · ${shortTitle(t.title, 34)}`, before);
   };
 
   const pickTime = () => {
     store.write([{ ...t, ...values() }]);
-    onClose();
-    setPicked(t.id);
-    if (!wide) setPhoneView('calendar');
+    schedule(t.id);
   };
 
-  const lengths = LENGTHS.includes(minutes) ? LENGTHS : [...LENGTHS, minutes].sort((a, b) => a - b);
-  const draft = { ...t, ...values(), start: date && time ? atMinutes(fromYmd(date), Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))) : t.start };
+  const lengths = QUICK.includes(minutes) ? QUICK : [...QUICK, minutes].sort((a, b) => a - b);
+  let dues = dueChoices(now);
+  if (due && !dues.some(d => d.v === due)) dues = [dues[0], { v: due, name: (due < ymd(now) ? 'Was ' : '') + shortDate(fromYmd(due).getTime(), now) }, ...dues.slice(1)];
   const raw = (t.raw || '').trim();
   const src = sourceOf(t);
   // What a Google event gets from its calendar when it has no label of its own.
   const inherited = src ? labelOf({ ...t, label: null }) : null;
+  const labels = [...prefs.labels.map(l => ({ id: l.id as string | null, name: l.name, color: l.color as string | null })), { id: null, name: inherited ? `From calendar: ${inherited.name}` : 'No label', color: inherited?.color ?? null }];
+  const cur = prefs.labels.some(l => l.id === label) ? label : null;
 
   return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <div ref={sheet} className={'sheet' + (wide ? ' dialog' : '')} role="dialog" aria-modal="true" aria-labelledby="ed-h" tabIndex={-1}>
-        <form onSubmit={save} autoComplete="off">
-          <div className="stop">
-            <span className="eyebrow" id="ed-h">{t.status === 'done' ? 'Done' : t.start != null ? 'On the calendar' : 'In the backlog'}</span>
-            <button type="button" className="ib" aria-label="Close" onClick={onClose}><XIcon size={18} /></button>
-          </div>
-          <div className="fld" style={{ marginTop: 0 }}>
+    <form className="ed" onSubmit={save} autoComplete="off">
+      <div className="side-b">
+        <div className="ed-body">
+          <div>
             <label htmlFor="ed-title" className="sr">Task</label>
-            <textarea id="ed-title" className="title" rows={2} value={title} onChange={e => setTitle(e.target.value)}
+            <textarea id="ed-title" className="ed-title" rows={2} value={title} onChange={e => setTitle(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } }} />
+            {raw && raw !== t.title && <p className="note">From chat: “{raw}”</p>}
           </div>
-          <div className="fld">
+
+          <div className="ed-f">
             <span className="flabel" id="ed-pri">Priority</span>
-            <div className="seg full" role="radiogroup" aria-labelledby="ed-pri">
+            <div className="seg fill" role="radiogroup" aria-labelledby="ed-pri">
               {([1, 2, 3] as Priority[]).map(p => (
-                <button key={p} type="button" role="radio" aria-checked={priority === p} className={priority === p ? 'on' : ''} onClick={() => setPriority(p)}>
-                  {p === 1 ? 'Urgent' : p === 2 ? 'Important' : 'Later'}
+                <button key={p} type="button" role="radio" aria-checked={priority === p} onClick={() => setPriority(p)}>{PRI[p]}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="ed-f">
+            <span className="flabel" id="ed-lab">Label</span>
+            <div className="chips" role="radiogroup" aria-labelledby="ed-lab">
+              {labels.map(l => (
+                <button key={l.id ?? '-'} type="button" role="radio" aria-checked={cur === l.id} className="chipb" onClick={() => setLabel(l.id)}>
+                  <span className={'dot' + (l.color ? '' : ' none')} style={l.color ? ({ '--c': l.color } as React.CSSProperties) : undefined} />{l.name}
                 </button>
               ))}
             </div>
           </div>
-          {prefs.labels.length > 0 && (
-            <div className="fld">
-              <span className="flabel" id="ed-lab">Label</span>
-              <LabelPicker labelledBy="ed-lab" value={label} onChange={setLabel} none={inherited ? `From calendar: ${inherited.name}` : 'None'} />
+
+          <div className="ed-f">
+            <span className="flabel" id="ed-len">Length</span>
+            <div className="chips" role="radiogroup" aria-labelledby="ed-len">
+              {lengths.map(m => <button key={m} type="button" role="radio" aria-checked={minutes === m} className="chipb num" onClick={() => setMinutes(m)}>{fmtDur(m)}</button>)}
+              <label className="chipb sel">
+                <span className="sr">Other length</span>
+                <select value={QUICK.includes(minutes) ? '' : minutes} onChange={e => { if (e.target.value) setMinutes(Number(e.target.value)); }}>
+                  <option value="">Other…</option>
+                  {LENGTHS.filter(m => !QUICK.includes(m)).map(m => <option key={m} value={m}>{lenLabel(m)}</option>)}
+                </select>
+              </label>
             </div>
-          )}
-          <div className="two">
-            <div className="fld"><label htmlFor="ed-date">Day</label><input id="ed-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
-            <div className="fld"><label htmlFor="ed-time">Start</label><input id="ed-time" type="time" step={900} value={time} onChange={e => setTime(e.target.value)} /></div>
           </div>
-          <div className="two">
-            <div className="fld">
-              <label htmlFor="ed-len">Length</label>
-              <select id="ed-len" value={minutes} onChange={e => setMinutes(Number(e.target.value))}>
-                {lengths.map(m => <option key={m} value={m}>{lenLabel(m)}</option>)}
-              </select>
+
+          <div className="ed-f">
+            <span className="flabel" id="ed-due">Due</span>
+            <div className="chips" role="radiogroup" aria-labelledby="ed-due">
+              {dues.map(d => <button key={d.v ?? '-'} type="button" role="radio" aria-checked={due === d.v} className="chipb" onClick={() => setDue(d.v)}>{d.name}</button>)}
+              <label className="chipb sel" title="Pick a date">
+                <span>Pick a date</span>
+                <input type="date" aria-label="Due date" value={due ?? ''} onChange={e => setDue(e.target.value || null)}
+                  onClick={e => { try { e.currentTarget.showPicker(); } catch { /* the browser opens its own */ } }} />
+              </label>
             </div>
-            <div className="fld"><label htmlFor="ed-due">Due by</label><input id="ed-due" type="date" value={due} onChange={e => setDue(e.target.value)} /></div>
           </div>
-          <p className="note">Leave Day and Start empty to keep it in the backlog.</p>
-          <div className="fld">
-            <label htmlFor="ed-notes">Notes</label>
-            <textarea id="ed-notes" rows={3} value={notes} onChange={e => setNotes(e.target.value)} />
+
+          <div className="ed-f">
+            <span className="flabel">Calendar</span>
+            <div className="ed-cal">
+              <span className={t.start != null ? undefined : 'muted'}>{t.start != null ? `${fmtWhen(t.start, now)} · ${fmtDur(t.minutes)}` : 'Not on the calendar'}</span>
+              <span className="spacer" />
+              {t.start != null && <button type="button" className="btn text" onClick={toBacklog}>Remove</button>}
+              <button type="button" className="btn sec" onClick={pickTime}>{t.start != null ? 'Move' : 'Pick a time'}</button>
+            </div>
+            {t.status === 'open' && <button type="button" className="link ed-slot" onClick={nextSlot}>Next free slot</button>}
           </div>
-          <div className="sacts">
-            <button type="submit" className="btn pri">Save</button>
-            <button type="button" className="btn sec" onClick={nextSlot}>Next free slot</button>
-            <button type="button" className="btn sec" onClick={pickTime}>Pick a time</button>
-            {t.start != null && <button type="button" className="btn sec" onClick={toBacklog}>Move to backlog</button>}
-            <button type="button" className="btn sec" onClick={toggleDone}>{t.status === 'done' ? 'Mark not done' : 'Mark done'}</button>
+
+          <div className="ed-f">
+            <label className="flabel" htmlFor="ed-notes">Notes</label>
+            <textarea id="ed-notes" className="input" rows={3} placeholder="Anything you’ll want to know when you start" value={notes} onChange={e => setNotes(e.target.value)} />
           </div>
-          <div className="minor">
-            <a className="link" href={gcalUrl(draft)} target="_blank" rel="noopener noreferrer">Add to Google Calendar ↗</a>
-            <button type="button" className={'link' + (armedDelete ? ' armed' : '')} onClick={remove}>{armedDelete ? 'Tap again to delete' : 'Delete'}</button>
+
+          <div className="ed-foot">
+            {src && (
+              <p className="note"><span className="dot" style={{ '--c': src.account.color } as React.CSSProperties} /> From Google Calendar{src.calendar && !src.calendar.primary ? ` · ${src.calendar.name}` : ''}{src.account.email ? ` · ${src.account.email}` : ''}</p>
+            )}
+            <a className="link sm" href={gcalUrl({ ...t, ...values() })} target="_blank" rel="noopener noreferrer">Add to Google Calendar ↗</a>
           </div>
-          {raw && raw !== t.title && <p className="raw">From your dump: “{raw}”</p>}
-          {src && (
-            <p className="raw src"><i aria-hidden="true" style={{ background: src.account.color }} />
-              From Google Calendar{src.calendar && !src.calendar.primary ? ` · ${src.calendar.name}` : ''}{src.account.email ? ` · ${src.account.email}` : ''}
-            </p>
-          )}
-        </form>
+        </div>
       </div>
-    </>
+      <div className="side-f">
+        <button type="button" className="btn text warn" onClick={remove}>{armedDelete ? (wide ? 'Click again to delete' : 'Tap again to delete') : 'Delete'}</button>
+        <button type="button" className="btn text" onClick={toggleDone}>{t.status === 'done' ? 'Mark not done' : 'Mark done'}</button>
+        <span className="spacer" />
+        {wide && <button type="button" className="btn text" onClick={onClose}>Cancel</button>}
+        <button type="submit" className="btn pri">Save</button>
+      </div>
+    </form>
   );
 }

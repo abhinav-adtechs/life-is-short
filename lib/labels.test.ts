@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LABELS, MAX_LABELS, labelNamed, normalizeLabels, pickLabel, resolveLabel, type Label } from './labels';
-import { groupBacklog, timeBucket } from './select';
 import { applyCapture, promptContext } from './capture';
 import { buildPrompt } from './prompt';
 import { localParse } from './parse';
@@ -69,68 +68,9 @@ describe('labels', () => {
   });
 });
 
-describe('time axis', () => {
-  it('puts a due date in its stretch of time, weeks starting Monday', () => {
-    expect(timeBucket(null, NOW)).toBe('anytime');
-    expect(timeBucket('2026-10-26', NOW)).toBe('overdue');
-    expect(timeBucket('2026-10-27', NOW)).toBe('today');
-    expect(timeBucket('2026-11-01', NOW)).toBe('week');
-    expect(timeBucket('2026-11-02', NOW)).toBe('next');
-    expect(timeBucket('2026-11-08', NOW)).toBe('next');
-    expect(timeBucket('2026-11-09', NOW)).toBe('later');
-  });
-
-  it('follows the first day of the week', () => {
-    expect(timeBucket('2026-11-01', NOW, 0)).toBe('next');
-    expect(timeBucket('2026-10-31', NOW, 0)).toBe('week');
-  });
-});
-
-describe('groupBacklog', () => {
-  const labelOf = (t: Task) => (t.label ? byId.get(t.label) ?? null : null);
-  const o = { labels: L, labelOf, now: NOW };
-  const deck = task('Board deck', { label: 'work', due: '2026-10-27' });
-  const pr = task('Review PR', { label: 'work' });
-  const spec = task('Write spec', { label: 'work', due: '2026-10-29' });
-  const mom = task('Call mom', { label: 'personal' });
-  const loose = task('Unsorted thing');
-  const mentor = task('Mentor call', { label: 'others', due: '2026-10-29' });
-  const list = [deck, pr, spec, mom, loose, mentor];
-
-  it('by label: a section per label in your order, split by time, unlabelled last', () => {
-    const g = groupBacklog(list, 'label', o);
-    expect(g.map(x => [x.name, x.count])).toEqual([['Superjoin', 3], ['Personal', 1], ['Helping others', 1], ['No label', 1]]);
-    expect(g[0].color).toBe('#3E63DD');
-    expect(g[0].subs.map(s => [s.name, s.tasks.map(t => t.title)])).toEqual([
-      ['Today', ['Board deck']], ['This week', ['Write spec']], ['Anytime', ['Review PR']],
-    ]);
-    expect(g[1].subs).toHaveLength(1);
-  });
-
-  it('by time: a section per stretch of time, labels kept together in your order', () => {
-    const g = groupBacklog(list, 'time', o);
-    expect(g.map(x => x.name)).toEqual(['Today', 'This week', 'Anytime']);
-    expect(g[1].subs[0].tasks.map(t => t.title)).toEqual(['Write spec', 'Mentor call']);
-    expect(g[2].subs[0].tasks.map(t => t.title)).toEqual(['Review PR', 'Call mom', 'Unsorted thing']);
-  });
-
-  it('by priority: as before', () => {
-    const g = groupBacklog([task('A', { priority: 3 }), task('B', { priority: 1 })], 'priority', o);
-    expect(g.map(x => [x.name, x.count])).toEqual([['Urgent', 1], ['Later', 1]]);
-  });
-
-  it('goes by the label a Google event takes from its calendar', () => {
-    const ev = task('Standup', { externalId: 'gcal:work@x:1' });
-    const g = groupBacklog([ev], 'label', { ...o, labelOf: t => (t.externalId ? byId.get('work')! : null) });
-    expect(g.map(x => x.key)).toEqual(['work']);
-  });
-});
-
 describe('labels in prefs', () => {
-  it('defaults to labels, the label grouping and label colours', () => {
-    expect(DEFAULT_PREFS).toMatchObject({ labels: DEFAULT_LABELS, backlogBy: 'label', colorBy: 'label' });
-    expect(normalizePrefs({ backlogBy: 'time' }).backlogBy).toBe('time');
-    expect(normalizePrefs({ backlogBy: 'size' }).backlogBy).toBe('label');
+  it('defaults to the starter labels and label colours', () => {
+    expect(DEFAULT_PREFS).toMatchObject({ labels: DEFAULT_LABELS, colorBy: 'label' });
   });
 
   it('moves the old default, account colours, to label colours once', () => {

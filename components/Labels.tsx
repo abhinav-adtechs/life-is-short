@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PALETTE } from '@/lib/color';
-import { DEFAULT_PRESETS, LABEL_NAME_MAX, MAX_LABELS, lensIds, newLabelId, type Label, type Preset } from '@/lib/labels';
+import { LABEL_NAME_MAX, MAX_LABELS, newLabelId, type Label } from '@/lib/labels';
 import { usePlanner } from './Planner';
 import { prefersReducedMotion } from './hooks';
 import { CheckIcon, ChevronLeft, ChevronRight } from './icons';
@@ -11,20 +11,20 @@ import { CustomColour, radio, radioKeys } from './Controls';
 const tint = (color: string) => ({ '--c': color } as React.CSSProperties);
 
 /** One of your labels, or none, as a row of chips. */
-export function LabelPicker({ value, onChange, labelledBy, none = 'None' }: {
+export function LabelPicker({ value, onChange, labelledBy, none = 'No label' }: {
   value: string | null; onChange: (id: string | null) => void; labelledBy: string; none?: string;
 }) {
   const { prefs } = usePlanner();
   // A label that was removed reads as none.
   const cur = prefs.labels.some(l => l.id === value) ? value : null;
   return (
-    <div className="lpick" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={radioKeys}>
-      <button type="button" {...radio(!cur)} onClick={() => onChange(null)}>{none}</button>
+    <div className="chips" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={radioKeys}>
       {prefs.labels.map(l => (
-        <button key={l.id} type="button" {...radio(cur === l.id)} style={tint(l.color)} onClick={() => onChange(l.id)}>
-          <i aria-hidden="true" />{l.name}
+        <button key={l.id} type="button" className="chipb" {...radio(cur === l.id)} onClick={() => onChange(l.id)}>
+          <span className="dot" style={tint(l.color)} />{l.name}
         </button>
       ))}
+      <button type="button" className="chipb" {...radio(!cur)} onClick={() => onChange(null)}><span className="dot none" />{none}</button>
     </div>
   );
 }
@@ -58,15 +58,15 @@ function LabelRow({ l, i, count, last, focus, onFocused, change, move, remove }:
           onChange={e => setName(e.target.value)} onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
         <span className="lcount">{count ? `${count} open` : ''}</span>
-        <button type="button" className="ib lmove up" aria-label={`Move ${l.name} up`} disabled={i === 0} onClick={() => move(-1)}><ChevronLeft size={16} /></button>
-        <button type="button" className="ib lmove down" aria-label={`Move ${l.name} down`} disabled={last} onClick={() => move(1)}><ChevronRight size={16} /></button>
-        <button type="button" className="link" onClick={remove}>Remove</button>
+        <button type="button" className="ib bare lmove up" aria-label={`Move ${l.name} up`} disabled={i === 0} onClick={() => move(-1)}><ChevronLeft size={14} /></button>
+        <button type="button" className="ib bare lmove down" aria-label={`Move ${l.name} down`} disabled={last} onClick={() => move(1)}><ChevronRight size={14} /></button>
+        <button type="button" className="btn text sm" onClick={remove}>Remove</button>
       </div>
       {colorsOpen && (
         <div className="swatches small" role="radiogroup" aria-label={`Colour for ${l.name}`} onKeyDown={radioKeys}>
           {palette.map(c => (
             <button key={c} type="button" className="swatch" {...radio(l.color === c)} aria-label={c} style={tint(c)}
-              onClick={() => change({ color: c })}><CheckIcon size={12} /></button>
+              onClick={() => change({ color: c })}><CheckIcon size={12} w={2.4} /></button>
           ))}
           <CustomColour value={l.color} onSave={color => change({ color })} />
         </div>
@@ -112,11 +112,11 @@ export function LabelsSection() {
   };
 
   return (
-    <section id="set-labels" className="sp-sec" aria-labelledby="set-labels-h">
-      <h2 id="set-labels-h">Labels</h2>
-      <p className="lead">
+    <section id="set-labels" className="set-sec" aria-labelledby="set-labels-h">
+      <div className="set-h"><h3 id="set-labels-h">Labels</h3><span className="muted sm">rows in the matrix</span></div>
+      <p className="note">
         The parts of your life, like work, a side project, personal and helping others. The AI puts each thing you dump under one;
-        you can change it on any task, or type a #tag. The backlog sorts by label and priority, and the calendar shows each in its colour.
+        you can change it on any task, or type a #tag.
       </p>
       {labels.length > 0 && (
         <ul className="labels">
@@ -127,54 +127,14 @@ export function LabelsSection() {
           ))}
         </ul>
       )}
-      <div className="sacts">
-        <button type="button" className={'btn ' + (labels.length ? 'sec' : 'pri')} disabled={labels.length >= MAX_LABELS} onClick={add}>Add a label</button>
+      <div className="acts">
+        <button type="button" className={'btn sm ' + (labels.length ? 'sec' : 'pri')} disabled={labels.length >= MAX_LABELS} onClick={add}>Add a label</button>
       </div>
       <p className="note">
         {labels.length >= MAX_LABELS ? `That’s the most labels the planner holds. ` : ''}
-        Give each Google account or calendar a label in <button type="button" className="link inline" onClick={toGoogle}>Google accounts</button>, so
-        work and personal time show in their colours. The order here is the order of the backlog.
+        Give each Google account or calendar a label in <button type="button" className="link" onClick={toGoogle}>Calendars</button>, so
+        work and personal time show in their colours. The order here is the order of the matrix.
       </p>
-      <SavedViews />
     </section>
-  );
-}
-
-const PRIORITY_SCOPE = { 1: 'Urgent', 2: 'Urgent and Important', 3: 'Every priority' };
-
-/** The one-tap views over the backlog: save one from the backlog's filters, remove them here. */
-function SavedViews() {
-  const { prefs, setPrefs, toast } = usePlanner();
-  const presets = prefs.presets;
-  const names = (p: Preset) => {
-    if (p.labels == null) return 'every label';
-    const ids = lensIds(p, prefs.labels);
-    if (!ids.length) return 'labels that no longer exist';
-    return ids.map(id => prefs.labels.find(l => l.id === id)?.name ?? 'No label').join(', ');
-  };
-  const remove = (p: Preset) => {
-    const before = presets;
-    setPrefs({ presets: presets.filter(x => x.id !== p.id) });
-    toast(`Removed the view “${p.name}”`, () => setPrefs({ presets: before }));
-  };
-  const starter = presets.length === DEFAULT_PRESETS.length && presets.every((p, i) => p.id === DEFAULT_PRESETS[i].id);
-  return (
-    <>
-      <h3 className="sp-sub">Saved views</h3>
-      <p className="note">One tap over the backlog picks what it shows: priorities and labels. Anything left out fades on the calendar. Save the filters you set as a view from the backlog.</p>
-      {presets.length > 0 && (
-        <ul className="views">
-          {presets.map(p => (
-            <li key={p.id}>
-              <div><b>{p.name}</b><span>{PRIORITY_SCOPE[p.pri]} · {names(p)}</span></div>
-              <button type="button" className="link" onClick={() => remove(p)}>Remove</button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {!starter && (
-        <div className="sacts"><button type="button" className="btn sec" onClick={() => setPrefs({ presets: DEFAULT_PRESETS })}>Restore the starter views</button></div>
-      )}
-    </>
   );
 }

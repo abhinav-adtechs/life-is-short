@@ -1,161 +1,359 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import type { Task } from '@/lib/model';
+import { Fragment, useRef, useState } from 'react';
+import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
-import { dueLabel, fmtDur } from '@/lib/format';
-import { DEFAULT_LENS, lensIds, sameLens } from '@/lib/labels';
-import { M_FOLD, matrixLayout } from '@/lib/layout';
-import { usePlanner, useLists } from './Planner';
-import { prefersReducedMotion } from './hooks';
-import { CalendarPlusIcon, CheckIcon, XIcon } from './icons';
+import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
+import type { Label } from '@/lib/labels';
+import { usePlanner, useLists, type Filter } from './Planner';
+import { CheckIcon, ChevronDown, XIcon } from './icons';
 
-const SHORT: Record<number, string> = { 1: 'Urg.', 2: 'Imp.', 3: 'Later' };
-/** The most tasks a cell shows before the rest go behind "+N more". */
-const CAP = 4;
-const tint = (color: string | null) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
+const PRIS: Priority[] = [1, 2, 3];
+const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
-interface Row { id: string; name: string; color: string | null; tasks: Task[] }
+/** Rows fade up in a stagger on first load; rows that arrive later rise in on their own. */
+function useStagger(step: number, cap: number) {
+  const t0 = useRef(performance.now());
+  return (i: number) => (performance.now() - t0.current < 1500 ? `${Math.min(i, cap) * step}ms` : '0ms');
+}
 
-/** One backlog task in a cell: tick it, drag it to the calendar or another cell, click then click a time, double-click to edit. */
-function Chip({ t, cards }: { t: Task; cards: boolean }) {
-  const { done, completing, picked, setPicked, openEditor, drag, now, slot } = usePlanner();
-  const finishing = completing.has(t.id);
-  const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
-  const due = t.due ? dueLabel(t.due, now) : null;
+/** How dark a count cell is: a few tasks barely tint it, ten or more make it the darkest. */
+const heat = (n: number) => (n === 0 ? 'var(--bg)' : `color-mix(in srgb, var(--ink) ${n === 1 ? 5 : n < 4 ? 9 : n < 10 ? 14 : 20}%, var(--raised))`);
+
+interface Row { id: string; name: string; color: string | null }
+
+/** The matrix's rows: your labels in order, then No label. */
+function useRows(): Row[] {
+  const { prefs } = usePlanner();
+  return [...prefs.labels.map(l => ({ id: l.id, name: l.name, color: l.color as string | null })), { id: '', name: 'No label', color: null }];
+}
+
+const labelName = (labels: Label[], id: string) => labels.find(l => l.id === id)?.name ?? 'No label';
+
+/* ---------- one task ---------- */
+
+type Kind = 'open' | 'missed' | 'done' | 'new';
+
+/** The ring you tick a task off with. Done tasks untick. */
+function Ring({ t, kind, size = 10 }: { t: Task; kind: Kind; size?: number }) {
+  const { done, completing, lists: { focus } } = usePlanner();
+  const on = kind === 'done' || completing.has(t.id);
+  if (kind === 'new') return <span className="ck" aria-hidden="true"><span className="ring ghost" /></span>;
   return (
-    <div className={'tk' + (finishing ? ' done' : '') + (picked === t.id ? ' picked' : '') + (lifting ? ' lifting' : '')}>
-      <button type="button" className="ck" aria-label={`Mark done: ${t.title}`} onClick={() => { if (!finishing) done(t.id, true); }}>
-        <span><CheckIcon size={9} /></span>
+    <button type="button" className={'ck' + (on ? ' on' : '')} aria-label={`${kind === 'done' ? 'Mark not done' : 'Mark done'}: ${t.title}`}
+      onClick={e => { e.stopPropagation(); if (!completing.has(t.id)) done(t.id, kind !== 'done'); }}>
+      <span className={'ring' + (focus.now?.id === t.id && kind === 'open' ? ' now' : '')}><CheckIcon size={size} w={2.6} /></span>
+    </button>
+  );
+}
+
+/** What a row says about itself: Now, a tick-off or a new task in the plan you're reviewing. */
+function useTag(t: Task, kind: Kind) {
+  const { plan } = usePlanner();
+  const { focus } = useLists();
+  if (kind === 'new') return { text: 'New', cls: 'tag' };
+  if (plan.ticks.has(t.id)) return { text: 'Tick off', cls: 'tag' };
+  if (kind === 'open' && focus.now?.id === t.id) return { text: 'Now', cls: 'tag now' };
+  return null;
+}
+
+/** A backlog row on a laptop: tick it, click then click a time, drag it to the calendar or another cell, double-click to edit. */
+function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
+  const { completing, picked, setPicked, openEditor, drag, labelOf, now, slot, plan } = usePlanner();
+  const tag = useTag(t, kind);
+  const label = labelOf(t);
+  const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
+  const ticking = plan.ticks.has(t.id);
+  const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
+  const cls = 'row' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '')
+    + (ticking || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (kind === 'new' ? ' new' : '');
+  const live = kind === 'open' || kind === 'missed';
+  return (
+    <div className={cls} style={{ animationDelay: delay }}>
+      <Ring t={t} kind={kind} />
+      <button type="button" className="row-main" disabled={kind === 'new'} aria-pressed={live ? picked === t.id : undefined}
+        title={kind === 'new' ? 'Proposed in chat. Apply it to add it.' : live ? 'Click, then click a time on the calendar. Or drag it. Double-click to edit.' : 'Edit'}
+        onPointerDown={live ? e => drag.begin(e, 'row', t.id) : undefined}
+        onClick={() => {
+          if (drag.ignoreClick()) return;
+          if (live) setPicked(picked === t.id ? null : t.id); else openEditor(t.id);
+        }}
+        onDoubleClick={() => { if (kind !== 'new') openEditor(t.id); }}
+        onKeyDown={e => { if ((e.key === 'e' || e.key === 'E') && kind !== 'new') { e.preventDefault(); openEditor(t.id); } }}>
+        <span className="rt"><span className="strike">{t.title}</span></span>
+        {tag && <span className={tag.cls}>{tag.text}</span>}
+        {kind === 'missed' && t.start != null && <span className="due">{fmtWhen(t.start, now)}</span>}
+        {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
+        {due && <span className={'due' + (due.hot ? ' hot' : '')}>{due.text}</span>}
+        <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} title={label?.name ?? 'No label'} />
+        <span className="len num">{fmtDur(t.minutes)}</span>
       </button>
-      <button type="button" className="tk-main" aria-pressed={picked === t.id}
-        title="Drag onto the calendar or another cell, or click, then click a time. Double-click to edit."
-        onPointerDown={e => drag.begin(e, 'row', t.id)}
-        onClick={() => { if (!drag.ignoreClick()) setPicked(picked === t.id ? null : t.id); }}
-        onDoubleClick={() => { setPicked(null); openEditor(t.id); }}
-        onKeyDown={e => { if (e.key === 'e' || e.key === 'E') { e.preventDefault(); openEditor(t.id); } }}>
-        <span className="tk-t">{t.title}</span>
-        {cards && <span className="tk-m">{due ? <span className={due.hot ? 'hot' : undefined}>{due.text}</span> : 'Anytime'} · {fmtDur(t.minutes)}</span>}
-      </button>
-      {cards && (
-        <button type="button" className="sched" aria-label={`Put in the next free slot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>
-          <CalendarPlusIcon size={15} />
-        </button>
-      )}
+      {kind === 'missed' && <button type="button" className="btn sec sm reslot" aria-label={`Reslot: ${t.title}`} title="Next free slot" onClick={() => slot(t.id)}>Reslot</button>}
     </div>
   );
 }
 
-/**
- * The laptop backlog as a matrix: a row per label, a column per priority in the lens. Room decides how it's drawn
- * (cards, titles, then counts or folded columns), never what's in it: every number opens its tasks.
- */
-export function Matrix() {
-  const { prefs, lens, setLens, split, labelOf, focusLabel, setFocusLabel, drag, store } = usePlanner();
-  const { backlog, outside, missed } = useLists();
-  const [peek, setPeek] = useState<{ l: string; p: number } | null>(null);
-  const peekRef = useRef<HTMLElement>(null);
-  // An opened cell can sit below the fold of a narrow backlog: bring its tasks into view.
-  useEffect(() => { if (peek) peekRef.current?.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }, [peek]);
-  const cols = [1, 2, 3].filter(p => p <= lens.pri);
-  const lay = matrixLayout(split.matrixW, cols, prefs.tight);
-  const ids = lensIds(lens, prefs.labels);
-  const defs = [...prefs.labels.map(l => ({ id: l.id, name: l.name, color: l.color as string | null })), { id: '', name: 'No label', color: null }]
-    .filter(r => ids.includes(r.id));
-  const rows: Row[] = defs.map(d => ({ ...d, tasks: backlog.filter(t => (labelOf(t)?.id ?? '') === d.id) }));
-  const shown = rows.filter(r => r.tasks.length);
-  const quiet = rows.filter(r => !r.tasks.length).map(r => r.name);
-  const grid = { gridTemplateColumns: `${lay.headW}px` + (lay.open.length ? ` repeat(${lay.open.length}, minmax(0, 1fr))` : '') + (lay.folded.length ? ` repeat(${lay.folded.length}, ${M_FOLD}px)` : '') };
-  const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
-  const peekRow = peek ? shown.find(r => r.id === peek.l) : undefined;
-  const peekTasks = peekRow ? peekRow.tasks.filter(t => t.priority === peek!.p) : [];
-  const everything = sameLens(lens, DEFAULT_LENS, prefs.labels);
-  const note = [
-    quiet.length ? `Nothing here for ${quiet.join(', ')}.` : '',
-    outside ? `${outside} more outside this view.` : '',
-  ].filter(Boolean).join(' ');
-  const how = lay.folded.length ? `${lay.folded.map(p => PRI[p as 1 | 2 | 3]).join(' and ')} folded: click a number`
-    : { cards: '', titles: 'Titles only', counts: 'Counts: click one to see its tasks' }[lay.density];
-
-  const countCell = (r: Row, p: number, fold: boolean) => {
-    const n = r.tasks.filter(t => t.priority === p).length;
-    const open = peek?.l === r.id && peek.p === p;
-    const key = `${r.id}|${p}`;
-    return (
-      <div key={key} className={'mx-cell' + (fold ? ' fold' : '') + (target === key ? ' over' : '')} data-cell={key}>
-        <button type="button" className="mx-count" aria-expanded={open} disabled={!n} style={{ '--heat': `${Math.min(14 + 12 * n, 50)}%` } as React.CSSProperties}
-          aria-label={`${r.name}, ${PRI[p as 1 | 2 | 3]}: ${n} ${n === 1 ? 'task' : 'tasks'}`} onClick={() => setPeek(open ? null : { l: r.id, p })}>
-          {n || '–'}
-        </button>
-      </div>
-    );
-  };
-
-  if (!backlog.length) {
-    // Missed tasks say enough on their own.
-    if (!store.loaded || (everything && missed.length)) return null;
-    return (
-      <p className="empty in">
-        {everything ? 'Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.' : 'Nothing in this view.'}
-        {!everything && <> <button type="button" className="link inline" onClick={() => setLens(DEFAULT_LENS)}>Show everything</button></>}
-      </p>
-    );
-  }
-
+/** A task in a cell of the full matrix: drag it to another cell to change its label and priority. */
+function Chip({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
+  const { completing, picked, setPicked, openEditor, drag, now, plan } = usePlanner();
+  const { focus } = useLists();
+  const tag = useTag(t, kind);
+  const due = t.due ? dueLabel(t.due, now) : null;
+  const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
+  const cls = 'chip' + (picked === t.id ? ' picked' : '') + (focus.now?.id === t.id ? ' now' : '') + (plan.ticks.has(t.id) || kind === 'new' ? ' ghosted' : '')
+    + (completing.has(t.id) ? ' done' : '') + (lifting ? ' lifting' : '');
   return (
-    <section className="mx" aria-label="Backlog by label and priority">
-      <div className="mx-top">
-        <span>Backlog · {backlog.length}</span>
-        {how && <em>{how}</em>}
+    <button type="button" className={cls} style={{ animationDelay: delay }} disabled={kind === 'new'} aria-pressed={kind === 'new' ? undefined : picked === t.id}
+      title={kind === 'new' ? 'Proposed in chat. Apply it to add it.' : 'Drag to another cell or onto the calendar, or click, then click a time. Double-click to edit.'}
+      onPointerDown={kind === 'new' ? undefined : e => drag.begin(e, 'row', t.id)}
+      onClick={() => { if (!drag.ignoreClick() && kind !== 'new') setPicked(picked === t.id ? null : t.id); }}
+      onDoubleClick={() => { if (kind !== 'new') openEditor(t.id); }}
+      onKeyDown={e => { if ((e.key === 'e' || e.key === 'E') && kind !== 'new') { e.preventDefault(); openEditor(t.id); } }}>
+      <span className="chip-t"><span className="strike">{t.title}</span></span>
+      <span className="chip-m">
+        {tag && <b className={tag.cls === 'tag now' ? 'hot' : undefined}>{tag.text}</b>}
+        <span className="num">{fmtDur(t.minutes)}</span>
+        {due && <span className={due.hot ? 'hot' : undefined}>{due.text}</span>}
+      </span>
+    </button>
+  );
+}
+
+/* ---------- groups below the matrix ---------- */
+
+/** A sticky heading over a run of rows. Missed and Done fold away. */
+function GroupHead({ name, count, open, onToggle, action }: {
+  name: string; count: number; open?: boolean; onToggle?: () => void; action?: { label: string; onClick: () => void };
+}) {
+  return (
+    <div className="gh">
+      {onToggle ? (
+        <button type="button" className="gh-t" aria-expanded={open} onClick={onToggle}>
+          {name}<span className="gh-n num">{count}</span><ChevronDown />
+        </button>
+      ) : <span className="gh-t">{name}<span className="gh-n num">{count}</span></span>}
+      <span className="spacer" />
+      {action && <button type="button" className="link" onClick={action.onClick}>{action.label}</button>}
+    </div>
+  );
+}
+
+/** What you missed, folded to a line with Reslot all; and what's done, folded too. Never a wall of red. */
+function MissedAndDone({ part, Item, stagger, start }: {
+  part: 'missed' | 'done'; Item: typeof TaskRow; stagger: (i: number) => string; start: number;
+}) {
+  const { reslotAll } = usePlanner();
+  const { missed, done } = useLists();
+  const [open, setOpen] = useState(false);
+  const list = part === 'missed' ? missed : done;
+  if (!list.length) return null;
+  return (
+    <>
+      <GroupHead name={part === 'missed' ? 'Missed' : 'Done'} count={list.length} open={open} onToggle={() => setOpen(o => !o)}
+        action={part === 'missed' ? { label: list.length === 1 ? 'Reslot' : 'Reslot all', onClick: reslotAll } : undefined} />
+      {open && list.map((t, i) => <Item key={t.id} t={t} kind={part} delay={stagger(start + i)} />)}
+    </>
+  );
+}
+
+/** The backlog as a list under the counts: by priority, or just the cell you picked. */
+function useGroups() {
+  const { filter, plan, labelOf } = usePlanner();
+  const { backlog } = useLists();
+  const lab = (t: Task) => labelOf(t)?.id ?? '';
+  const inCell = (list: Task[], f: Filter) => list.filter(t => lab(t) === f.label && t.priority === f.priority);
+  if (filter) return [{ key: 'f', p: filter.priority, items: [...inCell(plan.added, filter).map(t => ({ t, kind: 'new' as Kind })), ...inCell(backlog, filter).map(t => ({ t, kind: 'open' as Kind }))] }];
+  return PRIS.map(p => ({
+    key: `p${p}`, p,
+    items: [...plan.added.filter(t => t.priority === p).map(t => ({ t, kind: 'new' as Kind })), ...backlog.filter(t => t.priority === p).map(t => ({ t, kind: 'open' as Kind }))],
+  })).filter(g => g.items.length);
+}
+
+/* ---------- the count grid ---------- */
+
+function CountGrid({ phone, head }: { phone?: boolean; head: number }) {
+  const { filter, setFilter, drag, labelOf } = usePlanner();
+  const { backlog } = useLists();
+  const rows = useRows();
+  const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
+  const n = (r: Row, p: Priority) => backlog.filter(t => (labelOf(t)?.id ?? '') === r.id && t.priority === p).length;
+  return (
+    <div className="mx-grid" style={{ gridTemplateColumns: `${head}px repeat(3, minmax(0, 1fr))` }} role="grid" aria-label="Open tasks by label and priority">
+      <span />
+      {PRIS.map(p => <span key={p} className="mx-ch">{PRI[p]}</span>)}
+      {rows.map(r => (
+        <Fragment key={r.id || '-'}>
+          <span className="mx-rh"><span className={'dot' + (r.color ? '' : ' none')} style={tint(r.color)} /><span className="ell">{r.name}</span></span>
+          {PRIS.map(p => {
+            const c = n(r, p), key = `${r.id}|${p}`;
+            const sel = filter?.label === r.id && filter.priority === p;
+            const aria = `${r.name} · ${PRI[p]} · ${c}`;
+            return (
+              <button key={key} type="button" className={'mx-n num' + (target === key ? ' over' : '') + (c ? '' : ' zero') + (phone ? ' ph' : '')} data-cell={phone ? undefined : key}
+                aria-pressed={sel} aria-label={aria} title={aria} style={{ background: target === key ? undefined : heat(c) }}
+                onClick={() => setFilter(sel ? null : { label: r.id, priority: p })}>
+                {c || '–'}
+              </button>
+            );
+          })}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- laptop ---------- */
+
+/**
+ * The laptop backlog: a label × priority matrix. With the calendar wide, the matrix is counts you click to filter the
+ * list under them; with the calendar at half the screen or less, every task sits in its cell. Drag a task between
+ * cells to change its label and priority, or onto the calendar to schedule it.
+ */
+export function MatrixPanel() {
+  const { split, filter, setFilter, drag, prefs } = usePlanner();
+  const { backlog } = useLists();
+  const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
+  return (
+    <section className={'mx panel' + (dropOk ? ' drop-ok' : '')} aria-label="Priority matrix" data-backlog="">
+      <div className="mx-h">
+        <span className="mx-title">Priority matrix</span>
+        <span className="muted sm num">{backlog.length} pending</span>
+        <span className="spacer" />
+        {filter && !split.full ? (
+          <button type="button" className="fchip" aria-label="Clear filter" onClick={() => setFilter(null)}>
+            {labelName(prefs.labels, filter.label)} · {PRI[filter.priority]}<XIcon size={11} />
+          </button>
+        ) : <span className="hint">{split.full ? 'Drag between cells to change priority' : 'Click a count to filter'}</span>}
       </div>
-      <div className={'mx-h' + (lay.density === 'counts' ? ' tight' : '')} style={grid}>
-        <span>Type of work</span>
-        {lay.open.map(p => (
-          <div key={p} title={PRI[p as 1 | 2 | 3]}>
-            {p === 1 && <i aria-hidden="true" />}<b>{PRI[p as 1 | 2 | 3]}</b>
-            {lay.density !== 'counts' && <em>{backlog.filter(t => t.priority === p).length}</em>}
-          </div>
-        ))}
-        {lay.folded.map(p => <div key={p} className="fold" title={`${PRI[p as 1 | 2 | 3]}, folded to make room`}>{SHORT[p]}</div>)}
-      </div>
-      {shown.map(r => {
-        const mins = r.tasks.reduce((a, t) => a + t.minutes, 0);
-        return (
-          <div key={r.id || '-'} className={'mx-row' + (focusLabel != null && focusLabel !== r.id ? ' dim' : '')} style={{ ...grid, ...tint(r.color) }}>
-            <button type="button" className={'mx-lab' + (r.color ? '' : ' none')} aria-pressed={focusLabel === r.id}
-              title="Spotlight this label here and on the calendar" onClick={() => setFocusLabel(focusLabel === r.id ? null : r.id)}>
-              <b>{r.name}</b><span>{r.tasks.length} · {fmtDur(mins)}</span>
-            </button>
-            {lay.open.map(p => {
-              if (lay.density === 'counts') return countCell(r, p, false);
-              const list = r.tasks.filter(t => t.priority === p);
-              const key = `${r.id}|${p}`;
-              const more = list.length - CAP;
-              return (
-                <div key={key} className={'mx-cell' + (target === key ? ' over' : '')} data-cell={key}>
-                  {list.slice(0, more > 0 ? CAP - 1 : CAP).map(t => <Chip key={t.id} t={t} cards={lay.density === 'cards'} />)}
-                  {more > 0 && <button type="button" className="mx-more" onClick={() => setPeek({ l: r.id, p })}>+{more + 1} more</button>}
-                </div>
-              );
-            })}
-            {lay.folded.map(p => countCell(r, p, true))}
-          </div>
-        );
-      })}
-      {peekRow && peekTasks.length > 0 && (
-        <section ref={peekRef} className="mx-peek" style={tint(peekRow.color)} aria-label={`${peekRow.name}, ${PRI[peek!.p as 1 | 2 | 3]}`}>
-          <div className="mx-peek-h">
-            <i aria-hidden="true" /><b>{peekRow.name} · {PRI[peek!.p as 1 | 2 | 3]}</b>
-            <button type="button" className="ib" aria-label="Close" onClick={() => setPeek(null)}><XIcon /></button>
-          </div>
-          {peekTasks.map(t => <Chip key={t.id} t={t} cards />)}
-        </section>
-      )}
-      {note && (
-        <p className="mx-note">
-          {note} {!everything && <button type="button" className="link inline" onClick={() => setLens(DEFAULT_LENS)}>Show everything</button>}
-        </p>
+      {split.full ? <FullMatrix /> : (
+        <>
+          <CountGrid head={split.matrixW < 460 ? 96 : 120} />
+          <MatrixList />
+        </>
       )}
     </section>
+  );
+}
+
+function MatrixList() {
+  const { filter, setFilter, prefs, store } = usePlanner();
+  const { backlog, missed } = useLists();
+  const groups = useGroups();
+  const stagger = useStagger(32, 18);
+  let i = 0;
+  const missedCount = missed.length;
+  return (
+    <div className="mx-list">
+      <MissedAndDone part="missed" Item={TaskRow} stagger={stagger} start={0} />
+      {groups.map(g => (
+        <Fragment key={g.key}>
+          <GroupHead name={filter ? `${labelName(prefs.labels, filter.label)} · ${PRI[filter.priority]}` : PRI[g.p]} count={g.items.length}
+            action={filter ? { label: `Show all ${backlog.length}`, onClick: () => setFilter(null) } : undefined} />
+          {g.items.map(x => <TaskRow key={x.t.id} t={x.t} kind={x.kind} delay={stagger(missedCount + i++)} />)}
+          {!g.items.length && <p className="mx-empty">Nothing here yet.</p>}
+        </Fragment>
+      ))}
+      {store.loaded && !backlog.length && !filter && (
+        <p className="mx-empty">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
+      )}
+      <MissedAndDone part="done" Item={TaskRow} stagger={stagger} start={0} />
+    </div>
+  );
+}
+
+/** Every task in its cell, for when the matrix has the room. */
+function FullMatrix() {
+  const { drag, plan, labelOf } = usePlanner();
+  const { backlog } = useLists();
+  const rows = useRows();
+  const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
+  const lab = (t: Task) => labelOf(t)?.id ?? '';
+  const stagger = useStagger(26, 24);
+  let i = 0;
+  return (
+    <div className="mx-full">
+      <div className="mx-fgrid">
+        <span className="mx-fch" />
+        {PRIS.map(p => <div key={p} className="mx-fch">{PRI[p]}<span className="muted num">{backlog.filter(t => t.priority === p).length + plan.added.filter(t => t.priority === p).length}</span></div>)}
+        {rows.map(r => {
+          const mine = backlog.filter(t => lab(t) === r.id);
+          return (
+            <Fragment key={r.id || '-'}>
+              <div className="mx-flab"><span className={'dot' + (r.color ? '' : ' none')} style={tint(r.color)} /><span className="ell">{r.name}</span><span className="muted num">{mine.length}</span></div>
+              {PRIS.map(p => {
+                const key = `${r.id}|${p}`;
+                const ghosts = plan.added.filter(t => (t.label ?? '') === r.id && t.priority === p);
+                return (
+                  <div key={key} className={'mx-cell' + (target === key ? ' over' : '')} data-cell={key}>
+                    {ghosts.map(t => <Chip key={t.id} t={t} kind="new" delay={stagger(i++)} />)}
+                    {mine.filter(t => t.priority === p).map(t => <Chip key={t.id} t={t} kind="open" delay={stagger(i++)} />)}
+                  </div>
+                );
+              })}
+            </Fragment>
+          );
+        })}
+      </div>
+      <div className="mx-after">
+        <MissedAndDone part="missed" Item={TaskRow} stagger={stagger} start={0} />
+        <MissedAndDone part="done" Item={TaskRow} stagger={stagger} start={0} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------- phone ---------- */
+
+/** A backlog row on a phone: a big ring, the title in full, and a line of facts. Tap to open it. */
+function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
+  const { completing, openEditor, labelOf, now, slot } = usePlanner();
+  const tag = useTag(t, kind);
+  const label = labelOf(t);
+  const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
+  const facts = [
+    kind === 'new' ? 'New' : null,
+    kind === 'missed' && t.start != null ? fmtWhen(t.start, now) : null,
+    kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
+    due?.text ?? null, label?.name ?? null, fmtDur(t.minutes),
+  ].filter(Boolean).join(' · ');
+  const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '');
+  return (
+    <div className={cls} style={{ animationDelay: delay }}>
+      <Ring t={t} kind={kind} size={12} />
+      <button type="button" className="prow-main" disabled={kind === 'new'} onClick={() => openEditor(t.id)}>
+        <span className="prow-t"><span className="rt"><span className="strike">{t.title}</span></span>{tag && <span className={tag.cls}>{tag.text}</span>}</span>
+        <span className="prow-m"><span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} /><span className={due?.hot ? 'hot' : undefined}>{facts}</span></span>
+      </button>
+      {kind === 'missed' && <button type="button" className="btn sec reslot" aria-label={`Reslot: ${t.title}`} onClick={() => slot(t.id)}>Reslot</button>}
+    </div>
+  );
+}
+
+/** The phone's matrix tab: the counts in a card, then the list. */
+export function PhoneMatrix() {
+  const { filter, setFilter, prefs, store } = usePlanner();
+  const { backlog } = useLists();
+  const groups = useGroups();
+  const stagger = useStagger(34, 14);
+  let i = 0;
+  return (
+    <>
+      <div className="ph-card mx-card"><CountGrid phone head={92} /></div>
+      <div className="ph-list">
+        <MissedAndDone part="missed" Item={PhoneRow} stagger={stagger} start={0} />
+        {groups.map(g => (
+          <Fragment key={g.key}>
+            <GroupHead name={filter ? `${labelName(prefs.labels, filter.label)} · ${PRI[filter.priority]}` : PRI[g.p]} count={g.items.length}
+              action={filter ? { label: `Show all ${backlog.length}`, onClick: () => setFilter(null) } : undefined} />
+            {g.items.map(x => <PhoneRow key={x.t.id} t={x.t} kind={x.kind} delay={stagger(i++)} />)}
+            {!g.items.length && <p className="mx-empty">Nothing here yet.</p>}
+          </Fragment>
+        ))}
+        {store.loaded && !backlog.length && !filter && (
+          <p className="mx-empty">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
+        )}
+        <MissedAndDone part="done" Item={PhoneRow} stagger={stagger} start={0} />
+      </div>
+    </>
   );
 }

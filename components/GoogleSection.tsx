@@ -5,7 +5,7 @@ import { calendarOf } from '@/lib/google';
 import { fmtAgo } from '@/lib/format';
 import { ACCOUNT_COLORS, MAX_ACCOUNTS, ownCalendars, type GoogleAccount } from '@/lib/google-client';
 import { usePlanner } from './Planner';
-import { CaretIcon, CheckIcon } from './icons';
+import { CheckIcon, ChevronDown } from './icons';
 import { CustomColour, Opt, radio, radioKeys } from './Controls';
 import { LabelPicker } from './Labels';
 
@@ -38,15 +38,15 @@ function AccountCard({ a }: { a: GoogleAccount }) {
         <button type="button" className="adot" aria-label={`Colour for ${who}`} aria-expanded={colorsOpen} onClick={() => setColorsOpen(o => !o)} />
         <div className="who"><b>{who}</b><span>{status}</span></div>
         {a.error
-          ? <button type="button" className="btn pri" onClick={() => connectGoogle(a.email)}>Reconnect</button>
-          : <button type="button" className="btn sec" disabled={pulling} onClick={() => pullGoogle(false, a.id)}>Pull</button>}
+          ? <button type="button" className="btn pri sm" onClick={() => connectGoogle(a.email)}>Reconnect</button>
+          : <button type="button" className="btn sec sm" disabled={pulling} onClick={() => pullGoogle(false, a.id)}>Pull</button>}
       </div>
 
       {colorsOpen && (
         <div className="swatches small" role="radiogroup" aria-label={`Colour for ${who}`} onKeyDown={radioKeys}>
           {palette.map(c => (
             <button key={c} type="button" className="swatch" {...radio(a.color === c)} aria-label={c} style={{ '--c': c } as React.CSSProperties}
-              onClick={() => changeAccount(a.id, { color: c })}><CheckIcon size={12} /></button>
+              onClick={() => changeAccount(a.id, { color: c })}><CheckIcon size={12} w={2.4} /></button>
           ))}
           <CustomColour value={a.color} onSave={color => changeAccount(a.id, { color })} />
         </div>
@@ -63,8 +63,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
         toggle={{ checked: a.tasks, onChange: t => changeAccount(a.id, { tasks: t }) }} />
 
       <div className="gh cals-h">
-        <button type="button" aria-expanded={calsOpen} onClick={() => setCalsOpen(o => !o)}><CaretIcon /> Calendars</button>
-        <span>{a.calendars.length ? `${on} on` : ''}</span>
+        <button type="button" className="gh-t" aria-expanded={calsOpen} onClick={() => setCalsOpen(o => !o)}>Calendars<span className="gh-n num">{a.calendars.length ? `${on} on` : ''}</span><ChevronDown /></button>
       </div>
       {calsOpen && (a.calendars.length ? (
         <ul className="cals">
@@ -96,8 +95,8 @@ function AccountCard({ a }: { a: GoogleAccount }) {
         {confirm ? (
           <>
             <span>Disconnect {who}?</span>
-            <button type="button" className="btn sec" disabled={pulling} onClick={() => removeGoogle(a.id, false)}>Keep its events</button>
-            {events > 0 && <button type="button" className="btn sec" disabled={pulling} onClick={() => removeGoogle(a.id, true)}>Remove its {events} event{events === 1 ? '' : 's'}</button>}
+            <button type="button" className="btn sec sm" disabled={pulling} onClick={() => removeGoogle(a.id, false)}>Keep its events</button>
+            {events > 0 && <button type="button" className="btn sec sm" disabled={pulling} onClick={() => removeGoogle(a.id, true)}>Remove its {events} event{events === 1 ? '' : 's'}</button>}
             {pulling && <span className="note">Waiting for the pull to finish…</span>}
             <button type="button" className="link" onClick={() => setConfirm(false)}>Cancel</button>
           </>
@@ -112,19 +111,19 @@ export function GoogleSection() {
   const { accounts, pullGoogle, connectGoogle, pulling } = usePlanner();
   const full = accounts.length >= MAX_ACCOUNTS;
   return (
-    <section id="set-google" className="sp-sec" aria-labelledby="set-google-h">
-      <h2 id="set-google-h">Google accounts</h2>
-      <p className="lead">
+    <section id="set-google" className="set-sec" aria-labelledby="set-google-h">
+      <div className="set-h"><h3 id="set-google-h">Calendars</h3><span className="muted sm">events show on the timeline</span></div>
+      <p className="note">
         Connect up to {MAX_ACCOUNTS} Google accounts, say personal and work. Their events and Google Tasks come into the planner
-        and share one calendar, each in its own colour. Read-only: nothing is written back to Google.
+        and share one calendar. Read-only: nothing is written back to Google.
       </p>
       {accounts.map(a => <AccountCard key={a.id} a={a} />)}
-      <div className="sacts">
-        <button type="button" className={'btn ' + (accounts.length ? 'sec' : 'pri')} disabled={full} onClick={() => connectGoogle()}>
+      <div className="acts">
+        <button type="button" className={'btn sm ' + (accounts.length ? 'sec' : 'pri')} disabled={full} onClick={() => connectGoogle()}>
           {accounts.length ? 'Add another account' : 'Connect Google'}
         </button>
         {accounts.length > 1 && (
-          <button type="button" className="btn sec" disabled={pulling} onClick={() => pullGoogle(false)}>{pulling ? 'Pulling…' : 'Pull all now'}</button>
+          <button type="button" className="btn sec sm" disabled={pulling} onClick={() => pullGoogle(false)}>{pulling ? 'Pulling…' : 'Pull all now'}</button>
         )}
       </div>
       <p className="note">
