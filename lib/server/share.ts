@@ -1,6 +1,7 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
+import { codeEmail } from '../code-email';
 import { deviceLabel, isCode } from '../share';
 
 /**
@@ -78,18 +79,6 @@ export function sessionCookie(req: Request, token: string, expiresAt: number): s
 export const clearCookie = (req: Request) => `${cookieName(req)}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict${secure(req) ? '; Secure' : ''}`;
 
 /* ---------- the code email ---------- */
-
-/** The email with the code. Plain and short, so it reads well anywhere. */
-export function codeEmail(code: string) {
-  const subject = `${code} is your code for a shared planner`;
-  const text = `Your code to see the planner shared with you:\n\n${code}\n\nIt works for 10 minutes. If you didn’t ask for it, you can ignore this email.\n\nLife is short`;
-  const html = `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;color:#0F0F10">`
-    + `<p>Your code to see the planner shared with you:</p>`
-    + `<p style="font-size:30px;font-weight:600;letter-spacing:.2em;margin:18px 0">${code}</p>`
-    + `<p style="color:#6B6B70">It works for 10 minutes. If you didn’t ask for it, you can ignore this email.</p>`
-    + `<p style="color:#6B6B70">Life is short</p></div>`;
-  return { subject, text, html };
-}
 
 /** Who the code comes from: SHARE_EMAIL_FROM ("Name <address>" or a bare address), else the SMTP login. */
 export function sender(env: Env = process.env): { name: string; address: string } {
