@@ -3,6 +3,9 @@ export type RGB = [number, number, number];
 
 export const isHex = (s: unknown): s is string => typeof s === 'string' && /^#[0-9a-f]{6}$/i.test(s);
 
+/** Colours for accounts and labels: distinct in light and dark, and away from the default orange accent. */
+export const PALETTE = ['#3E63DD', '#12A594', '#D6409F', '#E5A000', '#8E4EC6', '#0B84D8', '#E5484D', '#5C7C2E'];
+
 export function hexToRgb(hex: string): RGB {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];

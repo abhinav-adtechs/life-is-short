@@ -18,11 +18,11 @@ export default function GoogleCallback() {
       if (status !== 200 || !data?.blob) { setMsg(data?.message || 'Could not connect Google. Try again from Settings.'); return; }
       sessionStorage.setItem(PENDING_KEY, JSON.stringify({ blob: data.blob, email: data.email ?? null, connectedAt: Date.now() }));
       // Back to the Google section of Settings, where the new account shows up.
-      window.location.replace('/#settings/google');
+      window.location.replace('/app#settings/google');
     }).catch(() => setMsg('Could not reach the server. Try again from Settings.'));
   }, []);
   return (
     <main className="login"><div className="in"><h1 className="nt" style={{ marginTop: 0 }}>{msg}</h1>
-      <p className="nm"><a className="link" href="/">Back to your planner</a></p></div></main>
+      <p className="nm"><a className="link" href="/app">Back to your planner</a></p></div></main>
   );
 }

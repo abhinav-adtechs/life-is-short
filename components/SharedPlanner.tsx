@@ -9,6 +9,8 @@ import { SharedView } from './SharedView';
 import { Toast, type ToastState } from './Toast';
 import { useMedia, useNow, useTrap } from './hooks';
 import { XIcon } from './icons';
+import { Shell } from './Auth';
+import { Logo } from './Brand';
 
 type Phase =
   | { p: 'boot' }
@@ -79,8 +81,10 @@ export default function SharedPlanner() {
 
 function Notice({ title, text, retry }: { title: string; text: string; retry?: () => void }) {
   return (
-    <main className="login"><div className="in"><h1>{title}</h1><p className="nm">{text}</p>
-      {retry && <button type="button" className="btn pri" onClick={retry}>Try again</button>}</div></main>
+    <Shell title={title}>
+      <p className="nm">{text}</p>
+      {retry && <button type="button" className="btn pri" onClick={retry}>Try again</button>}
+    </Shell>
   );
 }
 
@@ -105,19 +109,16 @@ function EmailStep({ link, notice, onSent }: { link: string; notice?: string; on
   }
 
   return (
-    <main className="login">
-      <form className="in" onSubmit={submit}>
-        <h1>A shared planner</h1>
-        <div className="nm">Someone shared their planner with you, view only. Enter your email and we’ll send you a code.</div>
-        {notice && <p className="msg" role="status">{notice}</p>}
-        <div className="fld">
-          <label htmlFor="v-em">Email</label>
-          <input id="v-em" type="email" autoComplete="email" required autoFocus value={email} onChange={e => setEmail(e.target.value)} />
-        </div>
-        <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Sending…' : 'Send code'}</button>
-        {msg && <p className="msg" role="alert">{msg}</p>}
-      </form>
-    </main>
+    <Shell title="A shared planner" onSubmit={submit}>
+      <div className="nm">Someone shared their planner with you, view only. Enter your email and we’ll send you a code.</div>
+      {notice && <p className="msg" role="status">{notice}</p>}
+      <div className="fld">
+        <label htmlFor="v-em">Email</label>
+        <input id="v-em" type="email" autoComplete="email" required autoFocus value={email} onChange={e => setEmail(e.target.value)} />
+      </div>
+      <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Sending…' : 'Send code'}</button>
+      {msg && <p className="msg" role="alert">{msg}</p>}
+    </Shell>
   );
 }
 
@@ -146,28 +147,25 @@ function CodeStep({ link, email, onBack, onDone }: { link: string; email: string
   }
 
   return (
-    <main className="login">
-      <form className="in" onSubmit={e => { e.preventDefault(); verify(code); }}>
-        <h1>Check your email</h1>
-        <div className="nm">If {email} can view this planner, a {CODE_LENGTH}-digit code is on its way. It works for 10 minutes.
-          If none arrives, check spam or ask whoever shared it.</div>
-        <div className="fld">
-          <label htmlFor="v-otp">{CODE_LENGTH}-digit code</label>
-          <input id="v-otp" ref={input} className="code" inputMode="numeric" autoComplete="one-time-code" pattern={`[0-9]{${CODE_LENGTH}}`} maxLength={CODE_LENGTH}
-            required value={code} onChange={e => {
-              const v = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
-              setCode(v);
-              if (v.length === CODE_LENGTH) verify(v);
-            }} />
-        </div>
-        <button type="submit" className="btn pri" disabled={busy || code.length !== CODE_LENGTH}>{busy ? 'Checking…' : 'View planner'}</button>
-        {msg && <p className="msg" role="alert">{msg}</p>}
-        <div className="minor">
-          <button type="button" className="link" onClick={onBack}>Use a different email</button>
-          <button type="button" className="link" onClick={resend}>Send a new code</button>
-        </div>
-      </form>
-    </main>
+    <Shell title="Check your email" onSubmit={e => { e.preventDefault(); verify(code); }}>
+      <div className="nm">If {email} can view this planner, a {CODE_LENGTH}-digit code is on its way. It works for 10 minutes.
+        If none arrives, check spam or ask whoever shared it.</div>
+      <div className="fld">
+        <label htmlFor="v-otp">{CODE_LENGTH}-digit code</label>
+        <input id="v-otp" ref={input} className="code" inputMode="numeric" autoComplete="one-time-code" pattern={`[0-9]{${CODE_LENGTH}}`} maxLength={CODE_LENGTH}
+          required value={code} onChange={e => {
+            const v = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
+            setCode(v);
+            if (v.length === CODE_LENGTH) verify(v);
+          }} />
+      </div>
+      <button type="submit" className="btn pri" disabled={busy || code.length !== CODE_LENGTH}>{busy ? 'Checking…' : 'View planner'}</button>
+      {msg && <p className="msg" role="alert">{msg}</p>}
+      <div className="minor">
+        <button type="button" className="link" onClick={onBack}>Use a different email</button>
+        <button type="button" className="link" onClick={resend}>Send a new code</button>
+      </div>
+    </Shell>
   );
 }
 
@@ -189,6 +187,7 @@ function Viewer({ link, data, reload, onSignedOut }: { link: string; data: Share
   const top = (
     <header className="vw-top">
       <div className="vw-h">
+        <Logo size={28} />
         <h1>Shared planner</h1>
         <span className="vw-pill">View only</span>
         <button type="button" className="link" onClick={signOut}>Sign out</button>

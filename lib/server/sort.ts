@@ -20,15 +20,16 @@ const fields = {
   time: { ...nullable('string'), description: 'HH:MM, 24-hour' },
   deadline: { type: 'boolean' },
   notes: { type: 'string' },
+  label: { ...nullable('string'), description: 'label id' },
 };
 
-/** Shape of {add, update} that buildPrompt asks for. */
+/** Shape of {add, update, reply} that buildPrompt asks for. */
 export const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     add: {
       type: 'array',
-      items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes'] },
+      items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes', 'label'] },
     },
     update: {
       type: 'array',
@@ -38,8 +39,9 @@ export const RESPONSE_SCHEMA = {
         required: ['ref'],
       },
     },
+    reply: { type: 'string' },
   },
-  required: ['add', 'update'],
+  required: ['add', 'update', 'reply'],
 };
 
 /**

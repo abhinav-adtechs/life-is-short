@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Brand } from '@/components/Brand';
 
 export const metadata: Metadata = {
   title: 'Privacy · Life is short',
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <main className="legal">
+      <a className="legal-home" href="/" aria-label="Life is short, home"><Brand /></a>
       <h1>Privacy</h1>
       <p className="meta">Life is short · updated 27 October 2026</p>
 
@@ -19,7 +21,10 @@ export default function PrivacyPage() {
 
       <h2>What it stores</h2>
       <ul>
-        <li>The tasks and notes you type or speak, and your settings, in a Supabase database in Mumbai, India.</li>
+        <li>
+          The tasks and notes you type or speak, your settings, and a history of your last 30 dump conversations (what
+          you said and what came of it), in a Supabase database in Mumbai, India.
+        </li>
         <li>A copy of the same, refreshed every night, in a second Supabase database in Singapore, kept only as a backup.</li>
         <li>Your email address and sign-in records, held by Supabase Auth.</li>
       </ul>
@@ -52,10 +57,16 @@ export default function PrivacyPage() {
 
       <h2>AI sorting</h2>
       <p>
-        When you dump something, the text you typed, plus the titles of your open items (including ones pulled from
-        Google), is sent to Google&rsquo;s Gemini API so it can sort the new item and avoid duplicates. Nothing else
-        is sent. The app uses the Gemini API&rsquo;s free tier, under whose terms Google may use what it receives to
-        improve its products. Without an AI key, the app sorts by keywords in your browser instead and sends nothing.
+        When you dump something, what you typed or said in that conversation and the plan drafted so far, plus the
+        titles of your open items (including ones pulled from Google), is sent to Google&rsquo;s Gemini API so it can
+        sort the new items and avoid duplicates. Nothing else is sent. The app uses the Gemini API&rsquo;s free tier,
+        under whose terms Google may use what it receives to improve its products. Without an AI key, the app sorts by
+        keywords in your browser instead and sends nothing.
+      </p>
+      <p>
+        Speaking uses your browser&rsquo;s own speech recognition. Where the browser can recognise speech on your
+        device, the audio stays there; otherwise the browser sends it to its maker&rsquo;s speech service (Google for
+        Chrome, Apple for Safari) to be transcribed. The app itself never receives or stores audio.
       </p>
 
       <h2>Sharing</h2>

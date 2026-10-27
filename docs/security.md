@@ -25,6 +25,7 @@ Settings → Sharing gives someone a view-only window into your planner. You pic
 - **Everything is logged** in Settings → Sharing: codes sent, wrong codes, sign-ins, views (at most one every 30 minutes per session), suggestions and sign-outs, with the device (for example "Safari on iPhone", never the full browser string or IP), plus when you create, change or stop a share.
 - **The weekly check** reports active shares, live viewer sessions and viewer sign-ins as counts. It blocks if signed-out visitors can call any function beyond the viewer's six, or if the sharing functions differ between primary and backup. It warns on 10 or more wrong codes in a week, a sharing key set or changed in the last 8 days, and any sharing set up on the backup.
 - Shares aren't backed up. After a restore, share again.
+- **The mail login is a password too.** A Gmail app password can read and send that account's mail, so send codes from a Gmail account made only for this, not your personal one. It's only used to send over TLS, and it's never logged, even when the mail server refuses it. Revoke it at myaccount.google.com/apppasswords if it leaks.
 - **Treat `SHARE_SERVER_KEY` like a database password.** Someone holding it, a link and that link's email could sign in as that viewer without their inbox, though they'd still only see what that share shows. If it leaks, make a new one and replace both the database hash and the Vercel variable (setup steps 1, 2 and 4).
 
 ## Backup database
@@ -39,7 +40,7 @@ A second Supabase project, in another region, holds a copy of your tasks. It has
 ### Set up the backup
 
 1. Create a second Supabase project, ideally under a separate Supabase organization.
-2. SQL editor: run `supabase/migrations/0001` to `0005`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
+2. SQL editor: run `supabase/migrations/0001` to `0006`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
 3. On each project set the job login's password (SQL editor, a long random value, never committed):
    `alter role backup_reader with password '…';` on the primary, and `alter role backup_writer with password '…';` on the backup.
 4. GitHub → Settings → Secrets and variables → Actions, add:

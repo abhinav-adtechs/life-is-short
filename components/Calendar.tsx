@@ -10,6 +10,7 @@ import { DOW, DOWL, MIN, MON, atMinutes, endOf, isWeekend, isoWeek, minsOf, star
 import { hourOf } from './drag';
 import { usePlanner, useLists } from './Planner';
 import { BackIcon, ChevronLeft, ChevronRight, XIcon } from './icons';
+import { LayoutChip } from './Split';
 
 const tint = (color: string | null) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -22,7 +23,7 @@ function clickMinute(col: HTMLElement, clientY: number) {
 }
 
 function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; lanes: number; dayStart: number; h0: number; hour: number }) {
-  const { drag, openEditor, unslot, now, colorOf, prefs } = usePlanner();
+  const { drag, openEditor, unslot, now, colorOf, prefs, faded, chat } = usePlanner();
   const resizing = drag.view?.kind === 'resize' && drag.view.id === t.id;
   const minutes = resizing && drag.view?.minutes != null ? drag.view.minutes : t.minutes;
   const sMin = Math.max(0, ((t.start as number) - dayStart) / MIN);
@@ -41,11 +42,21 @@ function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; 
   const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
   const color = colorOf(t);
   const cls = 'block' + (small ? ' small' : '') + (mid ? ' mid' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '')
-    + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (missed ? ' missed' : '') + (color ? ' tint' : '');
+    + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (missed ? ' missed' : '') + (color ? ' tint' : '') + (faded(t) ? ' faded' : '');
   const range = fmtRange(t.start as number, minutes);
+  const style = { ...tint(color), top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 4px)`, width: `calc(${w.toFixed(3)}% - 8px)` };
+  // Part of the plan you're reviewing: shown where it would go, but not yours to move until you accept it.
+  if (chat.preview.has(t.id)) {
+    return (
+      <div className={cls + ' proposed'} role="img" aria-label={`In your plan: ${t.title}, ${range}`} style={style}>
+        <div className="bt" style={small ? undefined : { WebkitLineClamp: lines }}>{t.title}</div>
+        <div className="bm">{range}</div>
+      </div>
+    );
+  }
   return (
     <div className={cls} data-block={t.id} role="button" tabIndex={0} aria-label={`${t.title}, ${range}${missed ? ', missed' : ''}. Press Enter to edit.`}
-      style={{ ...tint(color), top, height: h, left: `calc(${(lane * w).toFixed(3)}% + 4px)`, width: `calc(${w.toFixed(3)}% - 8px)` }}
+      style={style}
       onPointerDown={e => {
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
         drag.begin(e, 'block', t.id, { grabY: e.clientY - r.top + 2 });
@@ -127,8 +138,8 @@ function DayCol({ d, h0, h1, sched, hour }: { d: Date; h0: number; h1: number; s
  * Given `fit`, the pixels free under it, hours stretch so your day fills them; Settings → Hour height is the least an hour gets.
  */
 function Grid({ days, gutter, fit = 0 }: { days: Date[]; gutter: number; fit?: number }) {
-  const { tasks, now, drag, picked, prefs, onCalendar } = usePlanner();
-  const sched = tasks.filter(t => t.start != null && onCalendar(t));
+  const { calTasks, now, drag, picked, prefs, onCalendar } = usePlanner();
+  const sched = calTasks.filter(t => t.start != null && onCalendar(t));
   const [h0, h1] = hourRange(days, sched, [prefs.dayStart, prefs.dayEnd]);
   const hour = Math.max(prefs.hourHeight, Math.floor(fit / (h1 - h0)));
   const height = (h1 - h0) * hour;
@@ -175,11 +186,11 @@ function DayHeads({ days, gutter }: { days: Date[]; gutter: number }) {
 
 /** Month view: whole weeks, a few tasks per day. Click a day to open it; with a task picked, click to put it there. */
 function MonthView({ compact }: { compact?: boolean }) {
-  const { day, now, tasks, prefs, setDay, setView, picked, placeOnDay, drag, openEditor, onCalendar, colorOf } = usePlanner();
+  const { day, now, calTasks, prefs, setDay, setView, picked, placeOnDay, drag, openEditor, onCalendar, colorOf, faded, chat } = usePlanner();
   const rows = monthGrid(day, prefs.weekStart);
   const month = day.getMonth();
   const todayKey = ymd(now);
-  const sched = tasks.filter(t => t.start != null && onCalendar(t));
+  const sched = calTasks.filter(t => t.start != null && onCalendar(t));
   const dragging = drag.view && drag.view.kind !== 'resize';
   const open = (d: Date) => { setDay(d); setView('day'); };
   return (
@@ -207,7 +218,7 @@ function MonthView({ compact }: { compact?: boolean }) {
                 {compact ? (
                   list.length > 0 && (
                     <span className="mdots" aria-hidden="true">
-                      {list.slice(0, 4).map(t => <i key={t.id} className={t.status === 'done' ? 'done' : undefined} style={tint(colorOf(t))} />)}
+                      {list.slice(0, 4).map(t => <i key={t.id} className={[t.status === 'done' && 'done', faded(t) && 'faded'].filter(Boolean).join(' ') || undefined} style={tint(colorOf(t))} />)}
                     </span>
                   )
                 ) : (
@@ -215,9 +226,17 @@ function MonthView({ compact }: { compact?: boolean }) {
                     {list.slice(0, visible).map(t => {
                       const color = colorOf(t);
                       const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
+                      if (chat.preview.has(t.id)) {
+                        return (
+                          <span key={t.id} role="img" style={tint(color)} className={'mchip proposed' + (color ? ' tint' : '')}
+                            aria-label={`In your plan: ${t.title}, ${fmtRange(t.start as number, t.minutes)}`}>
+                            <time>{fmtShort(t.start as number)}</time><span>{t.title}</span>
+                          </span>
+                        );
+                      }
                       return (
                         <button key={t.id} type="button" style={tint(color)}
-                          className={'mchip' + (color ? ' tint' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '')}
+                          className={'mchip' + (color ? ' tint' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '') + (faded(t) ? ' faded' : '')}
                           aria-label={`${t.title}, ${fmtRange(t.start as number, t.minutes)}. Opens the task.`}
                           onPointerDown={e => drag.begin(e, 'block', t.id, { grabY: 0 })}
                           onClick={e => { e.stopPropagation(); if (!drag.ignoreClick()) openEditor(t.id); }}>
@@ -256,7 +275,7 @@ function ArmBanner({ verb }: { verb: string }) {
   );
 }
 
-const VIEWS: CalView[] = ['day', 'work', 'week', 'month'];
+const VIEWS: CalView[] = ['day', 'three', 'work', 'week', 'month'];
 
 function ViewSwitch({ full }: { full?: boolean }) {
   const { view, setView } = usePlanner();
@@ -272,7 +291,7 @@ function ViewSwitch({ full }: { full?: boolean }) {
 /** Navigation for whatever view is showing. */
 function useNav() {
   const { day, setDay, view, prefs, now } = usePlanner();
-  const unit = view === 'day' ? 'day' : view === 'month' ? 'month' : view === 'work' && prefs.fiveDay === 'rolling' ? '5 days' : 'week';
+  const unit = view === 'day' ? 'day' : view === 'month' ? 'month' : view === 'three' ? '3 days' : view === 'work' && prefs.fiveDay === 'rolling' ? '5 days' : 'week';
   return {
     ...viewTitle(view, startOfDay(day), now, prefs),
     prevLabel: `Previous ${unit}`,
@@ -294,18 +313,28 @@ function Nav() {
   );
 }
 
-/** Connected accounts, each a toggle for showing its events. */
+/** What the colours mean when they're your labels, then connected accounts, each a toggle for showing its events. */
 function Legend() {
-  const { accounts, changeAccount } = usePlanner();
-  if (!accounts.length) return null;
+  const { accounts, changeAccount, accountColor, prefs } = usePlanner();
+  const labels = prefs.colorBy === 'label' ? prefs.labels : [];
+  if (!accounts.length && !labels.length) return null;
   return (
-    <div className="legend in" role="group" aria-label="Google accounts on the calendar" style={{ animationDelay: '.1s' }}>
-      {accounts.map(a => (
-        <button key={a.id} type="button" className="lg" aria-pressed={a.show} style={tint(a.color)}
-          title={a.show ? 'Hide its events' : 'Show its events'} onClick={() => changeAccount(a.id, { show: !a.show })}>
-          <i aria-hidden="true" />{a.email || 'Google account'}{a.error ? ' · reconnect' : ''}
-        </button>
-      ))}
+    <div className="legend in" style={{ animationDelay: '.1s' }}>
+      {labels.length > 0 && (
+        <ul className="lkey" aria-label="Label colours">
+          {labels.map(l => <li key={l.id} style={tint(l.color)}><i aria-hidden="true" />{l.name}</li>)}
+        </ul>
+      )}
+      {accounts.length > 0 && (
+        <div className="lgs" role="group" aria-label="Google accounts on the calendar">
+          {accounts.map(a => (
+            <button key={a.id} type="button" className="lg" aria-pressed={a.show} style={tint(accountColor(a))}
+              title={a.show ? 'Hide its events' : 'Show its events'} onClick={() => changeAccount(a.id, { show: !a.show })}>
+              <i aria-hidden="true" />{a.email || 'Google account'}{a.error ? ' · reconnect' : ''}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -343,6 +372,7 @@ export function LaptopCalendar() {
         <div className="tools">
           <ArmBanner verb="Click" />
           <Nav />
+          <LayoutChip />
           <ViewSwitch />
         </div>
       </div>
@@ -362,7 +392,7 @@ export function LaptopCalendar() {
 }
 
 export function PhoneCalendar() {
-  const { day, setDay, view, prefs, setPhoneView, picked, setPicked } = usePlanner();
+  const { day, setDay, view, prefs, setPhoneView, picked, setPicked, labelOf } = usePlanner();
   const { backlog, missed, focus: f } = useLists();
   const nav = useNav();
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
@@ -399,10 +429,13 @@ export function PhoneCalendar() {
       <div className="tray">
         <div className="tl">{trayTasks.length ? `Tap a task, then tap a ${view === 'month' ? 'day' : 'time'}` : 'Backlog is empty'}</div>
         <div className="ts">
-          {trayTasks.map(t => (
-            <button key={t.id} type="button" className="chip" aria-pressed={picked === t.id}
-              onClick={() => setPicked(picked === t.id ? null : t.id)}>{t.title}</button>
-          ))}
+          {trayTasks.map(t => {
+            const label = labelOf(t);
+            return (
+              <button key={t.id} type="button" className="chip" aria-pressed={picked === t.id} style={tint(label?.color ?? null)}
+                onClick={() => setPicked(picked === t.id ? null : t.id)}>{label && <i aria-hidden="true" />}{t.title}</button>
+            );
+          })}
         </div>
       </div>
     </>

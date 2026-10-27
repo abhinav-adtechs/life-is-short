@@ -8,7 +8,7 @@ import { setClock24 } from '@/lib/format';
 const LOCAL = 'ds.prefs';
 /** What layout.tsx's startup script replays before first paint, so the page never flashes the defaults. */
 export const LOOK_KEY = 'ds.look';
-const ATTRS = ['data-theme', 'data-motion', 'data-contrast'];
+const ATTRS = ['data-theme', 'data-motion', 'data-contrast', 'data-scene'];
 
 /** This device's prefs. Older builds kept only the theme and the calendar view; carry those over. */
 function loadLocal(): Prefs {

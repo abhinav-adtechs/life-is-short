@@ -9,12 +9,13 @@ import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
 import { useTrap } from './hooks';
 import { XIcon } from './icons';
+import { LabelPicker } from './Labels';
 
-const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
-const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
+export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
+export const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
 
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf, liveTasks } = usePlanner();
+  const { store, wide, toast, undoable, setPicked, setPhoneView, hours, sourceOf, liveTasks, prefs, labelOf } = usePlanner();
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
   const [date, setDate] = useState(t.start != null ? ymd(t.start) : '');
@@ -22,13 +23,14 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
   const [minutes, setMinutes] = useState(t.minutes);
   const [due, setDue] = useState(t.due || '');
   const [notes, setNotes] = useState(t.notes || '');
+  const [label, setLabel] = useState<string | null>(t.label ?? null);
   const [armedDelete, setArmedDelete] = useState(false);
   const sheet = useRef<HTMLDivElement>(null);
   useTrap(sheet);
 
   const values = () => ({
     title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title,
-    priority, minutes, due: due || null, notes: notes.trim(),
+    priority, minutes, due: due || null, notes: notes.trim(), label,
   });
 
   const save = (e?: React.FormEvent) => {
@@ -86,6 +88,8 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
   const draft = { ...t, ...values(), start: date && time ? atMinutes(fromYmd(date), Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))) : t.start };
   const raw = (t.raw || '').trim();
   const src = sourceOf(t);
+  // What a Google event gets from its calendar when it has no label of its own.
+  const inherited = src ? labelOf({ ...t, label: null }) : null;
 
   return (
     <>
@@ -111,6 +115,12 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
               ))}
             </div>
           </div>
+          {prefs.labels.length > 0 && (
+            <div className="fld">
+              <span className="flabel" id="ed-lab">Label</span>
+              <LabelPicker labelledBy="ed-lab" value={label} onChange={setLabel} none={inherited ? `From calendar: ${inherited.name}` : 'None'} />
+            </div>
+          )}
           <div className="two">
             <div className="fld"><label htmlFor="ed-date">Day</label><input id="ed-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
             <div className="fld"><label htmlFor="ed-time">Start</label><input id="ed-time" type="time" step={900} value={time} onChange={e => setTime(e.target.value)} /></div>

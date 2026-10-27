@@ -15,6 +15,8 @@ export interface DragView {
   y: number;
   /** Snapped start under the pointer, for row and block drags. min is -1 over a month-view day: no time picked. */
   target: { day: string; min: number } | null;
+  /** Backlog matrix cell under the pointer, as "label|priority" ('' for no label). */
+  cell: string | null;
   overBacklog: boolean;
   /** New length while resizing. */
   minutes: number | null;
@@ -42,6 +44,8 @@ export interface DragHandlers {
   lengthOf: (id: string) => number;
   onDrop: (id: string, day: string, min: number, kind: DragKind) => void;
   onDropBacklog: (id: string) => void;
+  /** Dropped on a matrix cell: take that cell's label and priority. */
+  onDropCell: (id: string, cell: string, kind: DragKind) => void;
   onResize: (id: string, minutes: number) => void;
 }
 
@@ -50,6 +54,13 @@ function columnAt(x: number, y: number) {
   for (const el of document.elementsFromPoint(x, y)) {
     const col = (el as HTMLElement).closest?.('[data-day]') as HTMLElement | null;
     if (col) return col;
+  }
+  return null;
+}
+function cellAt(x: number, y: number) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const cell = (el as HTMLElement).closest?.('[data-cell]') as HTMLElement | null;
+    if (cell) return cell.dataset.cell as string;
   }
   return null;
 }
@@ -96,6 +107,7 @@ export function useDrag(h: DragHandlers) {
       if (commit) {
         const v = cur.view;
         if (cur.kind === 'resize') { if (v.minutes != null && v.minutes !== cur.minutes) handlers.current.onResize(cur.id, v.minutes); }
+        else if (v.cell) handlers.current.onDropCell(cur.id, v.cell, cur.kind);
         else if (v.overBacklog && cur.kind === 'block') handlers.current.onDropBacklog(cur.id);
         else if (v.target) handlers.current.onDrop(cur.id, v.target.day, v.target.min, cur.kind);
       }
@@ -116,8 +128,9 @@ export function useDrag(h: DragHandlers) {
         cur.view.minutes = Math.max(15, Math.min(480, endMin - cur.startMin, 24 * 60 - cur.startMin));
       }
     } else {
-      cur.view.overBacklog = cur.kind === 'block' && overBacklogAt(x, y);
-      const col = cur.view.overBacklog ? null : columnAt(x, y);
+      cur.view.cell = cellAt(x, y);
+      cur.view.overBacklog = !cur.view.cell && cur.kind === 'block' && overBacklogAt(x, y);
+      const col = cur.view.cell || cur.view.overBacklog ? null : columnAt(x, y);
       cur.view.target = col ? { day: col.dataset.day as string, min: minuteAt(col, y, cur.grabY, handlers.current.lengthOf(cur.id)) } : null;
     }
     publish();
@@ -172,7 +185,7 @@ export function useDrag(h: DragHandlers) {
       kind, id, pointerId: e.pointerId, touch, sx: e.clientX, sy: e.clientY,
       grabY: opts.grabY ?? 14, startMin: opts.startMin ?? 0, minutes: opts.minutes ?? 30,
       active: false, timer: 0,
-      view: { kind, id, x: e.clientX, y: e.clientY, target: null, overBacklog: false, minutes: kind === 'resize' ? (opts.minutes ?? 30) : null },
+      view: { kind, id, x: e.clientX, y: e.clientY, target: null, cell: null, overBacklog: false, minutes: kind === 'resize' ? (opts.minutes ?? 30) : null },
     };
     p.current = cur;
     if (touch) cur.timer = window.setTimeout(activate, 320);

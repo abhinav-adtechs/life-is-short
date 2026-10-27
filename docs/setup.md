@@ -9,18 +9,19 @@ The full ordered checklist for going live, including the backup and GitHub secre
 ```sh
 npm install
 cp .env.example .env.local   # fill in what you have; everything is optional locally
-npm run dev                  # http://localhost:3000
+npm run dev                  # http://localhost:3000 is the home page; the planner is at /app
 npm test                     # unit tests for the parser, slotting, capture and Google merge
 ```
 
-Without Supabase keys the app runs in local-only mode (tasks in this browser). Without a Gemini key, dumps are sorted by the keyword parser and the toast says so.
+Without Supabase keys the app runs in local-only mode (tasks in this browser). Without a Gemini key, dumps are sorted by the keyword parser and the plan says so.
 
 ## Set up for real (phone + laptop)
 
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0005` in order, then `supabase/roles/primary_backup_reader.sql`.
+2. SQL editor: run `supabase/migrations/0001` to `0006` in order, then `supabase/roles/primary_backup_reader.sql`.
+   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it).
 3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
 4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
 5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
@@ -44,6 +45,7 @@ Create a key at aistudio.google.com. The free tier is enough. The route tries `g
 
 1. In Google Cloud console, create a project and enable the **Google Calendar API** and **Google Tasks API**.
 2. Set up the OAuth consent screen (External) and add your account as a test user. Then **publish** it ("In production"). Apps left in Testing get refresh tokens that expire after 7 days. A personal app in production without Google verification shows a "Google hasn't verified this app" screen once; continue past it.
+   - Branding: app name **Life is short**, exactly as the home page writes it; app home page `https://<your-app>/`; privacy policy `https://<your-app>/privacy`. Both pages load without signing in. Verification needs a domain you own: see [go-live.md → Google verification](go-live.md#google-verification-optional).
 3. Credentials → Create OAuth client ID → **Web application**. Add the authorized redirect URIs `https://<your-app>.vercel.app/google/callback` and `http://localhost:3000/google/callback`.
 4. In the app: **Settings → Google accounts → Connect Google**. Google's account chooser opens; pick an account and allow access. Use **Add another account** for a second or third (personal and work, say). Every account's events land on one calendar, each in its own colour.
    - It pulls today through the next month from each account's own calendars, plus its Google Tasks, then again every 30 minutes while the app is open. Changes in Google update the title and time here; priority, notes and done state stay yours.
@@ -68,11 +70,15 @@ Settings → Sharing lets someone see your planner, view only: you pick their em
    ```
 
    Then in the Supabase SQL editor: `select private.set_share_key_hash('<the 64 hex characters>');`
-3. Email for the codes: create a [Resend](https://resend.com) account, verify a domain you own, and make an API key with sending access only.
-4. In Vercel add `SHARE_SERVER_KEY`, `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (for example `Life is short <share@yourdomain.com>`), then redeploy.
-5. Open Settings → Sharing. If anything is missing it says what; otherwise create a share and open the link in a private window to try it.
+3. Email for the codes, one of:
+   - **Gmail, no domain needed.** Best with a Gmail account made just for this (say `lifeisshort.codes@gmail.com`): an app password can read and send that account's mail, so keep it away from your personal inbox. In that account, turn on 2-Step Verification (myaccount.google.com → Security), then create an app password (myaccount.google.com/apppasswords). Gmail sends up to about 500 emails a day.
+   - **Resend, with a domain you own.** Create a [Resend](https://resend.com) account, verify the domain there, and make an API key with sending access only. Resend can't send from a Gmail address.
+4. In Vercel add `SHARE_SERVER_KEY`, then for Gmail `SHARE_SMTP_USER` (the Gmail address) and `SHARE_SMTP_PASS` (the 16-letter app password), or for Resend `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (for example `Life is short <share@yourdomain.com>`). Redeploy.
+5. Open Settings → Sharing. If anything is missing, or the mail server refuses the login, it says what. Otherwise create a share and open the link in a private window to try it.
 
-Locally you can skip Resend: without it, `npm run dev` prints each code to the terminal. To change the key later, repeat steps 1, 2 and 4: viewers stay signed in, and new codes use the new key.
+When the Gmail settings are there they're used, even if Resend's are too. With Gmail, leave `SHARE_EMAIL_FROM` unset (codes come from the Gmail address, as "Life is short") or set it to that same address; Gmail won't send as anyone else. Another mail server works the same way with `SHARE_SMTP_HOST` and `SHARE_SMTP_PORT` (465 for TLS, 587 for STARTTLS).
+
+Locally you can skip email: without it, `npm run dev` prints each code to the terminal. To change the key later, repeat steps 1, 2 and 4: viewers stay signed in, and new codes use the new key.
 
 ### 6. Vercel
 
@@ -84,29 +90,35 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `GEMINI_API_KEY` | Gemini key |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
-| `SHARE_SERVER_KEY`, `RESEND_API_KEY`, `SHARE_EMAIL_FROM` | Sharing, from step 5 (optional) |
+| `SHARE_SERVER_KEY`, plus `SHARE_SMTP_USER` and `SHARE_SMTP_PASS` (Gmail) or `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (Resend) | Sharing, from step 5 (optional) |
+| `GOOGLE_SITE_VERIFICATION` | Search Console's HTML-tag token, only while proving you own the site for Google (optional) |
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
 
 ## Settings reference
 
-Open **Settings** from the `···` button. It's a full page (also reachable at `/#settings`, or `/#settings/calendar` and so on), and changes apply as you make them.
+Open **Settings** from the `···` button. It's a full page (also reachable at `/app#settings`, or `/app#settings/calendar` and so on), and changes apply as you make them.
 
-- **Appearance**: light, dark or system (per device); five themes (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced); 12- or 24-hour clock. A live preview shows the result.
-- **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
-- **Google accounts**, **Your tasks** (import) and **Account** (password, sign out).
+- **Appearance**: the view out of the window (Summer meadow, Golden hour, Night train, After the rain, Balloon, Above the clouds, or Plain); light, dark or system (per device), where dark dims the wall and the panels; five themes (Paper, Neutral, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced; reduced also holds the view still); 12- or 24-hour clock. A live preview shows the result.
+- **Calendar**: Day, 3 days, 5 days (Monday to Friday, or the next 5 days), 7 days or Month (on a laptop, picking days also sizes the calendar to fit them); when the laptop backlog is short of room, show counts or fold the lowest priorities; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by label (the default), account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
+- **Labels**: the parts of your life your tasks sort into (Work, Personal and Helping others to start). Rename, recolour, reorder, add up to 12 or remove them. The AI picks a label for each thing you dump, a `#tag` that names one picks it without the AI, and the task editor changes it. On the phone the backlog groups by label then by when it's due (Overdue, Today, This week, Next week, Further out, Anytime), by time with labels kept together, or by priority; on a laptop it's a matrix of label by priority. **Saved views** (Everything, Work focus, Personal time, Just urgent, and any you save from the backlog) pick priorities and labels in one tap; remove them or restore the starter set here.
+- **Google accounts**: connect, pull, colour, show or hide each account; give it a default label (and a calendar inside it another), so its events show in that label's colour. **Your tasks** (import) and **Account** (password, sign out).
 - **Sharing**: who can see your planner, what they see (backlog; calendar today, upcoming or all; titles or busy only; items from Google; whether they can suggest tasks) and until when; their signed-in devices, last visit, an activity log of every sign-in, view, wrong code and suggestion; their suggestions to approve or decline; "See what they see"; and Stop sharing, which signs them out at once. A badge on the planner shows suggestions waiting.
 
-Light/dark and the calendar view stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
+Light/dark, the calendar view, the laptop split and the active view stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
 
 ## How it fits together
 
+- `app/page.tsx` and `app/home.css`: the public home page at `/`. It says what the app does, what it reads from Google and why, and links the privacy policy (`app/privacy`), all without signing in, as Google's OAuth review requires. The planner is `app/app/page.tsx`, at `/app`.
 - `lib/`: pure, tested logic ported from the prototype (`localParse`, `cleanItem`, `placeItem`, `findSlot`, `buildPrompt`, `applyCapture`), plus selectors for Now/Next, backlog, missed and done.
 - `lib/repo/`: the storage interface, with a localStorage adapter and a Supabase adapter (RLS on `user_id`, realtime for cross-device sync).
 - `app/api/sort`: Gemini with a JSON schema. A missing key or a failure tells the client to use the keyword parser.
-- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests). `lib/calview.ts`: which days each calendar view shows.
+- `lib/prefs.ts`, `lib/color.ts`: settings, themes, accents and fonts, turned into CSS variables (with contrast checks in the tests, including each view's wall, card and button). `lib/calview.ts`: which days each calendar view shows.
+- `lib/scenes.ts`, `components/Scene.tsx`, `public/scenes/`: the views out of the window. Each is painted in SVG layers (sky, clouds, land, the passing near fields, ...) by `python3 scripts/scenes/scenes.py`, so the browser draws each layer once and CSS moves it with transforms and opacity only; no script runs for it. `components/Brand.tsx`, `public/brand/` and `app/icon.svg`: the logo, a train window onto the summer meadow, drawn by `python3 scripts/brand/logo.py`; the favicon, home-screen icons, install manifest (`app/manifest.ts`) and link preview (`app/opengraph-image.png`) come from it, as `scripts/brand/README.md` lists.
 - `app/api/google/*`: OAuth and pull, one call per account. Each refresh token is sealed with AES-GCM using a key derived from `GOOGLE_CLIENT_SECRET` before it's stored in your settings row.
 - `components/`: the phone layout (under 860px) and the laptop layout with the drag-and-drop week calendar. Drag uses pointer events, so the same code handles touch.
+- The laptop layout: `lib/layout.ts` (the split between matrix and calendar, the days that fit, snapping, and how the matrix draws itself in the room it has), `components/Split.tsx` (the divider and Auto layout), `components/Matrix.tsx` and `components/Lens.tsx` (views and filters, with the lens itself in `lib/labels.ts`).
+- Labels: `lib/labels.ts` (the list, and which label a task or event has), `groupBacklog` and `timeBucket` in `lib/select.ts` (the backlog's two axes), `components/Labels.tsx` (the picker and Settings → Labels) and `supabase/migrations/0006` (the `label` column, also in the backup's comparison).
 - Sharing: `supabase/migrations/0005` (the share tables and functions), `app/api/share/*` (the viewer's sign-in, view and suggestions), `app/shared` and `components/SharedPlanner.tsx` (the viewer's page), `components/SharingSection.tsx` (Settings → Sharing) and `lib/share.ts`.
 
 Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.

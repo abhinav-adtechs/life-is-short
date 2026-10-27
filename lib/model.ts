@@ -20,6 +20,8 @@ export interface Task {
   doneAt: number | null;
   /** Source id for pulled items, e.g. "gcal:<calendar>:<event>" or "gtask:<id>". */
   externalId?: string | null;
+  /** Label id from Settings → Labels. A Google event without one takes its calendar's. */
+  label?: string | null;
   /** Epoch ms of the last local write; newer wins when sync events cross. */
   updatedAt?: number;
 }
@@ -37,6 +39,8 @@ export interface ParsedItem {
   time: string | null;
   deadline: boolean;
   notes: string;
+  /** A label id, or null. */
+  label: string | null;
 }
 
 export const newId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

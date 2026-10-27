@@ -1,4 +1,5 @@
 import type { ParsedItem, Priority } from './model';
+import { labelNamed, type Label } from './labels';
 import { DAY_MS, addDays, minsOf, pad, startOfDay, ymd } from './time';
 
 const WEEKDAYS: Record<string, number> = { sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, tues: 2, wednesday: 3, wed: 3, thursday: 4, thu: 4, thur: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6 };
@@ -19,11 +20,20 @@ const STRIP: RegExp[] = [
   /\b(?:on|by|before|due)\s+(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\b/gi,
 ];
 
-/** Keyword fallback when the AI route can't sort the dump. One item per line or `;`. */
-export function localParse(text: string, nowArg?: number | Date): ParsedItem[] {
+const TAG = /(^|\s)#([\p{L}\p{N}][\p{L}\p{N}_-]*)/gu;
+
+/** Keyword fallback when the AI route can't sort the dump. One item per line or `;`. A #tag naming one of `labels` picks it. */
+export function localParse(text: string, nowArg?: number | Date, labels: Label[] = []): ParsedItem[] {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
-  return String(text).split(/\n+|;\s*/).map(s => s.trim()).filter(Boolean).map(part => {
+  return String(text).split(/\n+|;\s*/).map(s => s.trim()).filter(Boolean).map(whole => {
+    let label: string | null = null;
+    const part = whole.replace(TAG, (m, pre: string, tag: string) => {
+      const l = labelNamed(labels, tag);
+      if (!l) return m;
+      label ??= l.id;
+      return pre;
+    }).trim() || whole;
     const low = part.toLowerCase();
     let priority: Priority = 2;
     if (/\b(?:urgent(?:ly)?|asap|critical|top priority|high priority|p1|immediately)\b|!{2,}/.test(low)) priority = 1;
@@ -83,7 +93,7 @@ export function localParse(text: string, nowArg?: number | Date): ParsedItem[] {
       title, priority, minutes,
       date: date ? ymd(date) : null,
       time: time != null && !deadline ? `${pad(Math.floor(time / 60))}:${pad(time % 60)}` : null,
-      deadline, notes: '',
+      deadline, notes: '', label,
     };
   });
 }

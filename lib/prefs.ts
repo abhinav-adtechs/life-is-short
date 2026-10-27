@@ -1,9 +1,15 @@
 import { contrast, ensureContrast, isHex, mix, onColor, rgba } from './color';
+import { DEFAULT_LABELS, DEFAULT_LENS, DEFAULT_PRESETS, normalizeLabels, normalizeLens, normalizePresets, type Label, type Lens, type Preset } from './labels';
+import { DEFAULT_SPLIT, type Split, type Tight } from './layout';
+import type { BacklogBy } from './select';
+import { DEFAULT_SCENE, LAYERS, SCENES, sceneById, type Scene, type SceneId } from './scenes';
 
 /** How things look and how the calendar behaves. Stored per device and synced through your settings row. */
 export interface Prefs {
   /** Light or dark. Per device: a phone can follow the system while a laptop stays dark. */
   mode: 'system' | 'light' | 'dark';
+  /** The view out of the window (lib/scenes.ts), or a plain page. */
+  scene: SceneId | 'plain';
   surface: SurfaceId;
   /** An accent preset id, or a custom #RRGGBB. */
   accent: string;
@@ -17,8 +23,12 @@ export interface Prefs {
   motion: 'system' | 'full' | 'reduce';
   clock: '12' | '24';
 
-  /** Calendar view. Per device; null picks Week on a laptop and Day on a phone. */
+  /** Calendar view. Per device; null picks Day on a phone. On a laptop the split decides, except for Month. */
   calView: CalView | null;
+  /** How a laptop screen is shared between the backlog and the calendar. Per device. */
+  split: Split;
+  /** What the backlog and calendar focus on. Per device, so the laptop can stay on work while the phone shows everything. */
+  lens: Lens;
   /** 0 Sunday, 1 Monday, 6 Saturday. */
   weekStart: 0 | 1 | 6;
   /** What the 5-day view shows. */
@@ -28,25 +38,35 @@ export interface Prefs {
   dayEnd: number;
   /** Pixels per hour on the time grid. */
   hourHeight: number;
-  colorBy: 'none' | 'account' | 'calendar' | 'priority';
+  colorBy: 'none' | 'label' | 'account' | 'calendar' | 'priority';
   showDone: boolean;
   shadeWeekends: boolean;
   weekNumbers: boolean;
+
+  /** Your labels, in the order the backlog shows them. */
+  labels: Label[];
+  /** How the phone's backlog list is split: by label then when it's due, by when it's due, or by priority. */
+  backlogBy: BacklogBy;
+  /** Lenses you can pick in one tap. */
+  presets: Preset[];
+  /** When the laptop's backlog is short of room: numbers in every column, or fold the lowest priorities. */
+  tight: Tight;
 
   /** Last change to a synced field, so the newest device wins. */
   updatedAt: number;
 }
 
-export type CalView = 'day' | 'work' | 'week' | 'month';
+export type CalView = 'day' | 'three' | 'work' | 'week' | 'month';
 
 /** These stay on this device; everything else follows you between devices. */
-export const DEVICE_KEYS = ['mode', 'calView'] as const;
+export const DEVICE_KEYS = ['mode', 'calView', 'split', 'lens'] as const;
 
 export const DEFAULT_PREFS: Prefs = {
-  mode: 'system', surface: 'neutral', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
+  mode: 'system', scene: DEFAULT_SCENE, surface: 'paper', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
   contrast: false, trueBlack: false, motion: 'system', clock: '12',
-  calView: null, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
-  colorBy: 'account', showDone: true, shadeWeekends: false, weekNumbers: false,
+  calView: null, split: DEFAULT_SPLIT, lens: DEFAULT_LENS, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
+  colorBy: 'label', showDone: true, shadeWeekends: false, weekNumbers: false,
+  labels: DEFAULT_LABELS, backlogBy: 'label', presets: DEFAULT_PRESETS, tight: 'counts',
   updatedAt: 0,
 };
 
@@ -151,9 +171,14 @@ export function normalizePrefs(raw: unknown): Prefs {
   let dayStart = Number.isInteger(o.dayStart) ? Math.max(0, Math.min(23, o.dayStart as number)) : d.dayStart;
   let dayEnd = Number.isInteger(o.dayEnd) ? Math.max(1, Math.min(24, o.dayEnd as number)) : d.dayEnd;
   if (dayEnd - dayStart < 2) { dayStart = d.dayStart; dayEnd = d.dayEnd; }
+  // Prefs saved before the window have no scene; their Neutral was the old default, so they get the window's Paper.
+  const surface = o.scene === undefined && o.surface === 'neutral' ? d.surface : oneOf(o.surface, ids(SURFACES), d.surface);
+  // An early build called the only view 'sky'.
+  const scene = o.scene === 'sky' ? d.scene : oneOf(o.scene, [...ids(SCENES), 'plain'] as const, d.scene);
   return {
     mode: oneOf(o.mode, ['system', 'light', 'dark'] as const, d.mode),
-    surface: oneOf(o.surface, ids(SURFACES), d.surface),
+    scene,
+    surface,
     accent,
     font: oneOf(o.font, ids(FONTS), d.font),
     textSize: oneOf(o.textSize, TEXT_SIZES.map(s => s.value), d.textSize),
@@ -163,17 +188,30 @@ export function normalizePrefs(raw: unknown): Prefs {
     trueBlack: bool(o.trueBlack, d.trueBlack),
     motion: oneOf(o.motion, ['system', 'full', 'reduce'] as const, d.motion),
     clock: oneOf(o.clock, ['12', '24'] as const, d.clock),
-    calView: oneOf(o.calView, ['day', 'work', 'week', 'month', null] as const, d.calView),
+    calView: oneOf(o.calView, ['day', 'three', 'work', 'week', 'month', null] as const, d.calView),
+    split: normalizeSplit(o.split),
+    lens: normalizeLens(o.lens),
     weekStart: oneOf(o.weekStart, [0, 1, 6] as const, d.weekStart),
     fiveDay: oneOf(o.fiveDay, ['workweek', 'rolling'] as const, d.fiveDay),
     dayStart, dayEnd,
     hourHeight: oneOf(o.hourHeight, HOUR_HEIGHTS.map(h => h.value), d.hourHeight),
-    colorBy: oneOf(o.colorBy, ['none', 'account', 'calendar', 'priority'] as const, d.colorBy),
+    // Account was the default before labels. Label colours events the same way until something has a label.
+    colorBy: o.colorBy === 'account' && !Array.isArray(o.labels) ? 'label' : oneOf(o.colorBy, ['none', 'label', 'account', 'calendar', 'priority'] as const, d.colorBy),
     showDone: bool(o.showDone, d.showDone),
     shadeWeekends: bool(o.shadeWeekends, d.shadeWeekends),
     weekNumbers: bool(o.weekNumbers, d.weekNumbers),
+    labels: normalizeLabels(o.labels),
+    backlogBy: oneOf(o.backlogBy, ['label', 'time', 'priority'] as const, d.backlogBy),
+    presets: normalizePresets(o.presets),
+    tight: oneOf(o.tight, ['counts', 'fold'] as const, d.tight),
     updatedAt: typeof o.updatedAt === 'number' && isFinite(o.updatedAt) ? o.updatedAt : 0,
   };
+}
+
+function normalizeSplit(raw: unknown): Split {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const cal = typeof o.cal === 'number' && isFinite(o.cal) ? Math.round(Math.max(200, Math.min(4000, o.cal))) : DEFAULT_SPLIT.cal;
+  return { mode: o.mode === 'auto' ? 'auto' : 'pinned', cal };
 }
 
 /** The synced part: everything but the per-device keys. */
@@ -243,19 +281,55 @@ export function computeLook(p: Prefs): Look {
   vars['--round'] = String(CORNERS[p.corners].round);
   vars['--pill'] = CORNERS[p.corners].pill;
   vars['--dens'] = String(DENSITY[p.density]);
+  const scene = sceneById(p.scene);
+  if (scene) Object.assign(vars, sceneVars(scene));
+  // The browser bar continues the page: the wall around the window, or the plain page.
+  const top = scene ? { light: scene.wall.light, dark: scene.wall.dark } : { light: light.bg, dark: dark.bg };
   return {
     vars,
     attrs: {
       'data-theme': p.mode === 'system' ? null : p.mode,
       'data-motion': p.motion === 'system' ? null : p.motion,
       'data-contrast': p.contrast ? 'more' : null,
+      'data-scene': p.scene,
     },
     font: font.gf ? fontHref(font.gf) : null,
-    themeColor: p.mode === 'system' ? { light: light.bg, dark: dark.bg } : p.mode === 'light' ? { light: light.bg, dark: light.bg } : { light: dark.bg, dark: dark.bg },
+    themeColor: p.mode === 'system' ? top : p.mode === 'light' ? { light: top.light, dark: top.light } : { light: top.dark, dark: top.dark },
   };
 }
 
 /** Lowest contrast between text tokens and the surfaces they sit on, for tests and sanity checks. */
 export function worstTextContrast(pal: Palette) {
   return Math.min(...[pal.bg, pal.soft, pal.block, pal.hair2].flatMap(bg => [contrast(pal.ink, bg), contrast(pal.muted, bg)]));
+}
+
+/** The window's CSS: its layers, where the light comes from, and the colours around it. */
+export function sceneVars(s: Scene): Record<string, string> {
+  const v: Record<string, string> = {};
+  for (const l of LAYERS) v[`--img-${l}`] = s.layers.includes(l) ? `url("/scenes/${s.id}/${l}.svg")` : 'none';
+  v['--sun'] = `${s.sun[0]}% ${s.sun[1]}%`;
+  v['--band'] = String(s.band);
+  v['--across'] = String(s.across);
+  v['--sky-c'] = s.sky;
+  v['--l-wall'] = s.wall.light;
+  v['--d-wall'] = s.wall.dark;
+  v['--l-wall-ink'] = s.wall.ink;
+  v['--d-wall-ink'] = s.wall.inkDark;
+  v['--wall-art'] = s.wall.texture ?? 'none';
+  v['--frame'] = s.frame;
+  v['--win-r'] = `${s.radius}px`;
+  v['--view-ink'] = s.view.ink;
+  v['--view-shade'] = s.view.shade;
+  v['--paper'] = s.paper.bg;
+  v['--paper-ink'] = s.paper.ink;
+  v['--paper-muted'] = s.paper.muted;
+  v['--paper-line'] = s.paper.line;
+  v['--paper-mark'] = s.paper.mark;
+  v['--cta'] = s.paper.cta;
+  v['--cta-ink'] = s.paper.ctaInk;
+  v['--bird'] = s.bird;
+  v['--mote'] = s.mote ?? 'transparent';
+  v['--motes'] = s.mote ? 'block' : 'none';
+  v['--drips'] = s.layers.includes('drops') ? 'block' : 'none';
+  return v;
 }

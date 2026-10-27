@@ -99,11 +99,11 @@ describe('placeItem', () => {
 describe('cleanItem', () => {
   it('coerces model output into safe fields', () => {
     expect(cleanItem({ title: '  Call   the bank ', priority: '1', minutes: 40, date: '2026-10-27', time: '11:00', deadline: 'yes' }, 'raw'))
-      .toEqual({ title: 'Call the bank', priority: 1, minutes: 45, date: '2026-10-27', time: '11:00', deadline: false, notes: '' });
+      .toEqual({ title: 'Call the bank', priority: 1, minutes: 45, date: '2026-10-27', time: '11:00', deadline: false, notes: '', label: null });
   });
 
   it('defaults bad values', () => {
-    expect(cleanItem(null, 'the raw dump')).toEqual({ title: 'the raw dump', priority: 2, minutes: 30, date: null, time: null, deadline: false, notes: '' });
+    expect(cleanItem(null, 'the raw dump')).toEqual({ title: 'the raw dump', priority: 2, minutes: 30, date: null, time: null, deadline: false, notes: '', label: null });
     expect(cleanItem({ title: 'x', priority: 7, minutes: 9999 }, '').minutes).toBe(480);
     expect(cleanItem({ title: 'x', minutes: 5 }, '').minutes).toBe(15);
   });
