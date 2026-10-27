@@ -1,35 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { calendarOf } from '@/lib/google';
 import { fmtAgo } from '@/lib/format';
 import { ACCOUNT_COLORS, MAX_ACCOUNTS, ownCalendars, type GoogleAccount } from '@/lib/google-client';
 import { usePlanner } from './Planner';
 import { CaretIcon, CheckIcon } from './icons';
-import { Opt, radio, radioKeys } from './Controls';
+import { CustomColour, Opt, radio, radioKeys } from './Controls';
+import { LabelPicker } from './Labels';
 
 const ROLE: Record<string, string> = { owner: 'Yours', writer: 'Can edit', reader: 'Read-only' };
 
-/** The colour input fires on every move while dragging: show it at once, save once it settles. */
-function CustomColour({ value, onSave }: { value: string; onSave: (c: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  const timer = useRef(0);
-  useEffect(() => setDraft(value), [value]);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  return (
-    <label className={'swatch custom' + (draft !== value ? ' on' : '')} title="Your own colour" style={{ '--c': draft } as React.CSSProperties}>
-      <input type="color" aria-label="Your own colour" value={draft.toLowerCase()} onChange={e => {
-        const c = e.target.value.toUpperCase();
-        setDraft(c);
-        clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => onSave(c), 400);
-      }} />
-    </label>
-  );
-}
-
 function AccountCard({ a }: { a: GoogleAccount }) {
-  const { accounts, tasks, changeAccount, changeCalendar, removeGoogle, pullGoogle, connectGoogle, pulling } = usePlanner();
+  const { accounts, tasks, prefs, changeAccount, changeCalendar, removeGoogle, pullGoogle, connectGoogle, pulling } = usePlanner();
   const [calsOpen, setCalsOpen] = useState(false);
   const [colorsOpen, setColorsOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -41,6 +24,13 @@ function AccountCard({ a }: { a: GoogleAccount }) {
     ? 'Google ended access. Reconnect to keep pulling.'
     : (a.pulledAt ? `Pulled ${fmtAgo(a.pulledAt)}` : 'Not pulled yet') + (a.calendars.length ? ` · ${on} of ${a.calendars.length} calendars` : '');
   const palette = ACCOUNT_COLORS.includes(a.color) ? ACCOUNT_COLORS : [...ACCOUNT_COLORS, a.color];
+  const labels = prefs.labels;
+  const acctLabel = labels.find(l => l.id === a.label);
+  // Picking a label also takes its colour, so the account reads the same whichever way events are coloured.
+  const setLabel = (id: string | null) => {
+    const l = labels.find(x => x.id === id);
+    changeAccount(a.id, l ? { label: l.id, color: l.color } : { label: null });
+  };
 
   return (
     <div className={'acct' + (a.error ? ' err' : '')} style={{ '--c': a.color } as React.CSSProperties}>
@@ -62,6 +52,11 @@ function AccountCard({ a }: { a: GoogleAccount }) {
         </div>
       )}
 
+      {labels.length > 0 && (
+        <Opt label="Label" stack note="Its events take this label and its colour, unless you give a calendar below, or an event itself, another one.">
+          {({ labelId }) => <LabelPicker labelledBy={labelId} value={a.label} onChange={setLabel} />}
+        </Opt>
+      )}
       <Opt label="Show on the calendar" note="Hidden accounts still pull; their events just stay off the calendar."
         toggle={{ checked: a.show, onChange: show => changeAccount(a.id, { show }) }} />
       <Opt label="Google Tasks" note="Pull this account’s Google Tasks into the backlog."
@@ -81,9 +76,19 @@ function AccountCard({ a }: { a: GoogleAccount }) {
                 <span>{c.name}{c.primary ? ' (main)' : ''}</span>
                 <em>{ROLE[c.role] || c.role}</em>
               </label>
+              {labels.length > 0 && (
+                <select className="csel" aria-label={`Label for ${c.name}`} value={labels.some(l => l.id === c.label) ? c.label ?? '' : ''}
+                  onChange={e => changeCalendar(a.id, c.id, { label: e.target.value || null })}>
+                  <option value="">{acctLabel ? `Account’s: ${acctLabel.name}` : 'No label'}</option>
+                  {labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              )}
             </li>
           ))}
-          <li className="note">Off hides that calendar’s events and stops pulling it. Read-only calendars, like holidays, come in as tasks too.</li>
+          <li className="note">
+            Off hides that calendar’s events and stops pulling it. Read-only calendars, like holidays, come in as tasks too.
+            {labels.length > 0 && ' A label here wins over the account’s, say a “Gym” calendar in a work account.'}
+          </li>
         </ul>
       ) : <p className="note">Your calendars show up here after the first pull.</p>)}
 

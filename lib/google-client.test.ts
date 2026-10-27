@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { ACCOUNT_COLORS, MAX_ACCOUNTS, addAccount, mergeCalendars, normalizeAccounts, ownCalendars, sourceIndex, sourceOf, type GoogleAccount } from './google-client';
 
 const conn = (email: string, blob = 'b-' + email) => ({ blob, email, connectedAt: 1 });
-const cal = (id: string, o: Partial<GoogleAccount['calendars'][number]> = {}) => ({ id, name: id, color: null, role: 'owner', primary: false, pull: true, ...o });
+const cal = (id: string, o: Partial<GoogleAccount['calendars'][number]> = {}) => ({ id, name: id, color: null, role: 'owner', primary: false, pull: true, label: null, ...o });
 
 describe('normalizeAccounts', () => {
   it('moves the old single connection into a list', () => {
     const list = normalizeAccounts({ blob: 'x', email: 'me@gmail.com', connectedAt: 5, pulledAt: 9 });
-    expect(list).toEqual([{ id: 'me@gmail.com', blob: 'x', email: 'me@gmail.com', color: ACCOUNT_COLORS[0], connectedAt: 5, pulledAt: 9, show: true, tasks: true, calendars: [], error: null }]);
+    expect(list).toEqual([{ id: 'me@gmail.com', blob: 'x', email: 'me@gmail.com', color: ACCOUNT_COLORS[0], connectedAt: 5, pulledAt: 9, show: true, tasks: true, label: null, calendars: [], error: null }]);
   });
 
   it('reads the new shape, drops junk and duplicates', () => {
@@ -41,13 +41,13 @@ describe('addAccount', () => {
 
 describe('calendars', () => {
   it('keeps your choices and takes Google’s names and colours', () => {
-    const merged = mergeCalendars([cal('hol', { pull: true }), cal('gone')], [
+    const merged = mergeCalendars([cal('hol', { pull: true, label: 'personal' }), cal('gone')], [
       { id: 'hol', name: 'Holidays', color: '#16a765', role: 'reader', primary: false, pulled: false },
       { id: 'me@x', name: 'Me', color: '#9fe1e7', role: 'owner', primary: true, pulled: true },
     ]);
     expect(merged).toEqual([
-      { id: 'me@x', name: 'Me', color: '#9fe1e7', role: 'owner', primary: true, pull: true },
-      { id: 'hol', name: 'Holidays', color: '#16a765', role: 'reader', primary: false, pull: true },
+      { id: 'me@x', name: 'Me', color: '#9fe1e7', role: 'owner', primary: true, pull: true, label: null },
+      { id: 'hol', name: 'Holidays', color: '#16a765', role: 'reader', primary: false, pull: true, label: 'personal' },
     ]);
   });
 

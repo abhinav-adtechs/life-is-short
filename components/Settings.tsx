@@ -13,11 +13,13 @@ import { useMedia, prefersReducedMotion } from './hooks';
 import { BackIcon, CheckIcon, MicIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
+import { LabelsSection } from './Labels';
 import { SharingSection } from './SharingSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
   { id: 'calendar', name: 'Calendar' },
+  { id: 'labels', name: 'Labels' },
   { id: 'google', name: 'Google accounts' },
   { id: 'sharing', name: 'Sharing', needsSupabase: true },
   { id: 'tasks', name: 'Your tasks' },
@@ -72,6 +74,7 @@ export function Settings({ section, onClose }: { section: string; onClose: () =>
         <div className="sp-main">
           <Appearance />
           <CalendarPrefs />
+          <LabelsSection />
           <GoogleSection />
           {hasSupabase() && <SharingSection />}
           <TasksSection />
@@ -113,10 +116,12 @@ function Preview() {
   const colors = accounts.length ? accounts.map(a => a.color) : ACCOUNT_COLORS;
   const tinted = prefs.colorBy === 'account' || prefs.colorBy === 'calendar';
   const hour = Math.min(prefs.hourHeight, 56);
+  // By label: a work review, a personal call and a meeting from a calendar labelled for the third label.
+  const label = (i: number) => (prefs.colorBy === 'label' && prefs.labels.length ? prefs.labels[i % prefs.labels.length].color : null);
   const blocks = [
-    { title: 'Design review', start: 9.5, len: 60, color: tinted ? colors[0] : prefs.colorBy === 'priority' ? 'var(--muted)' : null },
-    { title: 'Call the bank', start: 11, len: 30, color: prefs.colorBy === 'priority' ? 'var(--accent)' : null },
-    { title: 'Team sync', start: 11.75, len: 45, color: tinted ? colors[1 % colors.length] : null },
+    { title: 'Design review', start: 9.5, len: 60, color: label(0) ?? (tinted ? colors[0] : prefs.colorBy === 'priority' ? 'var(--muted)' : null) },
+    { title: 'Call the bank', start: 11, len: 30, color: label(1) ?? (prefs.colorBy === 'priority' ? 'var(--accent)' : null) },
+    { title: 'Team sync', start: 11.75, len: 45, color: label(2) ?? (tinted ? colors[1 % colors.length] : null) },
   ];
   return (
     <div className="preview" aria-hidden="true">
@@ -328,10 +333,11 @@ function CalendarPrefs() {
         )}
       </Opt>
 
-      <Opt label="Colour events by" note="Account and Google calendar colours apply to pulled events; your own tasks stay plain." stack>
+      <Opt label="Colour events by" stack
+        note="Label colours your tasks, and Google events by their calendar’s or account’s label; events without one keep their account’s colour. Account and Calendar colour only pulled events.">
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.colorBy} onChange={colorBy => setPrefs({ colorBy })}
-            options={[{ value: 'account', label: 'Account' }, { value: 'calendar', label: 'Google calendar' }, { value: 'priority', label: 'Priority' }, { value: 'none', label: 'None' }]} />
+            options={[{ value: 'label', label: 'Label' }, { value: 'account', label: 'Account' }, { value: 'calendar', label: 'Calendar', hint: 'Google calendar' }, { value: 'priority', label: 'Priority' }, { value: 'none', label: 'None' }]} />
         )}
       </Opt>
 

@@ -294,18 +294,28 @@ function Nav() {
   );
 }
 
-/** Connected accounts, each a toggle for showing its events. */
+/** What the colours mean when they're your labels, then connected accounts, each a toggle for showing its events. */
 function Legend() {
-  const { accounts, changeAccount } = usePlanner();
-  if (!accounts.length) return null;
+  const { accounts, changeAccount, accountColor, prefs } = usePlanner();
+  const labels = prefs.colorBy === 'label' ? prefs.labels : [];
+  if (!accounts.length && !labels.length) return null;
   return (
-    <div className="legend in" role="group" aria-label="Google accounts on the calendar" style={{ animationDelay: '.1s' }}>
-      {accounts.map(a => (
-        <button key={a.id} type="button" className="lg" aria-pressed={a.show} style={tint(a.color)}
-          title={a.show ? 'Hide its events' : 'Show its events'} onClick={() => changeAccount(a.id, { show: !a.show })}>
-          <i aria-hidden="true" />{a.email || 'Google account'}{a.error ? ' · reconnect' : ''}
-        </button>
-      ))}
+    <div className="legend in" style={{ animationDelay: '.1s' }}>
+      {labels.length > 0 && (
+        <ul className="lkey" aria-label="Label colours">
+          {labels.map(l => <li key={l.id} style={tint(l.color)}><i aria-hidden="true" />{l.name}</li>)}
+        </ul>
+      )}
+      {accounts.length > 0 && (
+        <div className="lgs" role="group" aria-label="Google accounts on the calendar">
+          {accounts.map(a => (
+            <button key={a.id} type="button" className="lg" aria-pressed={a.show} style={tint(accountColor(a))}
+              title={a.show ? 'Hide its events' : 'Show its events'} onClick={() => changeAccount(a.id, { show: !a.show })}>
+              <i aria-hidden="true" />{a.email || 'Google account'}{a.error ? ' · reconnect' : ''}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -362,7 +372,7 @@ export function LaptopCalendar() {
 }
 
 export function PhoneCalendar() {
-  const { day, setDay, view, prefs, setPhoneView, picked, setPicked } = usePlanner();
+  const { day, setDay, view, prefs, setPhoneView, picked, setPicked, labelOf } = usePlanner();
   const { backlog, missed, focus: f } = useLists();
   const nav = useNav();
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
@@ -399,10 +409,13 @@ export function PhoneCalendar() {
       <div className="tray">
         <div className="tl">{trayTasks.length ? `Tap a task, then tap a ${view === 'month' ? 'day' : 'time'}` : 'Backlog is empty'}</div>
         <div className="ts">
-          {trayTasks.map(t => (
-            <button key={t.id} type="button" className="chip" aria-pressed={picked === t.id}
-              onClick={() => setPicked(picked === t.id ? null : t.id)}>{t.title}</button>
-          ))}
+          {trayTasks.map(t => {
+            const label = labelOf(t);
+            return (
+              <button key={t.id} type="button" className="chip" aria-pressed={picked === t.id} style={tint(label?.color ?? null)}
+                onClick={() => setPicked(picked === t.id ? null : t.id)}>{label && <i aria-hidden="true" />}{t.title}</button>
+            );
+          })}
         </div>
       </div>
     </>

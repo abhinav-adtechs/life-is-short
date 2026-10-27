@@ -9,7 +9,7 @@ describe('normalizeImport', () => {
     }]);
     expect(t).toEqual({
       id: 'a1', title: 'Title', raw: 'r', notes: 'n', priority: 1, minutes: 10, start: 1793002500000,
-      due: '2026-10-26', status: 'open', created: 1, order: 2, doneAt: null, externalId: null,
+      due: '2026-10-26', status: 'open', created: 1, order: 2, doneAt: null, externalId: null, label: null,
     });
   });
 

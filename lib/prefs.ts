@@ -1,4 +1,6 @@
 import { contrast, ensureContrast, isHex, mix, onColor, rgba } from './color';
+import { DEFAULT_LABELS, normalizeLabels, type Label } from './labels';
+import type { BacklogBy } from './select';
 
 /** How things look and how the calendar behaves. Stored per device and synced through your settings row. */
 export interface Prefs {
@@ -28,10 +30,15 @@ export interface Prefs {
   dayEnd: number;
   /** Pixels per hour on the time grid. */
   hourHeight: number;
-  colorBy: 'none' | 'account' | 'calendar' | 'priority';
+  colorBy: 'none' | 'label' | 'account' | 'calendar' | 'priority';
   showDone: boolean;
   shadeWeekends: boolean;
   weekNumbers: boolean;
+
+  /** Your labels, in the order the backlog shows them. */
+  labels: Label[];
+  /** How the backlog is split: by label then when it's due, by when it's due, or by priority. */
+  backlogBy: BacklogBy;
 
   /** Last change to a synced field, so the newest device wins. */
   updatedAt: number;
@@ -46,7 +53,8 @@ export const DEFAULT_PREFS: Prefs = {
   mode: 'system', surface: 'neutral', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
   contrast: false, trueBlack: false, motion: 'system', clock: '12',
   calView: null, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
-  colorBy: 'account', showDone: true, shadeWeekends: false, weekNumbers: false,
+  colorBy: 'label', showDone: true, shadeWeekends: false, weekNumbers: false,
+  labels: DEFAULT_LABELS, backlogBy: 'label',
   updatedAt: 0,
 };
 
@@ -168,10 +176,13 @@ export function normalizePrefs(raw: unknown): Prefs {
     fiveDay: oneOf(o.fiveDay, ['workweek', 'rolling'] as const, d.fiveDay),
     dayStart, dayEnd,
     hourHeight: oneOf(o.hourHeight, HOUR_HEIGHTS.map(h => h.value), d.hourHeight),
-    colorBy: oneOf(o.colorBy, ['none', 'account', 'calendar', 'priority'] as const, d.colorBy),
+    // Account was the default before labels. Label colours events the same way until something has a label.
+    colorBy: o.colorBy === 'account' && !Array.isArray(o.labels) ? 'label' : oneOf(o.colorBy, ['none', 'label', 'account', 'calendar', 'priority'] as const, d.colorBy),
     showDone: bool(o.showDone, d.showDone),
     shadeWeekends: bool(o.shadeWeekends, d.shadeWeekends),
     weekNumbers: bool(o.weekNumbers, d.weekNumbers),
+    labels: normalizeLabels(o.labels),
+    backlogBy: oneOf(o.backlogBy, ['label', 'time', 'priority'] as const, d.backlogBy),
     updatedAt: typeof o.updatedAt === 'number' && isFinite(o.updatedAt) ? o.updatedAt : 0,
   };
 }

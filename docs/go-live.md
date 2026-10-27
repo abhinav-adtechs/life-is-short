@@ -6,7 +6,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 
 1. Create a project. Pick a region near you (Mumbai, `ap-south-1`) and a strong database password, and keep that password in your password manager.
 2. SQL editor, in order:
-   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, then `supabase/roles/primary_backup_reader.sql`.
+   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, then `supabase/roles/primary_backup_reader.sql`.
 3. Authentication settings:
    - Sign In / Providers → Email: **Allow new users to sign up: off**. Minimum password length 16.
    - Multi-Factor: TOTP **enabled** (enroll and verify).
@@ -17,7 +17,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 ## 2. Backup database *(account: Supabase, ideally a separate organization)*
 
 1. Create a second project.
-2. SQL editor: `0001` to `0005`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
+2. SQL editor: `0001` to `0006`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
 3. Same auth settings as above. Add the same email as a user, with its **own** password. Nobody signs in to the backup; the user only owns the copied rows.
 
 ## 3. Logins for the backup job *(account: Supabase)*

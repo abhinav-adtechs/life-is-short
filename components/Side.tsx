@@ -4,10 +4,14 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtTime, fmtWhen, longDate } from '@/lib/format';
+import { groupBacklog, type BacklogBy } from '@/lib/select';
 import { endOf, MIN } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { useVoice } from './hooks';
+import { radio, radioKeys } from './Controls';
 import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon, StopIcon } from './icons';
+
+const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
 /** Rows fade up in a stagger on first load; rows added later appear straight away. */
 function useStagger(base: number, step: number) {
@@ -23,16 +27,29 @@ function Due({ t, first }: { t: Task; first?: boolean }) {
   return <>{first ? null : ' · '}<span className={d.hot ? 'hot' : undefined}>{d.text}</span></>;
 }
 
+/** What a backlog row's section doesn't already say: its label outside the label grouping, and Urgent outside the priority one. */
+function useLead(t: Task) {
+  const { prefs, labelOf } = usePlanner();
+  const label = prefs.backlogBy === 'label' ? null : labelOf(t);
+  const urgent = prefs.backlogBy !== 'priority' && t.priority === 1;
+  if (!label && !urgent) return null;
+  return <>{label?.name}{label && urgent ? ' · ' : ''}{urgent && <span className="hot">Urgent</span>}</>;
+}
+
 /* ---------- Now ---------- */
 
 export function NowBlock({ phone }: { phone?: boolean }) {
-  const { store, now, done, schedule, openEditor } = usePlanner();
+  const { store, now, done, schedule, openEditor, labelOf } = usePlanner();
   const { focus: f } = useLists();
   const cur = f.now;
   let meta: React.ReactNode = 'Dump the next thing below.';
   if (!store.loaded) meta = '';
   else if (cur) {
-    meta = <>{PRI[cur.priority]} · {fmtDur(cur.minutes)}{f.live ? ` · until ${fmtTime(endOf(cur))}` : <Due t={cur} />}</>;
+    const label = labelOf(cur);
+    meta = <>
+      {label && <><span className="nlab" style={tint(label.color)}><i aria-hidden="true" />{label.name}</span> · </>}
+      {PRI[cur.priority]} · {fmtDur(cur.minutes)}{f.live ? ` · until ${fmtTime(endOf(cur))}` : <Due t={cur} />}
+    </>;
   }
   let nextWhen = '';
   if (f.next) {
@@ -78,18 +95,20 @@ function Check({ t, small }: { t: Task; small?: boolean }) {
 }
 
 function PhoneRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done'; delay: string }) {
-  const { completing, openEditor, slot, now, picked } = usePlanner();
-  const cls = 'row' + (t.status === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '');
+  const { completing, openEditor, slot, now, picked, labelOf } = usePlanner();
+  const lead = useLead(t);
+  const label = labelOf(t);
+  const cls = 'row' + (t.status === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '') + (label ? ' lab' : '');
   return (
-    <div className={cls} style={{ animationDelay: delay }}>
+    <div className={cls} style={{ animationDelay: delay, ...tint(label?.color) }}>
       <Check t={t} />
       <button type="button" className="main" onClick={() => openEditor(t.id)}>
         <div className="rt"><span>{t.title}</span></div>
-        {(kind !== 'open' || t.due) && (
+        {(kind !== 'open' || t.due || lead) && (
           <div className="rp">
             {kind === 'missed' && t.start != null ? fmtWhen(t.start, now)
               : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
-              : <Due t={t} first />}
+              : <>{lead}<Due t={t} first={!lead} /></>}
           </div>
         )}
       </button>
@@ -101,17 +120,19 @@ function PhoneRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done
 }
 
 function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'done'; delay: string }) {
-  const { completing, openEditor, slot, now, picked, setPicked, drag } = usePlanner();
+  const { completing, openEditor, slot, now, picked, setPicked, drag, labelOf } = usePlanner();
+  const lead = useLead(t);
+  const label = labelOf(t);
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'row' + (t.status === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '')
-    + (lifting ? ' lifting' : '') + (kind === 'missed' ? ' wide' : '');
+    + (lifting ? ' lifting' : '') + (kind === 'missed' ? ' wide' : '') + (label ? ' lab' : '');
   const canDrag = kind !== 'done';
   return (
-    <div className={cls} style={{ animationDelay: delay }}>
+    <div className={cls} style={{ animationDelay: delay, ...tint(label?.color) }}>
       <Check t={t} small />
       <button type="button" className="pick" aria-pressed={picked === t.id}
         aria-label={kind === 'done' ? `Edit: ${t.title}` : undefined}
-        title={kind === 'done' ? undefined : 'Click, then click a time. Double-click to edit.'}
+        title={kind === 'done' ? undefined : 'Drag onto the calendar, or click, then click a time. Double-click to edit.'}
         onPointerDown={canDrag ? e => drag.begin(e, 'row', t.id) : undefined}
         onClick={() => {
           if (drag.ignoreClick()) return;
@@ -124,7 +145,7 @@ function LaptopRow({ t, kind, delay }: { t: Task; kind: 'open' | 'missed' | 'don
         <span className="rp">
           {kind === 'missed' && t.start != null ? <>{fmtWhen(t.start, now)} · {fmtDur(t.minutes)}</>
             : kind === 'done' ? <>Done{t.doneAt ? ` · ${fmtWhen(t.doneAt, now)}` : ''}</>
-            : <>{fmtDur(t.minutes)}<Due t={t} /></>}
+            : <>{lead && <>{lead} · </>}{fmtDur(t.minutes)}<Due t={t} /></>}
         </span>
       </button>
       {kind === 'missed' ? (
@@ -151,24 +172,48 @@ function SortingRow({ text, phone }: { text: string; phone?: boolean }) {
   );
 }
 
+const GROUPINGS: { value: BacklogBy; label: string; hint: string }[] = [
+  { value: 'label', label: 'Label', hint: 'By label, then by when it’s due' },
+  { value: 'time', label: 'Time', hint: 'By when it’s due, labels together' },
+  { value: 'priority', label: 'Priority', hint: 'Urgent, Important, Later' },
+];
+
+/** How the backlog is split up. Follows you to your other devices. */
+function GroupSwitch() {
+  const { prefs, setPrefs } = usePlanner();
+  return (
+    <div className="seg mini" role="radiogroup" aria-label="Group the backlog by" onKeyDown={radioKeys}>
+      {GROUPINGS.map(g => {
+        const on = prefs.backlogBy === g.value;
+        return <button key={g.value} type="button" {...radio(on)} className={on ? 'on' : ''} title={g.hint} onClick={() => setPrefs({ backlogBy: g.value })}>{g.label}</button>;
+      })}
+    </div>
+  );
+}
+
 export function BacklogRows({ phone }: { phone?: boolean }) {
-  const { pending, store } = usePlanner();
+  const { pending, store, prefs, labelOf, now } = usePlanner();
   const { backlog, missed, done } = useLists();
   const [doneOpen, setDoneOpen] = useState(false);
   const stagger = useStagger(phone ? 0.22 : 0.16, phone ? 0.07 : 0.06);
   const Row = phone ? PhoneRow : LaptopRow;
-  // The backlog is ranked by priority already; a heading per priority says so once instead of on every row.
-  const groups = ([1, 2, 3] as const).map(p => ({ p, list: backlog.filter(t => t.priority === p) })).filter(g => g.list.length);
+  // Two axes: a section per label split by when it's due, or the other way round. A heading says each once instead of on every row.
+  const groups = groupBacklog(backlog, prefs.backlogBy, { labels: prefs.labels, labelOf, now, weekStart: prefs.weekStart });
   let i = 0;
   return (
     <>
       {pending.map(p => <SortingRow key={p.id} text={p.text} phone={phone} />)}
       {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
       {missed.map(t => <Row key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
-      {groups.map(({ p, list }) => (
-        <Fragment key={p}>
-          <div className="gh in"><span>{PRI[p]}</span><span>{list.length}</span></div>
-          {list.map(t => <Row key={t.id} t={t} kind="open" delay={stagger(i++)} />)}
+      {groups.map(g => (
+        <Fragment key={g.key || '-'}>
+          <div className="gh in"><span className={'ghn' + (g.color ? ' lab' : '')} style={tint(g.color)}>{g.color && <i aria-hidden="true" />}{g.name}</span><span>{g.count}</span></div>
+          {g.subs.map(s => (
+            <Fragment key={s.key}>
+              {g.subs.length > 1 && <div className="gs">{s.name}</div>}
+              {s.tasks.map(t => <Row key={t.id} t={t} kind="open" delay={stagger(i++)} />)}
+            </Fragment>
+          ))}
         </Fragment>
       ))}
       {store.loaded && !backlog.length && !missed.length && !pending.length && (
@@ -259,7 +304,7 @@ export function PhoneScreen() {
         </header>
         <Inbox />
         <NowBlock phone />
-        <div className="sh in" style={{ animationDelay: '.16s' }}><span>Backlog</span><span>{backlog.length}</span></div>
+        <div className="sh tabs in" style={{ animationDelay: '.16s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
         <BacklogRows phone />
       </div>
       <div className="capwrap in" style={{ animationDelay: '.3s' }}><CaptureBar phone /></div>
@@ -279,7 +324,7 @@ export function LaptopSide() {
       </div>
       <Inbox />
       <NowBlock />
-      <div className="sh in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><em>Drag onto the calendar</em></div>
+      <div className="sh tabs in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
       <div className="rows"><BacklogRows /></div>
       <CaptureBar />
     </aside>

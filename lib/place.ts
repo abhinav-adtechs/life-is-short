@@ -57,6 +57,8 @@ export function cleanItem(it: unknown, raw: string): ParsedItem {
     date: typeof o.date === 'string' ? o.date : null,
     time: typeof o.time === 'string' ? o.time : null,
     deadline: o.deadline === true,
+    // Checked against your labels when the task is made.
+    label: typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, 40) : null,
   };
 }
 

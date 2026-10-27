@@ -24,6 +24,7 @@ export function normalizeImport(data: unknown): Task[] {
       status: t.status === 'done' ? 'done' : 'open',
       created, order: num(t.order) ?? created, doneAt: num(t.doneAt),
       externalId: typeof t.externalId === 'string' ? t.externalId : null,
+      label: typeof t.label === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(t.label) ? t.label : null,
     });
   }
   return out;

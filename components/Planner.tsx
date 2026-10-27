@@ -16,6 +16,7 @@ import {
   MAX_ACCOUNTS, PENDING_KEY, addAccount, disconnectGoogle, fetchGoogleItems, mergeCalendars, normalizeAccounts, ownCalendars,
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
+import { resolveLabel, type Label } from '@/lib/labels';
 import { workHours, type CalView, type Prefs } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
@@ -78,11 +79,15 @@ export interface PlannerApi {
   onCalendar: (t: Task) => boolean;
   /** Block colour from Settings → Calendar → Colour events by, or null for the plain block. */
   colorOf: (t: Task) => string | null;
+  /** The task's label: its own, or for a Google event its calendar's or account's. */
+  labelOf: (t: Task) => Label | null;
+  /** The colour an account's events show in right now. */
+  accountColor: (a: GoogleAccount) => string;
   pullGoogle: (quiet?: boolean, onlyId?: string) => Promise<void>;
   connectGoogle: (hint?: string | null) => Promise<void>;
   removeGoogle: (id: string, removeEvents: boolean) => Promise<void>;
-  changeAccount: (id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => void;
-  changeCalendar: (accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => void;
+  changeAccount: (id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks' | 'label'>>) => void;
+  changeCalendar: (accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull' | 'label'>>) => void;
   pulling: boolean;
   /** Suggestions from people you share with, waiting for you. */
   inbox: number;
@@ -126,6 +131,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   const sources = useMemo(() => sourceIndex(accounts), [accounts]);
   const srcOf = useCallback((t: Task) => sourceOf(sources, t.externalId), [sources]);
+  const labelIndex = useMemo(() => new Map(prefs.labels.map(l => [l.id, l])), [prefs.labels]);
+  const labelOf = useCallback((t: Task) => resolveLabel(t, labelIndex, srcOf(t)), [labelIndex, srcOf]);
   const isOff = useCallback((t: Task) => { const src = srcOf(t); return !!src?.calendar && !src.calendar.pull; }, [srcOf]);
   const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
 
@@ -202,13 +209,13 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const capture = useCallback(async (text: string) => {
     const pid = newId();
     setPending(p => [...p, { id: pid, text }]);
-    const { refs, ctx } = promptContext(liveTasks());
-    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours));
+    const { refs, ctx } = promptContext(liveTasks(), t => labelOf(t)?.id ?? null);
+    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, prefs.labels));
     setPending(p => p.filter(x => x.id !== pid));
-    const out = applyCapture({ text, tasks: liveTasks(), refs, result, via, hours });
+    const out = applyCapture({ text, tasks: liveTasks(), refs, result, via, hours, labels: prefs.labels });
     store.write(out.puts);
     toast(out.summary, out.puts.length ? () => store.restore(out.before) : undefined);
-  }, [store, liveTasks, toast, hours]);
+  }, [store, liveTasks, toast, hours, labelOf, prefs.labels]);
 
   const drag = useDrag({
     lengthOf: id => store.get(id)?.minutes ?? 30,
@@ -380,11 +387,11 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     else toast(`Disconnected ${who}. Its events stay.`);
   }, [store, changeAccounts, toast, undoable]);
 
-  const changeAccount = useCallback((id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => {
+  const changeAccount = useCallback((id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks' | 'label'>>) => {
     changeAccounts(l => l.map(a => (a.id === id ? { ...a, ...patch } : a)));
   }, [changeAccounts]);
 
-  const changeCalendar = useCallback((accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => {
+  const changeCalendar = useCallback((accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull' | 'label'>>) => {
     changeAccounts(l => l.map(a => (a.id === accountId ? { ...a, calendars: a.calendars.map(c => (c.id === calendarId ? { ...c, ...patch } : c)) } : a)));
   }, [changeAccounts]);
 
@@ -440,16 +447,23 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const colorOf = useCallback((t: Task): string | null => {
     if (prefs.colorBy === 'priority') return t.priority === 1 ? 'var(--accent)' : t.priority === 2 ? 'var(--muted)' : null;
     if (prefs.colorBy === 'none') return null;
+    // By label: the task's label, else an unlabelled event keeps its account's colour.
+    const label = prefs.colorBy === 'label' ? labelOf(t) : null;
+    if (label) return label.color;
     const src = srcOf(t);
     if (!src) return null;
     return prefs.colorBy === 'calendar' ? src.calendar?.color ?? src.account.color : src.account.color;
-  }, [prefs.colorBy, srcOf]);
+  }, [prefs.colorBy, srcOf, labelOf]);
+  const accountColor = useCallback((a: GoogleAccount) => {
+    const label = prefs.colorBy === 'label' && a.label ? labelIndex.get(a.label) : undefined;
+    return label?.color ?? a.color;
+  }, [prefs.colorBy, labelIndex]);
 
   const api: PlannerApi = {
     store, tasks: store.tasks, now, wide, repo, email, pending, completing, picked, setPicked, drag,
     day, setDay, view, setView, prefs, setPrefs, hours, phoneView, setPhoneView,
     toast, done, slot, schedule, unslot, place, placeOnDay, capture, openEditor, openSettings, undoable,
-    accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
+    accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };
 
