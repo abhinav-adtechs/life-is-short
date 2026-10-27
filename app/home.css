@@ -1,0 +1,219 @@
+/* The home page (app/page.tsx): the view from a window seat, then what the app does and what it reads from Google,
+   on paper panels on the wall. Everything is scoped to .home and carries its own colours, so a saved theme or font
+   in Settings never changes it; only light or dark does. */
+
+.home{--wall:#1F5E58;--wall-ink:#F3EEE2;--wall-muted:rgba(243,238,226,.8);--wall-line:rgba(243,238,226,.2);--view-ink:#FFFFFF;--view-shade:rgba(10,40,90,.38);--sky:#4F94E4;--paper:#FBF6EA;--paper-ink:#14382F;--paper-muted:#476F5A;--paper-line:rgba(20,56,47,.24);--panel:var(--paper);--panel-ink:var(--paper-ink);--panel-muted:var(--paper-muted);--panel-line:var(--paper-line);--panel-soft:rgba(20,56,47,.06);--red:#D9452F;--red-ink:#B5361F;--blue:#2F6FC4;--cta:#14382F;--cta-ink:#FBF6EA;--lift:inset 0 1px 0 rgba(255,255,255,.4),0 26px 50px -30px rgba(0,0,0,.55);--frame:inset 0 0 0 10px #E9E0CC,inset 0 0 0 12px #C8BB9E,inset 0 18px 30px rgba(10,30,30,.45);--win-r:56px;--sans:'Geist',system-ui,-apple-system,sans-serif;--mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .home{--wall:#0E2826;--wall-ink:#E9E4D8;--wall-muted:rgba(233,228,216,.76);--wall-line:rgba(233,228,216,.16);--panel:#133632;--panel-ink:#ECE6D8;--panel-muted:#A9C3B5;--panel-line:rgba(236,230,216,.18);--panel-soft:rgba(236,230,216,.06);--red:#F07A62;--red-ink:#F07A62;--blue:#8DB8F2;--cta:#FBF6EA;--cta-ink:#14382F;--lift:inset 0 1px 0 rgba(255,255,255,.05),0 26px 50px -30px rgba(0,0,0,.7)}}
+:root[data-theme="dark"] .home{--wall:#0E2826;--wall-ink:#E9E4D8;--wall-muted:rgba(233,228,216,.76);--wall-line:rgba(233,228,216,.16);--panel:#133632;--panel-ink:#ECE6D8;--panel-muted:#A9C3B5;--panel-line:rgba(236,230,216,.18);--panel-soft:rgba(236,230,216,.06);--red:#F07A62;--red-ink:#F07A62;--blue:#8DB8F2;--cta:#FBF6EA;--cta-ink:#14382F;--lift:inset 0 1px 0 rgba(255,255,255,.05),0 26px 50px -30px rgba(0,0,0,.7)}
+
+/* The wall goes all the way to the edges, overscroll included. */
+:root:has(.home),:root:has(.home) body{background:#1F5E58}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]):has(.home),:root:not([data-theme="light"]):has(.home) body{background:#0E2826}}
+:root[data-theme="dark"]:has(.home),:root[data-theme="dark"]:has(.home) body{background:#0E2826}
+.home{min-height:100dvh;padding:18px 18px max(18px,env(safe-area-inset-bottom,0px));background:linear-gradient(170deg,var(--wall),color-mix(in srgb,var(--wall) 82%,#000));color:var(--wall-ink);font:400 16px/1.55 var(--sans);letter-spacing:-.005em}
+.home a{color:inherit}
+.home :focus-visible{outline:2px solid currentColor;outline-offset:3px}
+.home .mark rect,.home .mark path{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.home .mark circle{fill:currentColor}
+.home code{font:500 .78em/1 var(--mono);letter-spacing:0}
+
+/* ---------- the window ---------- */
+.home .hero{position:relative;isolation:isolate;min-height:min(calc(100svh - 36px),940px);display:flex;flex-direction:column;color:var(--view-ink)}
+/* The art keeps its 16:10 shape and covers the window; --across and --band pick which part a narrow or short window shows.
+   Only transforms and opacity animate, so each layer is drawn once. */
+.home .view{--across:.5;--band:.56;position:absolute;inset:0;z-index:-1;overflow:hidden;container-type:size;border-radius:var(--win-r);background:var(--sky);pointer-events:none;-webkit-user-select:none;user-select:none}
+.home .view::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:var(--frame)}
+.home .stage{position:absolute;width:max(100cqw,160cqh);height:max(62.5cqw,100cqh);left:calc((100cqw - max(100cqw,160cqh))*var(--across));top:calc((100cqh - max(62.5cqw,100cqh))*var(--band))}
+.home .layer{position:absolute;inset:0;background:no-repeat 0 0/100% 100%}
+.home .layer.sky{background-image:url("/scenes/meadow/sky.svg")}
+.home .layer.glow{background-image:url("/scenes/meadow/glow.svg");transform-origin:100% -7%;animation:home-breathe 14s ease-in-out infinite}
+/* The clouds' art runs a tenth past each side, so they can drift without showing an edge. */
+.home .layer.clouds{left:-10%;right:-10%;background-image:url("/scenes/meadow/clouds.svg");animation:home-drift 240s ease-in-out infinite alternate}
+.home .layer.land{background-image:url("/scenes/meadow/land.svg")}
+/* The near fields are two copies side by side; sliding one width along loops them. */
+.home .layer.near{right:auto;width:200%;background-image:url("/scenes/meadow/near.svg");animation:home-pass 7s linear infinite}
+.home .layer.wires{background-image:url("/scenes/meadow/wires.svg");animation:home-dip 3.4s ease-in-out infinite}
+.home .flocks,.home .motes,.home .shade,.home .glass{position:absolute;inset:0}
+.home .flocks{color:#16233F}
+/* Still (reduced motion), each flock rests where its transform puts it. */
+.home .flock{position:absolute;left:0;width:60px;height:28px;animation:home-fly 64s linear infinite}
+.home .flock.f1{top:12%;transform:translateX(62cqw);animation-delay:-14s}
+.home .flock.f2{top:30%;width:28px;transform:translateX(22cqw) scaleX(-1);animation-name:home-fly-r;animation-duration:88s;animation-delay:-50s}
+.home .flock.f3{top:20%;transform:translateX(84cqw);animation-duration:120s;animation-delay:-96s}
+.home .flock i{position:absolute;display:block;animation:home-bird-bob 3.2s ease-in-out infinite}
+.home .flock svg{display:block;width:100%;height:auto;overflow:visible}
+.home .flock path{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transform-box:fill-box;transform-origin:50% 90%;animation:home-flap 7s ease-in-out infinite}
+.home .motes i{position:absolute;display:block;border-radius:50%;background:rgba(255,255,255,.9);box-shadow:0 0 6px rgba(255,255,255,.9);opacity:.55;animation:home-mote 40s linear infinite}
+/* A soft shade behind the words, so white text reads on the sky. */
+.home .shade{background:radial-gradient(76% 66% at 22% 38%,color-mix(in srgb,var(--view-shade) 92%,transparent),transparent 80%),linear-gradient(180deg,color-mix(in srgb,var(--view-shade) 70%,transparent),transparent 26%)}
+.home .glass{background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.08) 38%,transparent 44%,transparent 60%,rgba(255,255,255,.05) 64%,transparent 68%)}
+@keyframes home-breathe{0%,100%{opacity:.8;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@keyframes home-drift{from{transform:translateX(-3%)}to{transform:translateX(3%)}}
+@keyframes home-pass{to{transform:translateX(-50%)}}
+@keyframes home-dip{0%,100%{transform:translateY(0)}50%{transform:translateY(2.6%)}}
+@keyframes home-fly{0%{transform:translate(-14cqw,0)}55%{transform:translate(112cqw,-7cqh)}100%{transform:translate(112cqw,-7cqh)}}
+@keyframes home-fly-r{0%{transform:translate(112cqw,0) scaleX(-1)}50%{transform:translate(-14cqw,-4cqh) scaleX(-1)}100%{transform:translate(-14cqw,-4cqh) scaleX(-1)}}
+@keyframes home-bird-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+@keyframes home-flap{0%,40%,100%{transform:scaleY(1)}5%,15%,25%{transform:scaleY(-.45)}10%,20%,30%{transform:scaleY(1)}}
+@keyframes home-mote{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.6}100%{transform:translate(4cqw,-34cqh);opacity:0}}
+
+/* ---------- on the view: the name, the nav, the words and the ticket ---------- */
+.home .top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:34px 44px 0;text-shadow:0 1px 14px var(--view-shade)}
+.home .brand{display:inline-flex;align-items:center;gap:10px;font:600 18px/1 var(--sans);letter-spacing:-.015em;text-decoration:none;white-space:nowrap}
+.home .top nav{display:flex;align-items:center;gap:6px}
+.home .top nav a{padding:10px 12px;border-radius:999px;font:500 14px/1 var(--sans);text-decoration:none;transition:background .2s}
+.home .top nav a:hover{background:rgba(255,255,255,.16)}
+.home .top nav a.pill{margin-left:6px;padding:11px 18px;background:rgba(255,255,255,.14);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.75);text-shadow:none}
+.home .top nav a.pill:hover{background:rgba(255,255,255,.26)}
+.home .lede{flex:1;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,390px);align-items:start;gap:56px;padding:clamp(40px,9vh,104px) 72px 80px}
+.home .lede>.tk{align-self:end}
+.home .copy{text-shadow:0 1px 18px var(--view-shade)}
+.home .eyebrow{margin:0 0 18px;color:inherit;font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.home h1{margin:0;font:600 clamp(48px,6.2vw,96px)/.95 var(--sans);letter-spacing:-.05em}
+.home .lead{margin:22px 0 0;max-width:32em;font:400 19px/1.5 var(--sans);text-wrap:pretty}
+.home .ctas{margin-top:32px;display:flex;flex-wrap:wrap;gap:12px}
+.home .cta{height:50px;padding:0 22px;display:inline-flex;align-items:center;gap:10px;border-radius:999px;font:600 15.5px/1 var(--sans);text-decoration:none;text-shadow:none;transition:transform .2s cubic-bezier(.3,1.5,.5,1),background .2s}
+.home .cta:active{transform:scale(.97)}
+.home .cta.pri{background:var(--paper);color:var(--paper-ink)}
+.home .cta.pri:hover{background:#FFFFFF}
+.home .cta.alt{background:rgba(10,40,60,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.75);color:var(--view-ink)}
+.home .cta.alt:hover{background:rgba(255,255,255,.24)}
+
+/* The ticket is printed paper whatever the mode: it carries its own colours. Notches at the tear line, and a stamp. */
+.home .tk{filter:drop-shadow(0 26px 30px rgba(0,0,0,.32));transform:rotate(1.4deg)}
+.home .ticket{--ink:var(--paper-ink);--muted:var(--paper-muted);--line:var(--paper-line);--red:#D9452F;position:relative;margin:0;padding:20px 26px 24px;border-radius:14px;background:var(--paper);color:var(--ink);-webkit-mask:radial-gradient(circle at 0 47px,transparent 10px,#000 10.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 47px,transparent 10px,#000 10.5px) right/51% 100% no-repeat;mask:radial-gradient(circle at 0 47px,transparent 10px,#000 10.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 47px,transparent 10px,#000 10.5px) right/51% 100% no-repeat}
+.home .thead{display:flex;justify-content:space-between;gap:12px;font:500 11.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.home .perf{margin:16px -26px 14px;border-top:1.5px dashed var(--line)}
+.home .ticket p{margin:0}
+.home .ticket .label{font:500 11.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.home .ticket .ttl{margin-top:10px;font:600 30px/1.08 var(--sans);letter-spacing:-.03em}
+.home .ticket .meta{margin-top:10px;display:flex;align-items:center;gap:8px;font:500 14px/1 var(--sans);color:var(--muted)}
+.home .ticket .dot{width:7px;height:7px;border-radius:50%;background:var(--red)}
+.home .ticket .acts{margin-top:20px;display:flex;gap:8px}
+.home .tb{height:40px;padding:0 16px;display:inline-flex;align-items:center;gap:7px;border-radius:999px;background:rgba(20,56,47,.08);font:600 14px/1 var(--sans)}
+.home .tb.pri{background:var(--paper-ink);color:var(--paper)}
+.home .ticket .next{margin-top:8px;display:flex;justify-content:space-between;gap:12px;font:500 16px/1.3 var(--sans)}
+.home .ticket .next span{font:500 12px/1.6 var(--mono);color:var(--muted)}
+.home .stamp{position:absolute;right:20px;top:64px;width:64px;height:64px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--red);color:var(--red);display:grid;place-items:center;transform:rotate(-14deg);font:500 9.5px/1.25 var(--mono);letter-spacing:.1em;text-transform:uppercase;text-align:center;opacity:.85}
+
+/* ---------- on the wall ---------- */
+.home main{max-width:1160px;margin:0 auto;padding:0 22px}
+.home .part{padding-top:112px}
+.home .kicker{margin:0;font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--wall-muted)}
+.home h2{margin:16px 0 0;max-width:16em;font:600 clamp(34px,4.6vw,56px)/1.02 var(--sans);letter-spacing:-.04em;text-wrap:balance}
+.home .sub{margin:20px 0 0;max-width:38em;font:400 18px/1.6 var(--sans);color:var(--wall-muted);text-wrap:pretty}
+.home .sub a{color:var(--wall-ink);text-underline-offset:3px}
+
+/* Paper panels */
+.home .card,.home .panel{background:var(--panel);color:var(--panel-ink);border-radius:22px;box-shadow:var(--lift)}
+.home .steps{margin:44px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.home .card{display:flex;flex-direction:column;padding:26px 26px 22px}
+.home .card h3{margin:14px 0 0;font:600 23px/1.15 var(--sans);letter-spacing:-.025em}
+.home .card>p:not(.num){margin:10px 0 24px;color:var(--panel-muted);font-size:15.5px}
+.home .card>p b{color:var(--panel-ink);font-weight:600}
+.home .num{margin:0;font:500 11.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--red-ink)}
+
+/* Little drawings of the app, one per step. */
+.home .ill{margin:auto 0 0;padding:16px;border-radius:16px;background:var(--panel-soft);box-shadow:inset 0 0 0 1px var(--panel-line);font:500 13px/1.3 var(--sans)}
+.home .ill.dump .bar{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border-radius:999px;background:var(--panel);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 1px var(--panel-line)}
+.home .ill.dump .bar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--panel-muted)}
+.home .ill.dump .bar b{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--red);color:#FFFFFF}
+.home .chips{margin-top:12px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.home .chips span{display:inline-flex;align-items:center;gap:8px;padding:7px 12px 7px 8px;border-radius:999px;background:var(--panel);box-shadow:inset 0 0 0 1px var(--panel-line)}
+.home .chips em,.home .ill.do em{width:18px;height:18px;flex:none;border-radius:50%;display:grid;place-items:center;font:600 13px/1 var(--sans);font-style:normal;background:var(--panel-soft);box-shadow:inset 0 0 0 1px var(--panel-line)}
+.home .chips .done{color:var(--panel-muted)}
+.home .chips .done em,.home .ill.do .done em{background:var(--panel-ink);color:var(--panel);box-shadow:none}
+.home .ill.slot{position:relative;height:184px;padding:0 0 0 30px}
+.home .ill.slot .hr{height:25%;border-top:1px solid var(--panel-line);position:relative}
+.home .ill.slot .hr:first-child{border-top:0}
+.home .ill.slot .hr span{position:absolute;left:-22px;top:-7px;font:500 11px/1 var(--mono);color:var(--panel-muted)}
+.home .ill.slot .hr:first-child span{top:6px}
+.home .ev{position:absolute;left:40px;right:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;border-radius:8px;font:600 12.5px/1 var(--sans);overflow:hidden;white-space:nowrap}
+.home .ev small{font:500 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;opacity:.8}
+.home .ev.g{background:color-mix(in srgb,var(--blue) 16%,transparent);box-shadow:inset 3px 0 0 var(--blue);color:var(--blue)}
+.home .ev.t{background:var(--panel-ink);color:var(--panel)}
+.home .ev.free{justify-content:center;box-shadow:inset 0 0 0 1.5px var(--panel-line);border:0;background:repeating-linear-gradient(135deg,transparent 0 6px,var(--panel-soft) 6px 12px);color:var(--panel-muted);font-weight:500}
+.home .ill.do{list-style:none;display:flex;flex-direction:column;gap:6px;padding:12px}
+.home .ill.do li{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px}
+.home .ill.do li span{margin-left:auto;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.home .ill.do .done{color:var(--panel-muted)}
+.home .ill.do .now{background:var(--panel);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 1px var(--panel-line);font-weight:600}
+.home .ill.do .now em{background:var(--red);box-shadow:none}
+.home .ill.do .now span{color:var(--red-ink)}
+.home .ill.do .missed span{padding:6px 10px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--panel-line)}
+
+/* Google access */
+.home .panel{--muted:var(--panel-muted);--line:var(--panel-line);margin-top:44px;padding:22px 34px 30px}
+.home .panel>.perf{margin:16px -34px 26px}
+.home .cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:48px}
+.home .panel h3{margin:0 0 6px;font:600 20px/1.2 var(--sans);letter-spacing:-.02em}
+.home .scopes,.home .rules{margin:0;padding:0;list-style:none}
+.home .scopes li{padding:16px 0;border-bottom:1px solid var(--panel-line)}
+.home .scopes li:last-child{border-bottom:0}
+.home .scopes p{margin:0;color:var(--panel-muted);font-size:15.5px}
+.home .scopes .scope{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:6px;color:var(--panel-ink);font:600 16px/1.3 var(--sans)}
+.home .scopes .scope code{padding:5px 8px;border-radius:6px;background:var(--panel-soft);box-shadow:inset 0 0 0 1px var(--panel-line);color:var(--panel-muted);font-weight:500}
+.home .scopes .at{font:600 15px/1 var(--sans);width:16px;text-align:center}
+.home .rules{margin-bottom:26px}
+.home .rules li{position:relative;padding:14px 0 14px 30px;border-bottom:1px solid var(--panel-line);font-size:15.5px}
+.home .rules li:last-child{border-bottom:0}
+.home .rules li::before{content:"";position:absolute;left:2px;top:19px;width:14px;height:14px;border-radius:50%}
+.home .rules.never li::before{box-shadow:inset 0 0 0 1.5px var(--red-ink);background:linear-gradient(45deg,transparent 45%,var(--red-ink) 45% 55%,transparent 55%)}
+.home .rules.kept li::before{box-shadow:inset 0 0 0 1.5px var(--panel-ink);background:radial-gradient(circle,var(--panel-ink) 0 3px,transparent 3.5px)}
+.home .rules a{text-underline-offset:3px;overflow-wrap:anywhere}
+.home .fine{margin:0;padding-top:16px;border-top:1px solid var(--panel-line);font-size:14px;color:var(--panel-muted)}
+.home .panel>.cta.pri{background:var(--cta);color:var(--cta-ink)}
+.home .panel>.cta.pri:hover{background:color-mix(in srgb,var(--cta) 88%,var(--panel))}
+
+/* Private by design: straight on the wall. */
+.home .tiles{margin:44px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-top:1px solid var(--wall-line)}
+.home .tiles li{padding:22px 24px 4px 0}
+.home .tiles li+li{padding-left:24px;border-left:1px solid var(--wall-line)}
+.home .tiles .num{color:var(--wall-ink)}
+.home .tiles p:not(.num){margin:12px 0 0;color:var(--wall-muted);font-size:15.5px}
+
+/* ---------- the foot ---------- */
+.home .foot{max-width:1160px;margin:128px auto 0;padding:40px 22px 28px;border-top:1px solid var(--wall-line)}
+.home .word{margin:0;display:flex;align-items:center;gap:16px;font:600 clamp(40px,6vw,72px)/1 var(--sans);letter-spacing:-.05em}
+.home .foot .tag{margin:12px 0 0;font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--wall-muted)}
+.home .foot nav{margin-top:32px;display:flex;flex-wrap:wrap;gap:8px 28px}
+.home .foot nav a{font:500 15px/1.4 var(--sans);color:var(--wall-muted);text-decoration:none}
+.home .foot nav a:hover{color:var(--wall-ink);text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- smaller screens ---------- */
+@media (max-width:980px){
+  .home .lede{grid-template-columns:minmax(0,1fr);gap:40px;padding:48px 44px 64px}
+  .home .lede>.tk{align-self:start;max-width:390px}
+  .home .steps{grid-template-columns:minmax(0,1fr)}
+  .home .cols{grid-template-columns:minmax(0,1fr);gap:20px}
+  .home .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .home .tiles li:nth-child(3){padding-left:0;border-left:0}
+  .home .tiles li:nth-child(n+3){border-top:1px solid var(--wall-line);margin-top:18px}
+}
+@media (max-width:640px){
+  .home{padding:10px 10px max(10px,env(safe-area-inset-bottom,0px))}
+  .home .view{--win-r:30px;--across:.62}
+  .home .view::after{box-shadow:inset 0 0 0 7px #E9E0CC,inset 0 0 0 8.5px #C8BB9E,inset 0 14px 24px rgba(10,30,30,.45)}
+  .home .shade{background:linear-gradient(180deg,color-mix(in srgb,var(--view-shade) 92%,transparent),color-mix(in srgb,var(--view-shade) 55%,transparent) 55%,transparent 80%)}
+  .home .hero{min-height:0}
+  .home .top{padding:22px 22px 0}
+  .home .top nav a.hide-sm{display:none}
+  .home .lede{gap:32px;padding:36px 24px 40px}
+  .home .lead{font-size:17px}
+  .home .cta{height:48px;padding:0 20px}
+  .home .cta.alt{display:none}
+  .home .tk{transform:rotate(.8deg)}
+  .home .ticket{padding:18px 22px 22px}
+  .home .ticket .perf{margin-left:-22px;margin-right:-22px}
+  .home .stamp{right:14px;top:150px;width:58px;height:58px}
+  .home main{padding:0 6px}
+  .home .part{padding-top:80px}
+  .home .sub{font-size:17px}
+  .home .card{padding:22px 20px 20px}
+  .home .panel{padding:20px 20px 24px}
+  .home .panel>.perf{margin-left:-20px;margin-right:-20px}
+  .home .tiles{grid-template-columns:minmax(0,1fr)}
+  .home .tiles li,.home .tiles li+li{padding:20px 0 4px;border-left:0}
+  .home .tiles li+li{border-top:1px solid var(--wall-line);margin-top:18px}
+  .home .foot{margin-top:96px;padding:32px 6px 20px}
+}

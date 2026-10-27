@@ -9,7 +9,7 @@ The full ordered checklist for going live, including the backup and GitHub secre
 ```sh
 npm install
 cp .env.example .env.local   # fill in what you have; everything is optional locally
-npm run dev                  # http://localhost:3000
+npm run dev                  # http://localhost:3000 is the home page; the planner is at /app
 npm test                     # unit tests for the parser, slotting, capture and Google merge
 ```
 
@@ -44,6 +44,7 @@ Create a key at aistudio.google.com. The free tier is enough. The route tries `g
 
 1. In Google Cloud console, create a project and enable the **Google Calendar API** and **Google Tasks API**.
 2. Set up the OAuth consent screen (External) and add your account as a test user. Then **publish** it ("In production"). Apps left in Testing get refresh tokens that expire after 7 days. A personal app in production without Google verification shows a "Google hasn't verified this app" screen once; continue past it.
+   - Branding: app name **Life is short**, exactly as the home page writes it; app home page `https://<your-app>/`; privacy policy `https://<your-app>/privacy`. Both pages load without signing in. Verification needs a domain you own: see [go-live.md → Google verification](go-live.md#google-verification-optional).
 3. Credentials → Create OAuth client ID → **Web application**. Add the authorized redirect URIs `https://<your-app>.vercel.app/google/callback` and `http://localhost:3000/google/callback`.
 4. In the app: **Settings → Google accounts → Connect Google**. Google's account chooser opens; pick an account and allow access. Use **Add another account** for a second or third (personal and work, say). Every account's events land on one calendar, each in its own colour.
    - It pulls today through the next month from each account's own calendars, plus its Google Tasks, then again every 30 minutes while the app is open. Changes in Google update the title and time here; priority, notes and done state stay yours.
@@ -89,12 +90,13 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 | `GEMINI_API_KEY` | Gemini key |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
 | `SHARE_SERVER_KEY`, plus `SHARE_SMTP_USER` and `SHARE_SMTP_PASS` (Gmail) or `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (Resend) | Sharing, from step 5 (optional) |
+| `GOOGLE_SITE_VERIFICATION` | Search Console's HTML-tag token, only while proving you own the site for Google (optional) |
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
 
 ## Settings reference
 
-Open **Settings** from the `···` button. It's a full page (also reachable at `/#settings`, or `/#settings/calendar` and so on), and changes apply as you make them.
+Open **Settings** from the `···` button. It's a full page (also reachable at `/app#settings`, or `/app#settings/calendar` and so on), and changes apply as you make them.
 
 - **Appearance**: light, dark or system (per device); five themes (Neutral, Paper, Slate, Sage, Lilac), each with a light and a dark side; ten accent colours or your own (nudged until it reads against the background); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; corner style; list density; increased contrast; pure black for OLED screens; motion (system, on, reduced); 12- or 24-hour clock. A live preview shows the result.
 - **Calendar**: Day, 5 days (Monday to Friday, or the next 5 days), 7 days or Month; week start (Monday, Sunday or Saturday); your day (the hours the calendar shows and where tasks get slotted, also given to the AI); hour height; colour events by account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers.
@@ -105,6 +107,7 @@ Light/dark and the calendar view stay on each device. Everything else is saved t
 
 ## How it fits together
 
+- `app/page.tsx` and `app/home.css`: the public home page at `/`. It says what the app does, what it reads from Google and why, and links the privacy policy (`app/privacy`), all without signing in, as Google's OAuth review requires. The planner is `app/app/page.tsx`, at `/app`.
 - `lib/`: pure, tested logic ported from the prototype (`localParse`, `cleanItem`, `placeItem`, `findSlot`, `buildPrompt`, `applyCapture`), plus selectors for Now/Next, backlog, missed and done.
 - `lib/repo/`: the storage interface, with a localStorage adapter and a Supabase adapter (RLS on `user_id`, realtime for cross-device sync).
 - `app/api/sort`: Gemini with a JSON schema. A missing key or a failure tells the client to use the keyword parser.

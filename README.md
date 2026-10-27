@@ -177,7 +177,7 @@ Life is short is built to run as **your own private copy**: one person, your own
 
 ```sh
 npm install
-npm run dev        # http://localhost:3000, with tasks stored in your browser
+npm run dev        # http://localhost:3000/app, with tasks stored in your browser
 ```
 
 That's enough to try it. For your phone and laptop, add Supabase (sync and sign-in), a free Gemini key (AI sorting) and, if you like, Google:
