@@ -40,7 +40,7 @@ A second Supabase project, in another region, holds a copy of your tasks. It has
 ### Set up the backup
 
 1. Create a second Supabase project, ideally under a separate Supabase organization.
-2. SQL editor: run `supabase/migrations/0001` to `0005`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
+2. SQL editor: run `supabase/migrations/0001` to `0006`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
 3. On each project set the job login's password (SQL editor, a long random value, never committed):
    `alter role backup_reader with password '…';` on the primary, and `alter role backup_writer with password '…';` on the backup.
 4. GitHub → Settings → Secrets and variables → Actions, add:

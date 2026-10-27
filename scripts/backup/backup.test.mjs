@@ -23,7 +23,7 @@ async function project(which) {
     const t = (id, title, extra = '') => `('${owner}', '${id}', '${title}', 2, 30, 1793001600000, 1793001600000, 1793001600000 ${extra})`;
     await db.exec(`insert into public.tasks (user_id, id, title, priority, minutes, created, sort_order, updated_at) values
       ${t('a1', 'Alpha')}, ${t('b2', 'Beta')}, ${t('c3', "It''s quoted")}`);
-    await db.exec(`update public.tasks set due = '2026-10-30', notes = 'n' where id = 'b2'`);
+    await db.exec(`update public.tasks set due = '2026-10-30', notes = 'n', label = 'work' where id = 'b2'`);
     await db.exec(`insert into public.settings (user_id, key, value) values ('${owner}', 'google', '{"blob":"x","email":null}')`);
   }
   return db;
@@ -219,6 +219,11 @@ describe('backup job end to end', () => {
     const rows = (await backup.query(`select user_id, count(*)::int n from public.tasks group by 1`)).rows;
     expect(rows).toEqual([{ user_id: B_OWNER, n: 3 }]);
     expect(compareData(await snap(primary), await snap(backup))).toEqual([]);
+    expect((await backup.query(`select label from public.tasks where id = 'b2'`)).rows[0].label).toBe('work');
+    // A label that drifts is a difference too.
+    await backup.exec(`update public.tasks set label = 'personal' where id = 'b2'`);
+    expect(compareData(await snap(primary), await snap(backup))).toEqual([expect.stringMatching(/tasks differ/)]);
+    await backup.exec(`update public.tasks set label = 'work' where id = 'b2'`);
     expect((await backup.query('select count(*)::int n from audit.sync_log')).rows[0].n).toBe(1);
     // Public CI logs never carry task text or emails.
     expect(r.out).not.toMatch(/Alpha|Beta|quoted|example\.com/i);

@@ -58,11 +58,11 @@ async function copy(from, fromOwner, to, toOwner, log) {
       const chunk = tasks.slice(i, i + 200);
       const vals = [];
       const rows = chunk.map((t, j) => {
-        vals.push(toOwner, t.id, t.title, t.raw, t.notes, t.priority, t.minutes, t.start, t.due, t.status, t.created, t.sort_order, t.done_at, t.external_id, t.updated_at);
-        const b = j * 15;
-        return `(${Array.from({ length: 15 }, (_, k) => `$${b + k + 1}`).join(',')})`;
+        vals.push(toOwner, t.id, t.title, t.raw, t.notes, t.priority, t.minutes, t.start, t.due, t.status, t.created, t.sort_order, t.done_at, t.external_id, t.updated_at, t.label);
+        const b = j * 16;
+        return `(${Array.from({ length: 16 }, (_, k) => `$${b + k + 1}`).join(',')})`;
       });
-      await to.query(`insert into public.tasks (user_id, id, title, raw, notes, priority, minutes, start, due, status, created, sort_order, done_at, external_id, updated_at) values ${rows.join(',')}`, vals);
+      await to.query(`insert into public.tasks (user_id, id, title, raw, notes, priority, minutes, start, due, status, created, sort_order, done_at, external_id, updated_at, label) values ${rows.join(',')}`, vals);
     }
     for (const s of settings) {
       await to.query('insert into public.settings (user_id, key, value, updated_at) values ($1, $2, $3::jsonb, $4)', [toOwner, s.key, JSON.stringify(s.value), s.updated_at]);

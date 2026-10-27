@@ -1,8 +1,8 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { Task } from '@/lib/model';
-import { newId } from '@/lib/model';
+import type { Priority, Task } from '@/lib/model';
+import { PRI, newId } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
 import { applyCapture, promptContext } from '@/lib/capture';
 import { buildPrompt } from '@/lib/prompt';
@@ -16,10 +16,12 @@ import {
   MAX_ACCOUNTS, PENDING_KEY, addAccount, disconnectGoogle, fetchGoogleItems, mergeCalendars, normalizeAccounts, ownCalendars,
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
+import { inLens as lensHas, lensIds, resolveLabel, type Label, type Lens } from '@/lib/labels';
+import { DAYS_FOR_VIEW, SNAP, VIEW_FOR_DAYS, calendarWidth, daysFor, type Days, type Split } from '@/lib/layout';
 import { workHours, type CalView, type Prefs } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
-import { prefersReducedMotion, useMedia, useNow } from './hooks';
+import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useDrag, type DragKind } from './drag';
@@ -28,6 +30,7 @@ import { Editor } from './Editor';
 import { Settings } from './Settings';
 import { PhoneScreen, LaptopSide } from './Side';
 import { LaptopCalendar, PhoneCalendar } from './Calendar';
+import { Divider } from './Split';
 
 export interface Pending { id: string; text: string }
 
@@ -46,9 +49,25 @@ export interface PlannerApi {
   /** Day the calendar is showing. */
   day: Date;
   setDay: (d: Date) => void;
-  /** Calendar view on this device. */
+  /** Calendar view on this device. On a laptop the split decides it, except for Month. */
   view: CalView;
+  /** On a laptop, picking a number of days also pins the split to fit them. */
   setView: (v: CalView) => void;
+  /** The laptop split: both widths, the days that fit, whether Auto sizes it, and whether the divider is being dragged. */
+  split: { calW: number; matrixW: number; days: Days; auto: boolean; dragging: boolean };
+  setSplit: (s: Split) => void;
+  /** The width while the divider is dragged, or null when it's let go. */
+  dragSplit: (w: number | null) => void;
+  /** What the backlog and calendar focus on. */
+  lens: Lens;
+  setLens: (l: Lens) => void;
+  /** In the lens: the backlog keeps it and the calendar shows it at full strength. */
+  inLens: (t: Task) => boolean;
+  /** A label spotlit for now from the matrix: everything else fades. */
+  focusLabel: string | null;
+  setFocusLabel: (id: string | null) => void;
+  /** Faded on the calendar: outside the lens, or not the spotlit label. */
+  faded: (t: Task) => boolean;
   prefs: Prefs;
   setPrefs: (patch: Partial<Prefs>) => void;
   /** Your day, for slotting. */
@@ -78,11 +97,15 @@ export interface PlannerApi {
   onCalendar: (t: Task) => boolean;
   /** Block colour from Settings → Calendar → Colour events by, or null for the plain block. */
   colorOf: (t: Task) => string | null;
+  /** The task's label: its own, or for a Google event its calendar's or account's. */
+  labelOf: (t: Task) => Label | null;
+  /** The colour an account's events show in right now. */
+  accountColor: (a: GoogleAccount) => string;
   pullGoogle: (quiet?: boolean, onlyId?: string) => Promise<void>;
   connectGoogle: (hint?: string | null) => Promise<void>;
   removeGoogle: (id: string, removeEvents: boolean) => Promise<void>;
-  changeAccount: (id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => void;
-  changeCalendar: (accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => void;
+  changeAccount: (id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks' | 'label'>>) => void;
+  changeCalendar: (accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull' | 'label'>>) => void;
   pulling: boolean;
   /** Suggestions from people you share with, waiting for you. */
   inbox: number;
@@ -121,11 +144,38 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const pullingRef = useRef(false);
   const { prefs, update: setPrefs } = usePrefs(repo);
   const hours = useMemo(() => workHours(prefs), [prefs]);
-  const view: CalView = prefs.calView ?? (wide ? 'week' : 'day');
-  const setView = useCallback((v: CalView) => setPrefs({ calView: v }), [setPrefs]);
+
+  /* ---------- the laptop split: one width, set by Auto, the day picker or the divider ---------- */
+
+  const width = useWidth();
+  const [splitDrag, setSplitDrag] = useState<number | null>(null);
+  const calW = calendarWidth(width, splitDrag != null ? { mode: 'pinned', cal: splitDrag } : prefs.split, prefs.lens.pri);
+  const days = daysFor(calW);
+  const split = useMemo(() => ({ calW, matrixW: width - calW, days, auto: prefs.split.mode === 'auto' && splitDrag == null, dragging: splitDrag != null }),
+    [calW, width, days, prefs.split.mode, splitDrag]);
+  // Stored already kept inside this screen, so arrow keys and drags start from what you see.
+  const setSplit = useCallback((s: Split) => setPrefs({ split: { mode: s.mode, cal: calendarWidth(width, { mode: 'pinned', cal: s.cal }, 3) } }), [setPrefs, width]);
+  const view: CalView = wide ? (prefs.calView === 'month' ? 'month' : VIEW_FOR_DAYS[days]) : prefs.calView ?? 'day';
+  const setView = useCallback((v: CalView) => {
+    if (!wide) { setPrefs({ calView: v }); return; }
+    const d = DAYS_FOR_VIEW[v];
+    setPrefs({ calView: v, split: { mode: 'pinned', cal: d ? SNAP[d] : Math.max(calW, SNAP[7]) } });
+  }, [wide, setPrefs, calW]);
 
   const sources = useMemo(() => sourceIndex(accounts), [accounts]);
   const srcOf = useCallback((t: Task) => sourceOf(sources, t.externalId), [sources]);
+  const labelIndex = useMemo(() => new Map(prefs.labels.map(l => [l.id, l])), [prefs.labels]);
+  const labelOf = useCallback((t: Task) => resolveLabel(t, labelIndex, srcOf(t)), [labelIndex, srcOf]);
+
+  /* ---------- the lens and the spotlight ---------- */
+
+  const lens = prefs.lens;
+  const setLens = useCallback((l: Lens) => setPrefs({ lens: l }), [setPrefs]);
+  const inLens = useCallback((t: Task) => lensHas(lens, t.priority, labelOf(t)?.id ?? null), [lens, labelOf]);
+  const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  const faded = useCallback((t: Task) => !inLens(t) || (focusLabel != null && (labelOf(t)?.id ?? '') !== focusLabel), [inLens, focusLabel, labelOf]);
+  // A spotlit label that leaves the lens (or is removed) lets go.
+  useEffect(() => { if (focusLabel != null && !lensIds(lens, prefs.labels).includes(focusLabel)) setFocusLabel(null); }, [focusLabel, lens, prefs.labels]);
   const isOff = useCallback((t: Task) => { const src = srcOf(t); return !!src?.calendar && !src.calendar.pull; }, [srcOf]);
   const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
 
@@ -202,18 +252,30 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const capture = useCallback(async (text: string) => {
     const pid = newId();
     setPending(p => [...p, { id: pid, text }]);
-    const { refs, ctx } = promptContext(liveTasks());
-    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours));
+    const { refs, ctx } = promptContext(liveTasks(), t => labelOf(t)?.id ?? null);
+    const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, prefs.labels));
     setPending(p => p.filter(x => x.id !== pid));
-    const out = applyCapture({ text, tasks: liveTasks(), refs, result, via, hours });
+    const out = applyCapture({ text, tasks: liveTasks(), refs, result, via, hours, labels: prefs.labels });
     store.write(out.puts);
     toast(out.summary, out.puts.length ? () => store.restore(out.before) : undefined);
-  }, [store, liveTasks, toast, hours]);
+  }, [store, liveTasks, toast, hours, labelOf, prefs.labels]);
 
   const drag = useDrag({
     lengthOf: id => store.get(id)?.minutes ?? 30,
     onDrop: (id: string, dayKey: string, min: number, _kind: DragKind) => (min < 0 ? placeOnDay(id, dayKey) : place(id, atMinutes(fromYmd(dayKey), min))),
     onDropBacklog: id => unslot(id),
+    onDropCell: (id, cell, kind) => {
+      const t = store.get(id);
+      if (!t) return;
+      const [labelId, p] = cell.split('|');
+      const patch: Partial<Task> = { priority: Number(p) as Priority };
+      // Only a change of row sets the label, so a Google event keeps taking its calendar's.
+      if ((labelOf(t)?.id ?? '') !== labelId) patch.label = labelId || null;
+      if (kind === 'block' && t.start != null) patch.start = null;
+      if (patch.priority === t.priority && !('label' in patch) && !('start' in patch)) return;
+      const name = prefs.labels.find(l => l.id === labelId)?.name ?? 'No label';
+      undoable(`${patch.start === null ? 'Back in the backlog · ' : ''}${name} · ${PRI[patch.priority as Priority]}`, store.patch(id, patch));
+    },
     onResize: (id, minutes) => {
       const t = store.get(id);
       if (!t || t.start == null) return;
@@ -380,11 +442,11 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     else toast(`Disconnected ${who}. Its events stay.`);
   }, [store, changeAccounts, toast, undoable]);
 
-  const changeAccount = useCallback((id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks'>>) => {
+  const changeAccount = useCallback((id: string, patch: Partial<Pick<GoogleAccount, 'color' | 'show' | 'tasks' | 'label'>>) => {
     changeAccounts(l => l.map(a => (a.id === id ? { ...a, ...patch } : a)));
   }, [changeAccounts]);
 
-  const changeCalendar = useCallback((accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull'>>) => {
+  const changeCalendar = useCallback((accountId: string, calendarId: string, patch: Partial<Pick<GoogleCalendar, 'pull' | 'label'>>) => {
     changeAccounts(l => l.map(a => (a.id === accountId ? { ...a, calendars: a.calendars.map(c => (c.id === calendarId ? { ...c, ...patch } : c)) } : a)));
   }, [changeAccounts]);
 
@@ -440,16 +502,24 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const colorOf = useCallback((t: Task): string | null => {
     if (prefs.colorBy === 'priority') return t.priority === 1 ? 'var(--accent)' : t.priority === 2 ? 'var(--muted)' : null;
     if (prefs.colorBy === 'none') return null;
+    // By label: the task's label, else an unlabelled event keeps its account's colour.
+    const label = prefs.colorBy === 'label' ? labelOf(t) : null;
+    if (label) return label.color;
     const src = srcOf(t);
     if (!src) return null;
     return prefs.colorBy === 'calendar' ? src.calendar?.color ?? src.account.color : src.account.color;
-  }, [prefs.colorBy, srcOf]);
+  }, [prefs.colorBy, srcOf, labelOf]);
+  const accountColor = useCallback((a: GoogleAccount) => {
+    const label = prefs.colorBy === 'label' && a.label ? labelIndex.get(a.label) : undefined;
+    return label?.color ?? a.color;
+  }, [prefs.colorBy, labelIndex]);
 
   const api: PlannerApi = {
     store, tasks: store.tasks, now, wide, repo, email, pending, completing, picked, setPicked, drag,
-    day, setDay, view, setView, prefs, setPrefs, hours, phoneView, setPhoneView,
+    day, setDay, view, setView, split, setSplit, dragSplit: setSplitDrag, lens, setLens, inLens, focusLabel, setFocusLabel, faded,
+    prefs, setPrefs, hours, phoneView, setPhoneView,
     toast, done, slot, schedule, unslot, place, placeOnDay, capture, openEditor, openSettings, undoable,
-    accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
+    accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };
 
@@ -459,8 +529,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   return (
     <Ctx.Provider value={api}>
       {wide ? (
-        <div className="lp" inert={!!settings}>
+        <div className={'lp' + (split.dragging ? ' sizing' : '')} inert={!!settings}>
           <LaptopSide />
+          <Divider />
           <LaptopCalendar />
         </div>
       ) : (
@@ -483,11 +554,14 @@ function Ghost({ id, x, y }: { id: string; x: number; y: number }) {
 
 /** Backlog sections, shared by phone and laptop. */
 export function useLists() {
-  const { tasks: all, now, isOff } = usePlanner();
+  const { tasks: all, now, isOff, inLens } = usePlanner();
   return useMemo(() => {
     const tasks = all.filter(t => !isOff(t));
-    const f = focus(tasks, now);
-    const backlog = backlogList(tasks).filter(t => t.id !== f.now?.id);
-    return { focus: f, backlog, missed: missedList(tasks, now), done: doneList(tasks).slice(0, 50) };
-  }, [all, now, isOff]);
+    // The lens narrows what can be Now and what waits in the backlog. The calendar, and so Missed, keep everything.
+    const scoped = tasks.filter(t => t.start != null || inLens(t));
+    const f = focus(scoped, now);
+    const backlog = backlogList(scoped).filter(t => t.id !== f.now?.id);
+    const outside = backlogList(tasks).length - backlogList(scoped).length;
+    return { focus: f, backlog, outside, missed: missedList(tasks, now), done: doneList(tasks).slice(0, 50) };
+  }, [all, now, isOff, inLens]);
 }

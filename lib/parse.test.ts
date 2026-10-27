@@ -17,7 +17,7 @@ describe('localParse', () => {
   it('reads a day, a time and urgency', () => {
     expect(one('call the bank tomorrow at 11, urgent')).toEqual({
       title: 'Call the bank', priority: 1, minutes: 30,
-      date: '2026-10-27', time: '11:00', deadline: false, notes: '',
+      date: '2026-10-27', time: '11:00', deadline: false, notes: '', label: null,
     });
   });
 

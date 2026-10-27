@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 const STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 
@@ -70,5 +70,23 @@ export function Opt({ label, note, stack, toggle, children }: {
         {toggle ? <Switch checked={toggle.checked} onChange={toggle.onChange} labelledBy={labelId} describedBy={noteId} /> : children?.({ labelId, noteId })}
       </div>
     </div>
+  );
+}
+
+/** The colour input fires on every move while dragging: show it at once, save once it settles. */
+export function CustomColour({ value, onSave }: { value: string; onSave: (c: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const timer = useRef(0);
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <label className={'swatch custom' + (draft !== value ? ' on' : '')} title="Your own colour" style={{ '--c': draft } as React.CSSProperties}>
+      <input type="color" aria-label="Your own colour" value={draft.toLowerCase()} onChange={e => {
+        const c = e.target.value.toUpperCase();
+        setDraft(c);
+        clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => onSave(c), 400);
+      }} />
+    </label>
   );
 }

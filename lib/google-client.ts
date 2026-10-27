@@ -1,13 +1,12 @@
 import { postJson } from './api';
-import { isHex } from './color';
+import { PALETTE, isHex } from './color';
 import { calendarOf, type ExternalItem } from './google';
 import { addDays, startOfDay } from './time';
 
 export const STATE_KEY = 'ds.google.state';
 export const PENDING_KEY = 'ds.google.pending';
 export const MAX_ACCOUNTS = 5;
-/** Distinct in light and dark, and away from the default orange accent. */
-export const ACCOUNT_COLORS = ['#3E63DD', '#12A594', '#D6409F', '#E5A000', '#8E4EC6', '#0B84D8', '#E5484D', '#5C7C2E'];
+export const ACCOUNT_COLORS = PALETTE;
 
 /** What the callback hands the app: a sealed refresh token for one Google account. */
 export interface GoogleConn { blob: string; email: string | null; connectedAt: number; pulledAt?: number | null }
@@ -22,6 +21,8 @@ export interface GoogleCalendar {
   primary: boolean;
   /** Pull its events and show them. Off hides the ones already pulled and stops updating them. */
   pull: boolean;
+  /** Label for its events; null takes the account's. */
+  label: string | null;
 }
 
 /** A connected Google account. Several sit side by side and their events share one calendar. */
@@ -36,6 +37,8 @@ export interface GoogleAccount {
   show: boolean;
   /** Pull this account's Google Tasks. */
   tasks: boolean;
+  /** Default label for its events, so work and personal time each show in their label's colour. */
+  label: string | null;
   /** Filled in by the first pull. */
   calendars: GoogleCalendar[];
   /** 'revoked' when Google ended access and you need to connect it again. */
@@ -51,7 +54,7 @@ function normCal(raw: unknown): GoogleCalendar | null {
   if (!id) return null;
   return {
     id, name: str(o.name) || id, color: isHex(o.color) ? (o.color as string) : null, role: str(o.role) || 'reader',
-    primary: o.primary === true, pull: o.pull !== false,
+    primary: o.primary === true, pull: o.pull !== false, label: str(o.label),
   };
 }
 
@@ -64,7 +67,7 @@ function normAccount(raw: unknown, i: number): GoogleAccount | null {
     id: str(o.id) || email || `account-${i + 1}`, blob, email,
     color: isHex(o.color) ? (o.color as string) : ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
     connectedAt: num(o.connectedAt) ?? 0, pulledAt: num(o.pulledAt),
-    show: o.show !== false, tasks: o.tasks !== false,
+    show: o.show !== false, tasks: o.tasks !== false, label: str(o.label),
     calendars: Array.isArray(o.calendars) ? o.calendars.map(normCal).filter((c): c is GoogleCalendar => !!c) : [],
     error: str(o.error),
   };
@@ -97,7 +100,7 @@ export function addAccount(list: GoogleAccount[], conn: GoogleConn): { list: Goo
   const used = new Set(list.map(a => a.color));
   const account: GoogleAccount = {
     id, blob: conn.blob, email: conn.email, color: ACCOUNT_COLORS.find(c => !used.has(c)) || ACCOUNT_COLORS[list.length % ACCOUNT_COLORS.length],
-    connectedAt: conn.connectedAt, pulledAt: null, show: true, tasks: true, calendars: [], error: null,
+    connectedAt: conn.connectedAt, pulledAt: null, show: true, tasks: true, label: null, calendars: [], error: null,
   };
   return { list: [...list, account], account };
 }
@@ -105,12 +108,12 @@ export function addAccount(list: GoogleAccount[], conn: GoogleConn): { list: Goo
 /** A calendar as the pull route reports it. `pulled` is whether it was asked for; `failed` that Google wouldn't list its events. */
 export interface ServerCalendar { id: string; name: string; color: string | null; role: string; primary: boolean; pulled: boolean; failed?: boolean }
 
-/** Google's latest calendar list, keeping your on/off choice for calendars you already had. */
+/** Google's latest calendar list, keeping your on/off and label choices for calendars you already had. */
 export function mergeCalendars(mine: GoogleCalendar[], fromGoogle: ServerCalendar[]): GoogleCalendar[] {
   const prev = new Map(mine.map(c => [c.id, c]));
   return fromGoogle.map(c => {
     const p = prev.get(c.id);
-    return { id: c.id, name: c.name, color: c.color, role: c.role, primary: c.primary, pull: p ? p.pull : c.pulled };
+    return { id: c.id, name: c.name, color: c.color, role: c.role, primary: c.primary, pull: p ? p.pull : c.pulled, label: p?.label ?? null };
   }).sort((a, b) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name));
 }
 

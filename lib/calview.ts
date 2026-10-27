@@ -9,6 +9,7 @@ const span = (from: Date, n: number) => Array.from({ length: n }, (_, i) => addD
 /** The days a time-grid view shows around `day`. Month isn't a time grid; see monthGrid. */
 export function viewDays(view: CalView, day: Date | number, p: ViewPrefs): Date[] {
   if (view === 'day' || view === 'month') return [startOfDay(day)];
+  if (view === 'three') return span(startOfDay(day), 3);
   if (view === 'work' && p.fiveDay === 'rolling') return span(startOfDay(day), 5);
   const week = span(weekStart(day, p.weekStart), 7);
   // Work week: Monday to Friday of the week as you start it.
@@ -29,6 +30,7 @@ export function monthGrid(day: Date | number, firstDow: number): Date[][] {
 export function stepDay(view: CalView, day: Date | number, dir: 1 | -1, p: ViewPrefs): Date {
   if (view === 'month') { const d = addMonths(day, dir); d.setDate(1); return d; }
   if (view === 'day') return addDays(day, dir);
+  if (view === 'three') return addDays(day, dir * 3);
   return addDays(day, dir * (view === 'work' && p.fiveDay === 'rolling' ? 5 : 7));
 }
 
@@ -51,11 +53,11 @@ export function viewTitle(view: CalView, day: Date, now: number, p: ViewPrefs): 
   const days = viewDays(view, day, p);
   const first = days[0], last = days[days.length - 1];
   const wk = p.weekNumbers ? ` · Week ${isoWeek(addDays(weekStart(first, p.weekStart), 3))}` : '';
-  if (view === 'work' && p.fiveDay === 'rolling') {
+  if (view === 'three' || (view === 'work' && p.fiveDay === 'rolling')) {
     const today = startOfDay(now).getTime() === first.getTime();
-    return { title: today ? 'Next 5 days' : `From ${dayWord(first.getTime(), now)}`, sub: rangeLabel(first, last) + wk };
+    return { title: today ? `Next ${days.length} days` : `From ${dayWord(first.getTime(), now)}`, sub: rangeLabel(first, last) + wk };
   }
   return { title: weekWord(weekStart(first, p.weekStart), now, p.weekStart), sub: rangeLabel(first, last) + wk };
 }
 
-export const VIEW_LABELS: Record<CalView, string> = { day: 'Day', work: '5 days', week: 'Week', month: 'Month' };
+export const VIEW_LABELS: Record<CalView, string> = { day: 'Day', three: '3 days', work: '5 days', week: 'Week', month: 'Month' };

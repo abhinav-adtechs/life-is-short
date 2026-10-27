@@ -17,6 +17,7 @@ interface Row {
   sort_order: number | string;
   done_at: number | string | null;
   external_id: string | null;
+  label: string | null;
   updated_at: number | string;
 }
 
@@ -28,14 +29,14 @@ export const fromRow = (r: Row): Task => ({
   priority: r.priority as Priority, minutes: r.minutes,
   start: num(r.start), due: r.due, status: r.status as Status,
   created: Number(r.created), order: Number(r.sort_order), doneAt: num(r.done_at),
-  externalId: r.external_id, updatedAt: Number(r.updated_at),
+  externalId: r.external_id, label: r.label ?? null, updatedAt: Number(r.updated_at),
 });
 
 export const toRow = (t: Task, userId: string): Row => ({
   user_id: userId, id: t.id, title: t.title.slice(0, 160), raw: t.raw || '', notes: t.notes || '',
   priority: t.priority, minutes: t.minutes, start: t.start, due: t.due, status: t.status,
   created: t.created, sort_order: t.order, done_at: t.doneAt, external_id: t.externalId ?? null,
-  updated_at: t.updatedAt ?? Date.now(),
+  label: t.label ?? null, updated_at: t.updatedAt ?? Date.now(),
 });
 
 /** Postgres + row-level security on user_id, with realtime so other devices see changes within seconds. */
@@ -50,7 +51,14 @@ export function supabaseRepo(sb: SupabaseClient, userId: string): TaskRepo {
     },
     async put(tasks) {
       if (!tasks.length) return;
-      const { error } = await sb.from('tasks').upsert(tasks.map(t => toRow(t, userId)), { onConflict: 'user_id,id' });
+      const rows = tasks.map(t => toRow(t, userId));
+      const { error } = await sb.from('tasks').upsert(rows, { onConflict: 'user_id,id' });
+      // Deployed before supabase/migrations/0006 ran: save everything but the label, and say why labels don't stick.
+      if (error && /'label' column/.test(error.message)) {
+        const { error: again } = await sb.from('tasks').upsert(rows.map(({ label: _, ...r }) => r), { onConflict: 'user_id,id' });
+        fail('Could not save', again);
+        throw new Error('Saved without labels. Run supabase/migrations/0006 to keep them.');
+      }
       fail('Could not save', error);
     },
     async remove(ids) {

@@ -1,3 +1,4 @@
+import type { Label } from './labels';
 import { DOWL, addDays, pad, startOfDay, ymd } from './time';
 
 /** An open task as the model sees it. `start` is "YYYY-MM-DD HH:MM" local, or null when in the backlog. */
@@ -7,23 +8,27 @@ export interface PromptTask {
   priority: number;
   start: string | null;
   due: string | null;
+  /** Label id, or null. */
+  label?: string | null;
 }
 
 /** The prompt sent to the AI route. It answers {add: [...], update: [...]} so a dump can add tasks and change existing ones. */
-export function buildPrompt(text: string, nowArg?: number | Date, open: PromptTask[] = [], hours = { start: 9 * 60, end: 21 * 60 }): string {
+export function buildPrompt(text: string, nowArg?: number | Date, open: PromptTask[] = [], hours = { start: 9 * 60, end: 21 * 60 }, labels: Label[] = []): string {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
   const days = Array.from({ length: 14 }, (_, i) => { const d = addDays(today, i); return `${DOWL[d.getDay()]} ${ymd(d)}`; });
   const hm = (m: number) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
   const list = open.length
-    ? open.map(t => `${t.ref} | P${t.priority} | ${String(t.title).replace(/\s+/g, ' ').slice(0, 140)} | ${t.start || 'backlog'} | ${t.due ? 'due ' + t.due : '-'}`).join('\n')
+    ? open.map(t => `${t.ref} | P${t.priority} | ${String(t.title).replace(/\s+/g, ' ').slice(0, 140)} | ${t.start || 'backlog'} | ${t.due ? 'due ' + t.due : '-'} | ${t.label || '-'}`).join('\n')
     : '(none yet)';
+  const labelList = labels.map(l => `${l.id} = ${l.name}`).join(', ');
   return [
     'You are the planning assistant inside a personal day planner. Read what the user just said and update their task list.',
     `Right now it is ${DOWL[now.getDay()]} ${ymd(now)}, ${pad(now.getHours())}:${pad(now.getMinutes())} local time. Working hours are ${hm(hours.start)} to ${hm(hours.end)}.`,
     `Dates for the next 14 days: ${days.join(', ')}.`,
+    labels.length ? `They sort tasks into these labels (id = name): ${labelList}.` : 'They have no labels.',
     '',
-    'Their open tasks right now (ref | priority | task | scheduled | due):',
+    'Their open tasks right now (ref | priority | task | scheduled | due | label):',
     list,
     '',
     'What they just said:',
@@ -45,7 +50,10 @@ export function buildPrompt(text: string, nowArg?: number | Date, open: PromptTa
     ' "date": "YYYY-MM-DD" only if a day is stated or clearly implied, else null,',
     ' "time": "HH:MM" in 24-hour time only if a clock time or part of day is stated (morning 10:00, afternoon 15:00, evening 18:30, tonight 21:00), else null,',
     ' "deadline": true when the day is a due date ("by Friday", "before the 30th") rather than when to do it, else false,',
-    ' "notes": extra detail worth keeping, else ""}',
+    ' "notes": extra detail worth keeping, else "",',
+    labels.length
+      ? ' "label": the id of the label the task belongs to, from their labels above. Pick the closest fit from what it is about; null only when none fits. A #tag naming a label picks that label: leave the tag out of the title}'
+      : ' "label": null}',
     'Each "update" item: {"ref": "T3"} plus only the fields that change, from the same fields above, and optionally "done": true to tick it off or "unschedule": true to move it back to the backlog.',
     'Never invent a day or time they did not give. A time with no day means today if that time is still ahead, otherwise tomorrow.',
     `Example: {"add":[{"title":"Call the bank about the card","priority":1,"minutes":30,"date":"${ymd(addDays(today, 1))}","time":"11:00","deadline":false,"notes":"Ask about the blocked international transaction"}],"update":[{"ref":"T2","done":true}]}`,

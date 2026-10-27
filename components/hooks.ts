@@ -25,6 +25,15 @@ export function useMedia(query: string): boolean {
   );
 }
 
+/** The window's width, kept current. */
+export function useWidth(): number {
+  return useSyncExternalStore(
+    cb => { window.addEventListener('resize', cb); return () => window.removeEventListener('resize', cb); },
+    () => window.innerWidth,
+    () => 1440,
+  );
+}
+
 /** Keep Tab inside an open dialog. */
 export function useTrap(ref: React.RefObject<HTMLElement | null>) {
   useEffect(() => {

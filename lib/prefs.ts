@@ -1,4 +1,7 @@
 import { contrast, ensureContrast, isHex, mix, onColor, rgba } from './color';
+import { DEFAULT_LABELS, DEFAULT_LENS, DEFAULT_PRESETS, normalizeLabels, normalizeLens, normalizePresets, type Label, type Lens, type Preset } from './labels';
+import { DEFAULT_SPLIT, type Split, type Tight } from './layout';
+import type { BacklogBy } from './select';
 
 /** How things look and how the calendar behaves. Stored per device and synced through your settings row. */
 export interface Prefs {
@@ -17,8 +20,12 @@ export interface Prefs {
   motion: 'system' | 'full' | 'reduce';
   clock: '12' | '24';
 
-  /** Calendar view. Per device; null picks Week on a laptop and Day on a phone. */
+  /** Calendar view. Per device; null picks Day on a phone. On a laptop the split decides, except for Month. */
   calView: CalView | null;
+  /** How a laptop screen is shared between the backlog and the calendar. Per device. */
+  split: Split;
+  /** What the backlog and calendar focus on. Per device, so the laptop can stay on work while the phone shows everything. */
+  lens: Lens;
   /** 0 Sunday, 1 Monday, 6 Saturday. */
   weekStart: 0 | 1 | 6;
   /** What the 5-day view shows. */
@@ -28,25 +35,35 @@ export interface Prefs {
   dayEnd: number;
   /** Pixels per hour on the time grid. */
   hourHeight: number;
-  colorBy: 'none' | 'account' | 'calendar' | 'priority';
+  colorBy: 'none' | 'label' | 'account' | 'calendar' | 'priority';
   showDone: boolean;
   shadeWeekends: boolean;
   weekNumbers: boolean;
+
+  /** Your labels, in the order the backlog shows them. */
+  labels: Label[];
+  /** How the phone's backlog list is split: by label then when it's due, by when it's due, or by priority. */
+  backlogBy: BacklogBy;
+  /** Lenses you can pick in one tap. */
+  presets: Preset[];
+  /** When the laptop's backlog is short of room: numbers in every column, or fold the lowest priorities. */
+  tight: Tight;
 
   /** Last change to a synced field, so the newest device wins. */
   updatedAt: number;
 }
 
-export type CalView = 'day' | 'work' | 'week' | 'month';
+export type CalView = 'day' | 'three' | 'work' | 'week' | 'month';
 
 /** These stay on this device; everything else follows you between devices. */
-export const DEVICE_KEYS = ['mode', 'calView'] as const;
+export const DEVICE_KEYS = ['mode', 'calView', 'split', 'lens'] as const;
 
 export const DEFAULT_PREFS: Prefs = {
   mode: 'system', surface: 'neutral', accent: 'ember', font: 'geist', textSize: 1, corners: 'round', density: 'cozy',
   contrast: false, trueBlack: false, motion: 'system', clock: '12',
-  calView: null, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
-  colorBy: 'account', showDone: true, shadeWeekends: false, weekNumbers: false,
+  calView: null, split: DEFAULT_SPLIT, lens: DEFAULT_LENS, weekStart: 1, fiveDay: 'workweek', dayStart: 9, dayEnd: 21, hourHeight: 56,
+  colorBy: 'label', showDone: true, shadeWeekends: false, weekNumbers: false,
+  labels: DEFAULT_LABELS, backlogBy: 'label', presets: DEFAULT_PRESETS, tight: 'counts',
   updatedAt: 0,
 };
 
@@ -163,17 +180,30 @@ export function normalizePrefs(raw: unknown): Prefs {
     trueBlack: bool(o.trueBlack, d.trueBlack),
     motion: oneOf(o.motion, ['system', 'full', 'reduce'] as const, d.motion),
     clock: oneOf(o.clock, ['12', '24'] as const, d.clock),
-    calView: oneOf(o.calView, ['day', 'work', 'week', 'month', null] as const, d.calView),
+    calView: oneOf(o.calView, ['day', 'three', 'work', 'week', 'month', null] as const, d.calView),
+    split: normalizeSplit(o.split),
+    lens: normalizeLens(o.lens),
     weekStart: oneOf(o.weekStart, [0, 1, 6] as const, d.weekStart),
     fiveDay: oneOf(o.fiveDay, ['workweek', 'rolling'] as const, d.fiveDay),
     dayStart, dayEnd,
     hourHeight: oneOf(o.hourHeight, HOUR_HEIGHTS.map(h => h.value), d.hourHeight),
-    colorBy: oneOf(o.colorBy, ['none', 'account', 'calendar', 'priority'] as const, d.colorBy),
+    // Account was the default before labels. Label colours events the same way until something has a label.
+    colorBy: o.colorBy === 'account' && !Array.isArray(o.labels) ? 'label' : oneOf(o.colorBy, ['none', 'label', 'account', 'calendar', 'priority'] as const, d.colorBy),
     showDone: bool(o.showDone, d.showDone),
     shadeWeekends: bool(o.shadeWeekends, d.shadeWeekends),
     weekNumbers: bool(o.weekNumbers, d.weekNumbers),
+    labels: normalizeLabels(o.labels),
+    backlogBy: oneOf(o.backlogBy, ['label', 'time', 'priority'] as const, d.backlogBy),
+    presets: normalizePresets(o.presets),
+    tight: oneOf(o.tight, ['counts', 'fold'] as const, d.tight),
     updatedAt: typeof o.updatedAt === 'number' && isFinite(o.updatedAt) ? o.updatedAt : 0,
   };
+}
+
+function normalizeSplit(raw: unknown): Split {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const cal = typeof o.cal === 'number' && isFinite(o.cal) ? Math.round(Math.max(200, Math.min(4000, o.cal))) : DEFAULT_SPLIT.cal;
+  return { mode: o.mode === 'auto' ? 'auto' : 'pinned', cal };
 }
 
 /** The synced part: everything but the per-device keys. */

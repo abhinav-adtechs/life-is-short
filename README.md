@@ -32,7 +32,7 @@ You get about four thousand weeks. That's it. And most to-do apps want you to sp
 >
 > **Do it.** The screen shows the one thing to do now, a **Done** button and a **Schedule** button. Nothing else to manage.
 
-No folders. No tags. No "weekly review". You don't keep a system going; you get on with your day.
+No folders. No filing: the AI even picks the label. No "weekly review". You don't keep a system going; you get on with your day.
 
 <br>
 
@@ -62,6 +62,7 @@ The AI reads it like a good assistant would. It pulls out every task, gives each
 - **Said a day or a time?** It goes straight onto the calendar.
 - **Said a deadline?** It waits in the backlog with a due date.
 - **Said neither?** It waits in the backlog, ranked: **Urgent**, **Important**, **Later**, then by due date.
+- **Every task gets a label**, like **Work**, **Personal** or **Helping others**. The AI picks it from what you said, or type a `#tag`.
 
 When you're ready, one tap finds the **next free gap in your day**, on a 15-minute grid, inside the hours you set.
 
@@ -92,14 +93,18 @@ There are only two heavy things on any screen: **the task you're on, and the mic
   <img alt="Three phone screens: Now with the backlog, a day calendar, and the dark theme" src="docs/images/phone.png" width="100%">
 </p>
 
-**On your phone** it's a focused list: Now on top, backlog below, the dump bar under your thumb. Tap the calendar for your day, then tap a task and tap a time to place it.
+**On your phone** it's a focused list: Now on top, backlog below, the dump bar under your thumb. Tap the calendar for your day, then tap a task and tap a time to place it. The backlog groups by label and time (Today, This week, Next week and later), by time, or by priority.
 
 **On your laptop** it opens up into a full planner: Now and the backlog on the left, a calendar on the right.
 
+- **The backlog is a matrix:** a row per label, a column per priority. Drag a task to another cell to change its label or priority.
+- **One split, sized your way.** Pick Day, 3 days (the default), 5 days or Week and the calendar widens to fit them. Or drag the divider: the calendar shows as many days as fit, and settles on the nearest. Or turn on **Auto layout** and your filters size it.
+- **Views:** Everything, Work focus, Personal time and Just urgent are one tap away, or filter by priority and label and save your own. What you filter out fades on the calendar. Click a label to spotlight it.
+- **Never hidden, just smaller:** when the calendar is wide, the matrix shrinks to titles, then to counts you can open (or folds the lowest priorities, if you prefer).
 - **Drag** a task from the backlog onto any time. Drag it back to unschedule it.
 - **Drag the edge** of a block to make it longer or shorter.
 - **Click, then click.** Pick a task, then click a time slot.
-- **Day, 5 days, Week or Month**, with a live line for the current time.
+- **Day, 3 days, 5 days, Week or Month**, with a live line for the current time.
 - **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the backlog, `Esc` closes anything.
 
 It feels fast because it is fast: rows ease in, ticked tasks get a satisfying check-and-strike, and your theme loads before the first frame, so it never flashes.
@@ -117,7 +122,8 @@ It feels fast because it is fast: rows ease in, ticked tasks get a satisfying ch
 - **9 fonts**, including **Lexend** and **Atkinson Hyperlegible** for easier reading.
 - Text size, corner style, list density, **high contrast**, reduced motion, and a 12- or 24-hour clock.
 - **Your day:** set the hours you work. The calendar shows them, auto-slotting stays inside them, and the AI plans around them.
-- Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by account, calendar or priority.
+- **Your labels:** the parts of your life, named, coloured and ordered your way. Every task wears its label's colour, so work time and personal time read at a glance.
+- Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by label, account, calendar or priority.
 
 <p align="center">
   <img alt="The Appearance settings page with a live preview, mode, theme and accent pickers" src="docs/images/settings.png" width="100%">
@@ -134,6 +140,7 @@ Connect **up to five Google accounts**, personal and work alike. Their **Google 
 - It refreshes every 30 minutes while the app is open.
 - A meeting that's on two of your accounts shows **once**.
 - You choose which calendars to pull, per account. Holidays and other subscriptions stay off until you tick them.
+- Give each account a **label** (or one calendar inside it, like a gym calendar on your work account) and its events take that label's colour.
 - It's **read-only**: nothing is written back to Google. Your priorities, notes and done ticks stay yours.
 
 <br>
