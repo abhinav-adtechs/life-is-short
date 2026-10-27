@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Brand } from '@/components/Brand';
 
 export const metadata: Metadata = {
   title: 'Privacy · Life is short',
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <main className="legal">
+      <a className="legal-home" href="/" aria-label="Life is short, home"><Brand /></a>
       <h1>Privacy</h1>
       <p className="meta">Life is short · updated 27 October 2026</p>
 

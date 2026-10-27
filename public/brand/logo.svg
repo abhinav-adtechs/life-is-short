@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<title>Life is short</title>
+<defs>
+<linearGradient id="frame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6EFDF"/><stop offset="1" stop-color="#E2D6BC"/></linearGradient>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1A5BCB"/><stop offset=".45" stop-color="#4E98E8"/><stop offset=".62" stop-color="#A9D3F2"/></linearGradient>
+<radialGradient id="glow"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset=".45" stop-color="#FFF4D0" stop-opacity=".25"/><stop offset="1" stop-color="#FFF4D0" stop-opacity="0"/></radialGradient>
+<linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8BCB5A"/><stop offset="1" stop-color="#5DB447"/></linearGradient>
+<linearGradient id="field" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#45A63F"/><stop offset="1" stop-color="#2E7F31"/></linearGradient>
+<linearGradient id="lip" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0A1E3C" stop-opacity=".28"/><stop offset="1" stop-color="#0A1E3C" stop-opacity="0"/></linearGradient>
+<clipPath id="win"><rect x="34" y="34" width="444" height="444" rx="82"/></clipPath>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#frame)"/>
+<g clip-path="url(#win)"><rect x="34" y="34" width="444" height="444" fill="url(#sky)"/><circle cx="360.8" cy="188.2" r="164.4" fill="url(#glow)"/><circle cx="360.8" cy="188.2" r="43.2" fill="#FFF7DA"/><g fill="#B9CCEB"><circle cx="114.2" cy="227.2" r="25.2"/><circle cx="149.1" cy="206.7" r="37.7"/><circle cx="190.2" cy="194.3" r="44.0"/><circle cx="231.3" cy="210.8" r="33.5"/><circle cx="262.2" cy="227.2" r="23.1"/><rect x="93.6" y="219.0" width="189.1" height="30.8" rx="15.4"/></g><g fill="#FFFFFF"><circle cx="114.2" cy="216.9" r="24.7"/><circle cx="149.1" cy="196.4" r="37.0"/><circle cx="190.2" cy="184.1" r="43.2"/><circle cx="231.3" cy="200.5" r="32.9"/><circle cx="262.2" cy="216.9" r="22.6"/><rect x="93.6" y="208.7" width="189.1" height="30.8" rx="15.4"/></g><path d="M23.7 290.9C95.7 262.2 157.3 253.9 229.3 266.3C301.2 278.6 373.2 247.8 488.3 258.1V342.3H23.7Z" fill="#8EC3B0"/><path d="M23.7 303.3C105.9 272.4 188.2 266.3 266.3 284.8S414.3 303.3 488.3 276.6V488.3H23.7Z" fill="url(#hill)"/><path d="M23.7 317.7C105.9 290.9 188.2 284.8 266.3 303.3S414.3 321.8 488.3 295.1V309.4C414.3 336.2 342.3 323.8 266.3 313.6S105.9 303.3 23.7 332.1Z" fill="#F2D43A"/><path d="M23.7 373.2C147.1 348.5 290.9 354.7 488.3 381.4V488.3H23.7Z" fill="url(#field)"/><path d="M286.8 140.9c8.2 -8.2 16.4 -7.2 22.6 4.1c6.2 -11.3 14.4 -12.3 22.6 -4.1" fill="none" stroke="#173055" stroke-width="7.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M290.9 23.7 352.6 23.7 157.3 496.5 95.7 496.5Z" fill="#FFFFFF" opacity=".09"/><rect x="34" y="34" width="444" height="61.7" fill="url(#lip)"/></g>
+<rect x="34" y="34" width="444" height="444" rx="82" fill="none" stroke="#C8BB9E" stroke-width="4"/>
+</svg>

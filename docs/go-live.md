@@ -42,7 +42,7 @@ Then build the **Session pooler** URLs (Connect → Session pooler), replacing t
 ## 5. Google Calendar and Tasks *(account: Google Cloud)*
 
 1. console.cloud.google.com → new project → enable **Google Calendar API** and **Google Tasks API**.
-2. OAuth consent screen: External, app name "Life is short", your email as support contact, scopes `calendar.readonly` and `tasks.readonly`, and yourself as a test user.
+2. OAuth consent screen: External, app name "Life is short", your email as support contact, scopes `calendar.readonly` and `tasks.readonly`, and yourself as a test user. Under Branding: app home page `https://<vercel-url>/`, privacy policy `https://<vercel-url>/privacy`, and, if you want it, the app logo `public/brand/logo-120.png` (120×120). Google shows a logo only once it has verified the app's branding, and a new logo can start that review, so a personal app can leave it out.
 3. **Publish app → In production.** In Testing mode Google expires the connection every 7 days. In production, unverified, Google shows a one-time "hasn't verified this app" screen; click Advanced → continue. Verification isn't needed for personal use.
 4. Credentials → OAuth client ID → Web application. Redirect URIs: `https://<vercel-url>/google/callback` and `http://localhost:3000/google/callback`. Put the ID and secret into Vercel and redeploy.
 

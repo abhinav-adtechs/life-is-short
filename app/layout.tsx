@@ -2,9 +2,20 @@ import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import './globals.css';
 
+// The icons, the install manifest and the link preview are files next to this one (icon.svg, favicon.ico,
+// apple-icon.png, manifest.ts, opengraph-image.png); scripts/brand/README.md says how they're made.
 export const metadata: Metadata = {
   title: 'Life is short',
   description: 'Dump a task the moment it comes to mind; the screen tells you the one thing to do now.',
+  applicationName: 'Life is short',
+  appleWebApp: { title: 'Life is short', capable: true, statusBarStyle: 'default' },
+  openGraph: {
+    title: 'Life is short',
+    description: 'A day planner with a window seat. Dump a task, slot it, then look outside.',
+    siteName: 'Life is short',
+    type: 'website',
+  },
+  twitter: { card: 'summary_large_image', title: 'Life is short', description: 'A day planner with a window seat. Dump a task, slot it, then look outside.' },
 };
 
 export const viewport: Viewport = {

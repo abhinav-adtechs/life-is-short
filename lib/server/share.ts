@@ -66,11 +66,22 @@ export const clearCookie = (req: Request) => `${cookieName(req)}=; Path=/; Max-A
 
 /* ---------- the code email ---------- */
 
-/** The email with the code. Plain and short, so it reads well anywhere. */
-export function codeEmail(code: string) {
+/** Where the app lives, for the logo in the email. Vercel sets this; it's never taken from a request. */
+function siteOrigin(): string | null {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || '';
+  return /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : null;
+}
+
+/** The email with the code. Plain and short, so it reads well anywhere; the logo heads it when the site is known. */
+export function codeEmail(code: string, site = siteOrigin()) {
   const subject = `${code} is your code for a shared planner`;
   const text = `Your code to see the planner shared with you:\n\n${code}\n\nIt works for 10 minutes. If you didn’t ask for it, you can ignore this email.\n\nLife is short`;
+  const head = site
+    ? `<p style="margin:0 0 20px"><img src="${site}/brand/logo-120.png" width="40" height="40" alt="" style="vertical-align:middle;border:0;border-radius:9px">`
+      + ` <b style="vertical-align:middle;font-size:16px">Life is short</b></p>`
+    : '';
   const html = `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;color:#0F0F10">`
+    + head
     + `<p>Your code to see the planner shared with you:</p>`
     + `<p style="font-size:30px;font-weight:600;letter-spacing:.2em;margin:18px 0">${code}</p>`
     + `<p style="color:#6B6B70">It works for 10 minutes. If you didn’t ask for it, you can ignore this email.</p>`

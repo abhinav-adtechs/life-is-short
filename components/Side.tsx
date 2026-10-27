@@ -8,7 +8,7 @@ import { endOf, MIN } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { useVoice } from './hooks';
 import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon, StopIcon } from './icons';
-import { Brand, Mark } from './Brand';
+import { Brand, Logo } from './Brand';
 import { View } from './Scene';
 
 /** Rows fade up in a stagger on first load; rows added later appear straight away. */
@@ -285,7 +285,7 @@ export function PhoneScreen() {
         <div className="hero">
           <View kind="strip" />
           <header className="hdr in">
-            <span className="date"><Mark size={22} />{longDate(now)}</span>
+            <span className="date"><Logo size={22} />{longDate(now)}</span>
             <div className="tools">
               <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon /></button>
               <button type="button" className="ib" aria-label="Open calendar" onClick={() => setPhoneView('calendar')}><CalendarIcon /></button>

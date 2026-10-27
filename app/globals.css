@@ -90,8 +90,9 @@ button{-webkit-user-select:none;user-select:none}
 @keyframes win-mote{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.6}100%{transform:translate(4cqw,-34cqh);opacity:0}}
 @keyframes win-slide{0%{transform:translateY(0);opacity:0}10%{opacity:1}80%{opacity:1}100%{transform:translateY(40cqh);opacity:0}}
 
-/* The mark: a window with a hill and the sun. app/icon.svg is the same drawing. */
+/* The logo (components/Brand.tsx): in colour next to the name, as a line drawing on the postcard's stamp. */
 .brand{display:inline-flex;align-items:center;gap:10px;font:500 calc(17px*var(--fs))/1 var(--font);letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
+.logo{display:block;flex:none;filter:drop-shadow(0 1px 3px rgba(0,0,0,.18))}
 .mark{display:block;flex:none}
 .mark rect,.mark path{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
 .mark circle{fill:currentColor}
@@ -781,5 +782,9 @@ button{-webkit-user-select:none;user-select:none}
 .legal ul{margin:8px 0;padding-left:20px}
 .legal li{margin:6px 0}
 .legal a{color:var(--ink);text-decoration-color:var(--accent-line);text-underline-offset:3px;overflow-wrap:anywhere}
+.legal-home{display:inline-flex;margin:0 0 40px;text-decoration:none;border-radius:calc(8px*var(--round))}
+/* With a view, the page sits on paper on the wall, like the planner's panels. */
+:root:not([data-scene="plain"]) .legal{margin:28px auto;padding:36px 44px 56px;background:var(--bg);border-radius:calc(22px*var(--round));box-shadow:var(--glass)}
+@media (max-width:720px){:root:not([data-scene="plain"]) .legal{margin:10px;padding:28px 22px 44px}}
 .login .legal-link{display:block;margin-top:20px;font:500 13px/1 var(--font);color:var(--muted);text-decoration:none}
 .login .legal-link:hover{color:var(--ink)}

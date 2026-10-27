@@ -1,4 +1,9 @@
-/** The mark: a window with a hill and the sun. app/icon.svg is the same drawing in colour. */
+/** The logo in colour: a train window onto the summer meadow. public/brand/logo.svg; app/icon.svg is the same drawing. */
+export const Logo = ({ size = 26 }: { size?: number }) => (
+  <img className="logo" src="/brand/logo.svg" width={size} height={size} alt="" />
+);
+
+/** The logo as a line drawing, for small marks printed on things (the postcard's stamp). */
 export const Mark = ({ size = 24 }: { size?: number }) => (
   <svg className="mark" width={size} height={size} viewBox="0 0 26 26" aria-hidden="true">
     <rect x="3" y="3" width="20" height="20" rx="7" />
@@ -7,5 +12,5 @@ export const Mark = ({ size = 24 }: { size?: number }) => (
   </svg>
 );
 
-/** Mark and name, top left on the big screens. */
-export const Brand = () => <span className="brand"><Mark />Life is short</span>;
+/** Logo and name, top left on the big screens. */
+export const Brand = () => <span className="brand"><Logo />Life is short</span>;
