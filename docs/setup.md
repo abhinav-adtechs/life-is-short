@@ -13,7 +13,7 @@ npm run dev                  # http://localhost:3000
 npm test                     # unit tests for the parser, slotting, capture and Google merge
 ```
 
-Without Supabase keys the app runs in local-only mode (tasks in this browser). Without a Gemini key, dumps are sorted by the keyword parser and the toast says so.
+Without Supabase keys the app runs in local-only mode (tasks in this browser). Without a Gemini key, dumps are sorted by the keyword parser and the plan says so.
 
 ## Set up for real (phone + laptop)
 

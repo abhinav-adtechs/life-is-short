@@ -10,7 +10,7 @@ import { pad, ymd } from './time';
 /** Why the keyword parser was used instead of the model. */
 export type Via = 'ai' | 'no-key' | 'ai-error' | 'empty';
 
-export interface AiResult { add: unknown[]; update: unknown[] }
+export interface AiResult { add: unknown[]; update: unknown[]; reply?: string }
 
 const hhmm = (ms: number) => `${ymd(ms)} ${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
 
@@ -51,6 +51,8 @@ export function applyCapture(args: {
   now?: number;
   newId?: () => string;
   hours?: WorkHours;
+  /** The model's answer replaces a draft, so an empty answer means drop everything rather than fall back to keywords. */
+  revise?: boolean;
 }): CaptureOutcome {
   const now = args.now ?? Date.now();
   const makeId = args.newId ?? defaultNewId;
@@ -59,7 +61,7 @@ export function applyCapture(args: {
   let via = args.via;
   let adds: unknown[];
   let updates: unknown[];
-  if (args.result && (args.result.add.length || args.result.update.length)) {
+  if (args.result && (args.revise || args.result.add.length || args.result.update.length)) {
     adds = args.result.add; updates = args.result.update;
   } else {
     adds = localParse(text, now); updates = [];
@@ -118,6 +120,16 @@ export function applyCapture(args: {
     added.push(task);
   });
 
+  return {
+    puts: [...puts.values()], before, added, updated, ticked, via,
+    summary: summarize({ added, updated, ticked, via, now }),
+  };
+}
+
+/** "On the calendar · Tomorrow, 11:00 AM", "3 added: 1 on the calendar, 2 in the backlog · 1 ticked off". */
+export function summarize(r: { added: Task[]; updated: number; ticked: number; via?: Via; now?: number }): string {
+  const now = r.now ?? Date.now();
+  const { added, updated, ticked, via } = r;
   const parts: string[] = [];
   const n = added.length, onCal = added.filter(t => t.start != null).length;
   if (n === 1) {
@@ -131,9 +143,5 @@ export function applyCapture(args: {
   if (via === 'no-key') parts.push('sorted by keywords (no AI key)');
   else if (via === 'ai-error') parts.push('sorted by keywords (AI unavailable)');
   else if (via === 'empty') parts.push('sorted by keywords');
-
-  return {
-    puts: [...puts.values()], before, added, updated, ticked, via,
-    summary: parts.join(' · ') || 'Nothing to add from that',
-  };
+  return parts.join(' · ') || 'Nothing to add from that';
 }

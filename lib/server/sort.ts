@@ -22,7 +22,7 @@ const fields = {
   notes: { type: 'string' },
 };
 
-/** Shape of {add, update} that buildPrompt asks for. */
+/** Shape of {add, update, reply} that buildPrompt asks for. */
 export const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
@@ -38,8 +38,9 @@ export const RESPONSE_SCHEMA = {
         required: ['ref'],
       },
     },
+    reply: { type: 'string' },
   },
-  required: ['add', 'update'],
+  required: ['add', 'update', 'reply'],
 };
 
 /**
