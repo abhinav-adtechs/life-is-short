@@ -20,17 +20,22 @@ import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
+import type { Slip } from '@/lib/slips';
 import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
+import { useSlips } from './slips';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
 import type { ToastState } from './Toast';
 import { Laptop } from './Laptop';
 import { Phone } from './Phone';
 
-/** The side panels on a laptop, bottom sheets on a phone. Settings, Share and Analytics live in the URL hash, so Back closes them. */
-export type SheetKind = 'analytics' | 'share' | 'settings';
+/**
+ * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
+ * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
+ */
+export type SheetKind = 'analytics' | 'review' | 'share' | 'settings';
 
 /** The matrix filter: one label ('' for no label) at one priority. */
 export interface Filter { label: string; priority: Priority }
@@ -100,11 +105,14 @@ export interface PlannerApi {
   editorId: string | null;
   closeEditor: () => void;
   sheet: SheetKind | null;
-  /** Settings section to show, from #settings/<section>. */
+  /** Settings section to show, from #settings/<section>; the review's span, from #review/<span>. */
   section: string | null;
   openSheet: (kind: SheetKind, section?: string) => void;
   closeSheet: () => void;
   undoable: (msg: string, before: Map<string, Task | null>) => void;
+  /** Missed slots the task has since left (back to the backlog, moved or deleted), for Analytics and the review. */
+  slips: Slip[];
+  refreshSlips: () => void;
   accounts: GoogleAccount[];
   /** Account and calendar of a pulled event. */
   sourceOf: (t: Task) => Source | null;
@@ -138,7 +146,7 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(settings|share|analytics)(?:\/([a-z]+))?$/;
+const SHEET_HASH = /^#(settings|share|analytics|review)(?:\/([a-z]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -147,7 +155,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [toastState, setToast] = useState<ToastState | null>(null);
   const toast = useCallback((msg: string, undo?: () => void) => setToast({ key: Date.now() + Math.random(), msg, undo }), []);
   const dismissToast = useCallback(() => setToast(null), []);
-  const store = useTaskStore(repo, msg => toast(msg));
+  const slipLog = useSlips(repo);
+  const store = useTaskStore(repo, msg => toast(msg), slipLog.record);
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
   const systemDark = useMedia('(prefers-color-scheme: dark)');
@@ -574,6 +583,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, plan,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
+    slips: slipLog.slips, refreshSlips: slipLog.refresh,
     accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };

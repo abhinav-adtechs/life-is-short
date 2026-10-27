@@ -7,7 +7,7 @@
 Say what's on your mind. **Life is short** turns it into tasks, puts them on your calendar,<br>
 and shows you the one thing to do **right now**.
 
-[How it works](#how-it-works) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
+[How it works](#how-it-works) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
 
 <br>
 
@@ -84,6 +84,21 @@ Slipped past something? When its slot ends without a tick, it goes **back on top
 </table>
 
 Every capture, move and tick comes with **Undo**. A half-typed thought is still there when you come back. No AI key? A built-in parser understands "tomorrow at 9", "by Friday", "urgent", "2h" and "someday", so it keeps working.
+
+<br>
+
+## See how it went
+
+Open **Analytics** (at the top on a laptop, in the `•••` menu on a phone) for how the week is going, then **Full review** for how a **day, week or month** went, worked out from everything on your list. Step back through earlier ones with the arrows (or ← and →).
+
+- **A score out of 100**, and what it's made of: how much of what came due got done, how much on its day, how many of your busy days you got something done, and how your Urgent and Important work fared. Under it, what stood out, in plain sentences.
+- **Done and missed.** Every task with a slot or a deadline is on time, late, missed or still to come. A missed task goes back to your backlog, but its slot still counts as missed where it happened, and so does one you reslot or delete, so the review stays honest.
+- **Type of work.** Time by label, your tasks and your Google meetings together, with each label's share, what got done and what was missed.
+- **Day by day, hour by hour.** Stacked by label, with missed slots marked. Pick a day to open it. Every chart has a table view.
+- **Rhythm, flow and load.** The hour you get the most done, what came in against what went out, how long things take from capture to done, how full your calendar was against your day, and quick wins against deep work.
+- **The trend and the tasks behind it.** The last 14 days, 8 weeks or 6 months side by side, and every task that was missed, late, done or still to come.
+
+A week still under way is held up against last week up to the same point, so a Tuesday isn't measured against a whole week.
 
 <br>
 
