@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PALETTE } from '@/lib/color';
-import { LABEL_NAME_MAX, MAX_LABELS, newLabelId, type Label } from '@/lib/labels';
+import { DEFAULT_PRESETS, LABEL_NAME_MAX, MAX_LABELS, lensIds, newLabelId, type Label, type Preset } from '@/lib/labels';
 import { usePlanner } from './Planner';
 import { prefersReducedMotion } from './hooks';
 import { CheckIcon, ChevronLeft, ChevronRight } from './icons';
@@ -116,7 +116,7 @@ export function LabelsSection() {
       <h2 id="set-labels-h">Labels</h2>
       <p className="lead">
         The parts of your life, like work, a side project, personal and helping others. The AI puts each thing you dump under one;
-        you can change it on any task, or type a #tag. The backlog groups by label and time, and the calendar shows each in its colour.
+        you can change it on any task, or type a #tag. The backlog sorts by label and priority, and the calendar shows each in its colour.
       </p>
       {labels.length > 0 && (
         <ul className="labels">
@@ -135,6 +135,46 @@ export function LabelsSection() {
         Give each Google account or calendar a label in <button type="button" className="link inline" onClick={toGoogle}>Google accounts</button>, so
         work and personal time show in their colours. The order here is the order of the backlog.
       </p>
+      <SavedViews />
     </section>
+  );
+}
+
+const PRIORITY_SCOPE = { 1: 'Urgent', 2: 'Urgent and Important', 3: 'Every priority' };
+
+/** The one-tap views over the backlog: save one from the backlog's filters, remove them here. */
+function SavedViews() {
+  const { prefs, setPrefs, toast } = usePlanner();
+  const presets = prefs.presets;
+  const names = (p: Preset) => {
+    if (p.labels == null) return 'every label';
+    const ids = lensIds(p, prefs.labels);
+    if (!ids.length) return 'labels that no longer exist';
+    return ids.map(id => prefs.labels.find(l => l.id === id)?.name ?? 'No label').join(', ');
+  };
+  const remove = (p: Preset) => {
+    const before = presets;
+    setPrefs({ presets: presets.filter(x => x.id !== p.id) });
+    toast(`Removed the view “${p.name}”`, () => setPrefs({ presets: before }));
+  };
+  const starter = presets.length === DEFAULT_PRESETS.length && presets.every((p, i) => p.id === DEFAULT_PRESETS[i].id);
+  return (
+    <>
+      <h3 className="sp-sub">Saved views</h3>
+      <p className="note">One tap over the backlog picks what it shows: priorities and labels. Anything left out fades on the calendar. Save the filters you set as a view from the backlog.</p>
+      {presets.length > 0 && (
+        <ul className="views">
+          {presets.map(p => (
+            <li key={p.id}>
+              <div><b>{p.name}</b><span>{PRIORITY_SCOPE[p.pri]} · {names(p)}</span></div>
+              <button type="button" className="link" onClick={() => remove(p)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!starter && (
+        <div className="sacts"><button type="button" className="btn sec" onClick={() => setPrefs({ presets: DEFAULT_PRESETS })}>Restore the starter views</button></div>
+      )}
+    </>
   );
 }

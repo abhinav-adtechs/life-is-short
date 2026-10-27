@@ -10,6 +10,7 @@ import { DOW, DOWL, MIN, MON, atMinutes, endOf, isWeekend, isoWeek, minsOf, star
 import { hourOf } from './drag';
 import { usePlanner, useLists } from './Planner';
 import { BackIcon, ChevronLeft, ChevronRight, XIcon } from './icons';
+import { LayoutChip } from './Split';
 
 const tint = (color: string | null) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -22,7 +23,7 @@ function clickMinute(col: HTMLElement, clientY: number) {
 }
 
 function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; lanes: number; dayStart: number; h0: number; hour: number }) {
-  const { drag, openEditor, unslot, now, colorOf, prefs } = usePlanner();
+  const { drag, openEditor, unslot, now, colorOf, prefs, faded } = usePlanner();
   const resizing = drag.view?.kind === 'resize' && drag.view.id === t.id;
   const minutes = resizing && drag.view?.minutes != null ? drag.view.minutes : t.minutes;
   const sMin = Math.max(0, ((t.start as number) - dayStart) / MIN);
@@ -41,7 +42,7 @@ function Block({ t, lane, lanes, dayStart, h0, hour }: { t: Task; lane: number; 
   const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
   const color = colorOf(t);
   const cls = 'block' + (small ? ' small' : '') + (mid ? ' mid' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '')
-    + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (missed ? ' missed' : '') + (color ? ' tint' : '');
+    + (resizing ? ' resizing' : '') + (live ? ' live' : '') + (missed ? ' missed' : '') + (color ? ' tint' : '') + (faded(t) ? ' faded' : '');
   const range = fmtRange(t.start as number, minutes);
   return (
     <div className={cls} data-block={t.id} role="button" tabIndex={0} aria-label={`${t.title}, ${range}${missed ? ', missed' : ''}. Press Enter to edit.`}
@@ -175,7 +176,7 @@ function DayHeads({ days, gutter }: { days: Date[]; gutter: number }) {
 
 /** Month view: whole weeks, a few tasks per day. Click a day to open it; with a task picked, click to put it there. */
 function MonthView({ compact }: { compact?: boolean }) {
-  const { day, now, tasks, prefs, setDay, setView, picked, placeOnDay, drag, openEditor, onCalendar, colorOf } = usePlanner();
+  const { day, now, tasks, prefs, setDay, setView, picked, placeOnDay, drag, openEditor, onCalendar, colorOf, faded } = usePlanner();
   const rows = monthGrid(day, prefs.weekStart);
   const month = day.getMonth();
   const todayKey = ymd(now);
@@ -207,7 +208,7 @@ function MonthView({ compact }: { compact?: boolean }) {
                 {compact ? (
                   list.length > 0 && (
                     <span className="mdots" aria-hidden="true">
-                      {list.slice(0, 4).map(t => <i key={t.id} className={t.status === 'done' ? 'done' : undefined} style={tint(colorOf(t))} />)}
+                      {list.slice(0, 4).map(t => <i key={t.id} className={[t.status === 'done' && 'done', faded(t) && 'faded'].filter(Boolean).join(' ') || undefined} style={tint(colorOf(t))} />)}
                     </span>
                   )
                 ) : (
@@ -217,7 +218,7 @@ function MonthView({ compact }: { compact?: boolean }) {
                       const moving = drag.view?.kind === 'block' && drag.view.id === t.id;
                       return (
                         <button key={t.id} type="button" style={tint(color)}
-                          className={'mchip' + (color ? ' tint' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '')}
+                          className={'mchip' + (color ? ' tint' : '') + (t.status === 'done' ? ' done' : '') + (moving ? ' moving' : '') + (faded(t) ? ' faded' : '')}
                           aria-label={`${t.title}, ${fmtRange(t.start as number, t.minutes)}. Opens the task.`}
                           onPointerDown={e => drag.begin(e, 'block', t.id, { grabY: 0 })}
                           onClick={e => { e.stopPropagation(); if (!drag.ignoreClick()) openEditor(t.id); }}>
@@ -256,7 +257,7 @@ function ArmBanner({ verb }: { verb: string }) {
   );
 }
 
-const VIEWS: CalView[] = ['day', 'work', 'week', 'month'];
+const VIEWS: CalView[] = ['day', 'three', 'work', 'week', 'month'];
 
 function ViewSwitch({ full }: { full?: boolean }) {
   const { view, setView } = usePlanner();
@@ -272,7 +273,7 @@ function ViewSwitch({ full }: { full?: boolean }) {
 /** Navigation for whatever view is showing. */
 function useNav() {
   const { day, setDay, view, prefs, now } = usePlanner();
-  const unit = view === 'day' ? 'day' : view === 'month' ? 'month' : view === 'work' && prefs.fiveDay === 'rolling' ? '5 days' : 'week';
+  const unit = view === 'day' ? 'day' : view === 'month' ? 'month' : view === 'three' ? '3 days' : view === 'work' && prefs.fiveDay === 'rolling' ? '5 days' : 'week';
   return {
     ...viewTitle(view, startOfDay(day), now, prefs),
     prevLabel: `Previous ${unit}`,
@@ -353,6 +354,7 @@ export function LaptopCalendar() {
         <div className="tools">
           <ArmBanner verb="Click" />
           <Nav />
+          <LayoutChip />
           <ViewSwitch />
         </div>
       </div>

@@ -286,10 +286,18 @@ function CalendarPrefs() {
   const { prefs, setPrefs, view, setView } = usePlanner();
   return (
     <Section id="calendar" title="Calendar">
-      <Opt label="View" note="This device only. You can also switch from the calendar." stack>
+      <Opt label="View" note="This device only. You can also switch from the calendar. On a laptop, picking days also sizes the calendar to fit them." stack>
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={view} onChange={setView}
-            options={[{ value: 'day', label: 'Day' }, { value: 'work', label: '5 days' }, { value: 'week', label: '7 days' }, { value: 'month', label: 'Month' }]} />
+            options={[{ value: 'day', label: 'Day' }, { value: 'three', label: '3 days' }, { value: 'work', label: '5 days' }, { value: 'week', label: '7 days' }, { value: 'month', label: 'Month' }]} />
+        )}
+      </Opt>
+
+      <Opt label="When the backlog is short of room" stack
+        note="On a laptop, a wide calendar leaves the backlog narrow. Counts keeps every priority as a number you can open; Fold keeps the most urgent readable and folds the rest.">
+        {({ labelId }) => (
+          <Choice labelledBy={labelId} value={prefs.tight} onChange={tight => setPrefs({ tight })}
+            options={[{ value: 'counts', label: 'Counts' }, { value: 'fold', label: 'Fold' }]} />
         )}
       </Opt>
 

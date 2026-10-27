@@ -5,10 +5,13 @@ import type { Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtTime, fmtWhen, longDate } from '@/lib/format';
 import { groupBacklog, type BacklogBy } from '@/lib/select';
+import { DEFAULT_LENS } from '@/lib/labels';
 import { endOf, MIN } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { useVoice } from './hooks';
 import { radio, radioKeys } from './Controls';
+import { LensBar } from './Lens';
+import { Matrix } from './Matrix';
 import { CalendarIcon, CalendarPlusIcon, CaretIcon, CheckIcon, MicIcon, MoreIcon, StopIcon } from './icons';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -192,8 +195,8 @@ function GroupSwitch() {
 }
 
 export function BacklogRows({ phone }: { phone?: boolean }) {
-  const { pending, store, prefs, labelOf, now } = usePlanner();
-  const { backlog, missed, done } = useLists();
+  const { pending, store, prefs, labelOf, now, setLens } = usePlanner();
+  const { backlog, missed, done, outside } = useLists();
   const [doneOpen, setDoneOpen] = useState(false);
   const stagger = useStagger(phone ? 0.22 : 0.16, phone ? 0.07 : 0.06);
   const Row = phone ? PhoneRow : LaptopRow;
@@ -216,8 +219,11 @@ export function BacklogRows({ phone }: { phone?: boolean }) {
           ))}
         </Fragment>
       ))}
-      {store.loaded && !backlog.length && !missed.length && !pending.length && (
+      {store.loaded && !backlog.length && !missed.length && !pending.length && !outside && (
         <p className="empty in">Nothing waiting. Mention a day or time and it goes on the calendar; anything else waits here.</p>
+      )}
+      {outside > 0 && (
+        <p className="mx-note">{outside} more outside this view. <button type="button" className="link inline" onClick={() => setLens(DEFAULT_LENS)}>Show everything</button></p>
       )}
       {done.length > 0 && (
         <>
@@ -304,6 +310,7 @@ export function PhoneScreen() {
         </header>
         <Inbox />
         <NowBlock phone />
+        <LensBar phone />
         <div className="sh tabs in" style={{ animationDelay: '.16s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
         <BacklogRows phone />
       </div>
@@ -312,20 +319,45 @@ export function PhoneScreen() {
   );
 }
 
+/** Laptop: what's still being sorted, what you missed, the matrix, and what's done. */
+function LaptopBacklog() {
+  const { pending } = usePlanner();
+  const { missed, done } = useLists();
+  const [doneOpen, setDoneOpen] = useState(false);
+  const stagger = useStagger(0.16, 0.06);
+  let i = 0;
+  return (
+    <>
+      {pending.map(p => <SortingRow key={p.id} text={p.text} />)}
+      {missed.length > 0 && <div className="gh in"><span>Missed</span><span>{missed.length}</span></div>}
+      {missed.map(t => <LaptopRow key={t.id} t={t} kind="missed" delay={stagger(i++)} />)}
+      <Matrix />
+      {done.length > 0 && (
+        <>
+          <div className="gh">
+            <button type="button" aria-expanded={doneOpen} onClick={() => setDoneOpen(o => !o)}><CaretIcon /> Done</button>
+            <span>{done.length}</span>
+          </div>
+          {doneOpen && done.map(t => <LaptopRow key={t.id} t={t} kind="done" delay="0s" />)}
+        </>
+      )}
+    </>
+  );
+}
+
 export function LaptopSide() {
-  const { now, openSettings, drag } = usePlanner();
-  const { backlog } = useLists();
+  const { now, openSettings, drag, split } = usePlanner();
   const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
   return (
-    <aside className={'side' + (dropOk ? ' drop-ok' : '')} aria-label="Now and backlog" data-backlog="">
+    <aside className={'side' + (dropOk ? ' drop-ok' : '')} style={{ width: split.matrixW }} aria-label="Now and backlog" data-backlog="">
       <div className="dateline in">
         <span className="date">{longDate(now)} · {fmtTime(now)}</span>
         <button type="button" className="ib quiet" aria-label="Settings" data-settings-button="" onClick={() => openSettings()}><MoreIcon size={18} /></button>
       </div>
       <Inbox />
       <NowBlock />
-      <div className="sh tabs in" style={{ animationDelay: '.12s' }}><span>Backlog · {backlog.length}</span><GroupSwitch /></div>
-      <div className="rows"><BacklogRows /></div>
+      <LensBar />
+      <div className="rows"><LaptopBacklog /></div>
       <CaptureBar />
     </aside>
   );
