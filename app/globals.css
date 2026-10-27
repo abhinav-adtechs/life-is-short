@@ -772,3 +772,14 @@ button{-webkit-user-select:none;user-select:none}
 /* Motion: follows the system unless Settings says otherwise. */
 @media (prefers-reduced-motion:reduce){:root:not([data-motion="full"]) *,:root:not([data-motion="full"]) *::before,:root:not([data-motion="full"]) *::after{animation:none!important;transition:none!important}}
 :root[data-motion="reduce"] *,:root[data-motion="reduce"] *::before,:root[data-motion="reduce"] *::after{animation:none!important;transition:none!important}
+
+/* Privacy page */
+.legal{box-sizing:border-box;max-width:680px;margin:0 auto;padding:56px 20px 96px;font:400 15.5px/1.6 var(--font);color:var(--ink)}
+.legal h1{margin:0 0 6px;font:600 30px/1.15 var(--font);letter-spacing:-.015em}
+.legal h2{margin:36px 0 8px;font:600 17px/1.3 var(--font)}
+.legal .meta{margin:0 0 28px;color:var(--muted);font-size:14px}
+.legal ul{margin:8px 0;padding-left:20px}
+.legal li{margin:6px 0}
+.legal a{color:var(--ink);text-decoration-color:var(--accent-line);text-underline-offset:3px;overflow-wrap:anywhere}
+.login .legal-link{display:block;margin-top:20px;font:500 13px/1 var(--font);color:var(--muted);text-decoration:none}
+.login .legal-link:hover{color:var(--ink)}

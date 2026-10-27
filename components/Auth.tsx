@@ -88,6 +88,7 @@ export function SignIn({ notice }: { notice?: string }) {
       <button type="submit" className="btn pri" disabled={busy}>Continue<ArrowIcon /></button>
       {msg && <p className="msg" role="alert">{msg}</p>}
       <p className="msg">You’ll confirm with your authenticator app next.</p>
+      <a className="legal-link" href="/privacy">Privacy</a>
     </Shell>
   );
 }
