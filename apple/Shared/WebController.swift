@@ -365,8 +365,8 @@ final class WebController: NSObject {
     private func loadFailed(_ error: Error) {
         let e = error as NSError
         if e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled { return }
-        // Our own cancel (a link that left the window) shows up as an interrupted load.
-        if e.domain == WKErrorDomain && e.code == WKError.Code.frameLoadInterruptedByPolicyChange.rawValue { return }
+        // Our own cancel (a link that left the window) shows up as WebKit's "frame load interrupted" (102).
+        if e.domain == "WebKitErrorDomain" && e.code == 102 { return }
         guard local == nil else { return }
         smoke?.failed("load: \(e.domain) \(e.code) \(e.localizedDescription)")
         showLocal(.offline(Self.describe(e)))

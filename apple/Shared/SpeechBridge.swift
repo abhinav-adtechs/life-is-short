@@ -59,17 +59,18 @@ final class SpeechBridge {
         guard isActive else { return fail(id, "aborted") }
         guard Self.recognizer(for: lang) != nil else { return fail(id, "language-not-supported") }
         pending = id
-        Self.requestSpeech { [weak self] speech in
-            Self.requestMicrophone(ifAllowed: speech) { granted in
-                Task { @MainActor in
-                    guard let self, self.pending == id else { return }
-                    self.pending = nil
-                    guard granted else { return self.fail(id, "not-allowed") }
-                    guard self.isActive, let recognizer = Self.recognizer(for: lang) else { return self.fail(id, "aborted") }
-                    self.begin(id: id, recognizer: recognizer, interim: interim, onDevice: onDevice)
-                }
-            }
+        Self.requestPermissions { granted in
+            Task { @MainActor in self.permissions(granted, id: id, lang: lang, interim: interim, onDevice: onDevice) }
         }
+    }
+
+    /// The answer to the microphone and speech prompts, for the start waiting on them.
+    private func permissions(_ granted: Bool, id: String, lang: String?, interim: Bool, onDevice: Bool) {
+        guard pending == id else { return }
+        pending = nil
+        guard granted else { return fail(id, "not-allowed") }
+        guard isActive, let recognizer = Self.recognizer(for: lang) else { return fail(id, "aborted") }
+        begin(id: id, recognizer: recognizer, interim: interim, onDevice: onDevice)
     }
 
     /// Stop listening, and hand over the last words once the recogniser has them.
@@ -207,6 +208,11 @@ final class SpeechBridge {
     private static func recognizer(for language: String?) -> SFSpeechRecognizer? {
         if let language, !language.isEmpty, let r = SFSpeechRecognizer(locale: Locale(identifier: language)) { return r }
         return SFSpeechRecognizer()
+    }
+
+    /// Speech recognition, then the microphone: both have to be allowed.
+    nonisolated private static func requestPermissions(_ done: @escaping @Sendable (Bool) -> Void) {
+        Self.requestSpeech { speech in Self.requestMicrophone(ifAllowed: speech, done) }
     }
 
     nonisolated private static func requestSpeech(_ done: @escaping @Sendable (Bool) -> Void) {
