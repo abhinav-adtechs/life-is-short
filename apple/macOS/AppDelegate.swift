@@ -3,6 +3,7 @@ import LifeIsShortCore
 
 /// The Mac app: one window onto the planner, the menu bar, and lifeisshort:// links. Closing the window keeps the
 /// planner running and signed in; the Dock icon or Window → Planner brings it back.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
     private var planner: WebViewController!
