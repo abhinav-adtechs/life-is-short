@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { clockLine } from '@/lib/format';
+import { unlockChallenge, unlockWithFaceId } from '@/lib/faceid';
 import { Brand } from './Brand';
 import { ArrowIcon } from './icons';
 import { useNow } from './hooks';
@@ -201,21 +202,56 @@ export function CreatePin({ onDone, onSignOut }: { onDone: () => void; onSignOut
   );
 }
 
-/** Every sign-in after the first: the PIN and an authenticator code. `codeDone` skips the code when one was just given. */
-export function PinUnlock({ factorId, email, codeDone, onDone, onLocked, onSignOut }: {
-  factorId: string; email: string | null; codeDone: boolean; onDone: () => void; onLocked: () => void; onSignOut: () => void;
+/**
+ * Keeps a Face ID challenge ready while `on`, so the Unlock tap goes straight to Face ID (Safari only shows it from a tap).
+ * Returns the unlock: Face ID, which renews this device's session. It resolves to an error message, or null.
+ */
+function useFaceIdUnlock(on: boolean) {
+  const ready = useRef<Awaited<ReturnType<typeof unlockChallenge>>>(null);
+  const load = () => { unlockChallenge().then(c => { ready.current = c; }); };
+  useEffect(() => {
+    if (!on) return;
+    load();
+    // A challenge lasts 5 minutes, and phones pause timers in the background.
+    const timer = window.setInterval(load, 4 * 60_000);
+    const vis = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', vis); };
+  }, [on]);
+  return async () => {
+    const c = ready.current;
+    ready.current = null; // each challenge works once
+    const err = await unlockWithFaceId(c);
+    if (err) load();
+    return err;
+  };
+}
+
+/**
+ * Every sign-in after the first: the PIN and an authenticator code, or on an iPhone or iPad with Face ID set up, the PIN
+ * and Face ID. `codeDone` skips the second step when one was just given.
+ */
+export function PinUnlock({ factorId, email, codeDone, faceId, onDone, onLocked, onSignOut }: {
+  factorId: string; email: string | null; codeDone: boolean; faceId: boolean; onDone: () => void; onLocked: () => void; onSignOut: () => void;
 }) {
   const [pin, setPin] = useState('');
   const [code, setCode] = useState('');
+  const [useCode, setUseCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const withFaceId = faceId && !codeDone && !useCode;
+  const faceIdUnlock = useFaceIdUnlock(withFaceId);
 
   async function unlock(e?: React.FormEvent) {
     e?.preventDefault();
-    if (pin.length < 6 || (!codeDone && code.length !== 6) || busy) return;
+    if (pin.length < 6 || (!codeDone && !withFaceId && code.length !== 6) || busy) return;
     setBusy(true); setMsg('');
     const sb = supabase();
-    if (!codeDone) {
+    if (withFaceId) {
+      // First thing after the tap, so Safari shows Face ID.
+      const err = await faceIdUnlock();
+      if (err) { setMsg(err); setBusy(false); return; }
+    } else if (!codeDone) {
       const { error } = await sb.auth.mfa.challengeAndVerify({ factorId, code });
       if (error) { setMsg(codeError(error)); setCode(''); setBusy(false); return; }
     }
@@ -231,12 +267,23 @@ export function PinUnlock({ factorId, email, codeDone, onDone, onLocked, onSignO
 
   return (
     <Shell title="Unlock" onSubmit={unlock}>
-      <div className="nm">{codeDone ? 'Enter your PIN.' : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
+      <div className="nm">{codeDone ? 'Enter your PIN.'
+        : withFaceId ? 'Enter your PIN, then confirm with Face ID.'
+          : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
       <PinField id="pin" label="PIN" value={pin} onChange={setPin} autoFocus />
-      {!codeDone && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
-      {codeDone && <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>{busy ? 'Checking…' : 'Unlock'}</button>}
+      {!codeDone && !withFaceId && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
+      {(codeDone || withFaceId) && (
+        <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>
+          {busy ? 'Checking…' : withFaceId ? 'Unlock with Face ID' : 'Unlock'}
+        </button>
+      )}
       {msg && <p className="msg" role="alert">{msg}</p>}
       <div className="minor">
+        {faceId && !codeDone && (
+          <button type="button" className="link" onClick={() => { setUseCode(!useCode); setMsg(''); }}>
+            {useCode ? 'Use Face ID instead' : 'Use a code instead'}
+          </button>
+        )}
         <button type="button" className="link" onClick={onSignOut}>Forgot your PIN? Sign in with your password</button>
       </div>
     </Shell>

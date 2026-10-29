@@ -6,10 +6,11 @@ Everything needed to take Life is short live, in order. Each step says what it u
 
 1. Create a project. Pick a region near you (Mumbai, `ap-south-1`) and a strong database password, and keep that password in your password manager.
 2. SQL editor, in order:
-   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, then `supabase/roles/primary_backup_reader.sql`.
+   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, `0007_face_id.sql`, then `supabase/roles/primary_backup_reader.sql`.
 3. Authentication settings:
    - Sign In / Providers → Email: **Allow new users to sign up: off**. Minimum password length 16.
    - Multi-Factor: TOTP **enabled** (enroll and verify).
+   - Passkeys, only for Face ID on iPhone and iPad: **Enable Passkey authentication** on, Relying Party ID = your Vercel domain, Origins = `https://` + that domain ([setup.md](setup.md#1-supabase-primary), step 6).
    - URL Configuration: Site URL = your Vercel URL from step 4.
 4. Authentication → Users → Add user: your email, a long random password, auto-confirm on.
 5. Load your tasks: run the seed SQL (generated with `node scripts/seed-sql.mjs <tasks.json> <email>`) in the SQL editor.
@@ -17,8 +18,8 @@ Everything needed to take Life is short live, in order. Each step says what it u
 ## 2. Backup database *(account: Supabase, ideally a separate organization)*
 
 1. Create a second project.
-2. SQL editor: `0001` to `0006`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
-3. Same auth settings as above. Add the same email as a user, with its **own** password. Nobody signs in to the backup; the user only owns the copied rows.
+2. SQL editor: `0001` to `0007`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
+3. Same auth settings as above, without passkeys. Add the same email as a user, with its **own** password. Nobody signs in to the backup; the user only owns the copied rows.
 
 ## 3. Logins for the backup job *(account: Supabase)*
 
@@ -75,11 +76,14 @@ Only if you want to share view-only links. Follow [setup.md → Sharing](setup.m
 
 Open `/app` → email + password → scan the QR code with an authenticator app → enter the code → choose a PIN. From then on you sign in with the PIN and an authenticator code, once a day.
 
+On an iPhone or iPad, sign in the same way once, then Settings → Account → Face ID → **Set up** → **Use Face ID**. From then on that device unlocks with the PIN and Face ID; **Use a code instead** is always there.
+
 ## Checks after go-live
 
 - In a private window, `/` and `/privacy` load without signing in; `/app` asks you to sign in.
 - Sign out, sign in: password, then code. Wrong code is refused.
 - A day later: PIN + code, no password. A wrong PIN is refused.
+- With Face ID set up, a day later on the iPhone: PIN + Face ID, no code. Cancel Face ID: nothing unlocks.
 - In another browser, sign in with the password only: no tasks load.
 - The task you add on your phone shows on the laptop within a few seconds.
 - Actions → Weekly security check → Run workflow: green.

@@ -4,9 +4,11 @@ export interface PinStatus {
   has_pin?: boolean;
   /** The database will show this session your data right now. */
   unlocked?: boolean;
-  /** Seconds since this session used the password / an authenticator code; null if never. */
+  /** Seconds since this session used the password / an authenticator code or Face ID; null if never. */
   password_age?: number | null;
   code_age?: number | null;
+  /** A code or Face ID in the last 24 hours. Face ID is only known to the database, not the session's claims. */
+  code_fresh?: boolean;
   /** Seconds until this session locks again. */
   seconds_left?: number;
 }
@@ -15,19 +17,20 @@ export type Step =
   | 'enroll'      // set up the authenticator (first sign-in)
   | 'code'        // authenticator code only (right after a password sign-in)
   | 'create-pin'  // choose a PIN (first sign-in, after the code)
-  | 'pin-code'    // PIN + authenticator code: every sign-in after the first
-  | 'pin-only'    // PIN again, the code was just given
+  | 'pin-code'    // PIN + authenticator code (or Face ID): every sign-in after the first
+  | 'pin-only'    // PIN again, the code or Face ID was just given
   | 'password'    // sign in with the password (no PIN yet, or it was erased)
   | 'ready';
 
 /** Choosing a PIN needs a password sign-in this recent. Mirrors set_pin(). */
 export const PIN_SETUP_WINDOW_S = 600;
-/** A code this recent doesn't need to be typed again for a PIN retry. */
+/** A code (or Face ID) this recent doesn't need to be given again for a PIN retry. */
 const CODE_REUSE_S = 300;
 
 /**
  * The next sign-in screen.
- * First time on a device: password → code (→ choose a PIN, once). After that: PIN + code, every 24 hours.
+ * First time on a device: password → code (→ choose a PIN, once). After that: PIN + code or Face ID, every 24 hours.
+ * `codeFresh` is true after either.
  */
 export function nextStep(a: { hasFactor: boolean; codeFresh: boolean; status: PinStatus }): Step {
   const s = a.status;

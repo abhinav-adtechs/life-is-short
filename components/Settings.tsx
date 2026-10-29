@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeImport } from '@/lib/importer';
 import { hasSupabase, supabase } from '@/lib/supabase';
 import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, TEXT_SIZES, THEMES, accentColor, fontHref, type Prefs } from '@/lib/prefs';
 import { isHex } from '@/lib/color';
 import { fmtHour } from '@/lib/format';
+import { canUseFaceId, deviceName, faceIdError, setUpFaceId, setupChallenge, type Challenge } from '@/lib/faceid';
 import { usePlanner } from './Planner';
 import { prefersReducedMotion } from './hooks';
 import { CheckIcon } from './icons';
@@ -334,6 +335,81 @@ function AccountSection() {
           <button type="button" className="btn sec sm" onClick={() => supabase().auth.signOut()}>Sign out</button>
         </div>
       )}
+      <FaceIdSetting />
     </Section>
+  );
+}
+
+type FaceIdStep =
+  | { at: 'hidden' }
+  | { at: 'off' }
+  | { at: 'confirm'; challenge: Challenge<PublicKeyCredentialCreationOptions> }
+  | { at: 'on'; ids: string[]; here: boolean };
+
+/**
+ * Face ID instead of the authenticator code, on an iPhone or iPad (lib/faceid.ts). It's set up there, but shows
+ * wherever it's on, so a lost phone's passkey can be turned off from anywhere. Off everywhere at once.
+ */
+function FaceIdSetting() {
+  const { toast } = usePlanner();
+  const [step, setStep] = useState<FaceIdStep>({ at: 'hidden' });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const [{ data }, here] = await Promise.all([supabase().auth.passkey.list(), canUseFaceId()]);
+    setStep(data?.length ? { at: 'on', ids: data.map(p => p.id), here } : here ? { at: 'off' } : { at: 'hidden' });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // Ask for the passkey first, so the next tap goes straight to Face ID.
+  const prepare = async () => {
+    setBusy(true);
+    const r = await setupChallenge();
+    setBusy(false);
+    if ('error' in r) toast(r.error);
+    else setStep({ at: 'confirm', challenge: r.challenge });
+  };
+
+  const create = async (c: Challenge<PublicKeyCredentialCreationOptions>) => {
+    setBusy(true);
+    const err = await setUpFaceId(c);
+    setBusy(false);
+    toast(err ?? 'Face ID is on');
+    load();
+  };
+
+  const turnOff = async (ids: string[]) => {
+    setBusy(true);
+    const sb = supabase();
+    const failed = (await Promise.all(ids.map(id => sb.auth.passkey.delete({ passkeyId: id })))).find(r => r.error);
+    setBusy(false);
+    toast(failed ? faceIdError(failed.error) : 'Face ID is off');
+    load();
+  };
+
+  if (step.at === 'hidden') return null;
+  const device = deviceName();
+  if (step.at === 'confirm') return (
+    <div className="set-form">
+      <p className="note">Your {device} will save a passkey for Life is short and check it’s you with Face ID. You’ll still enter your PIN.</p>
+      <div className="acts">
+        <button type="button" className="btn pri sm" disabled={busy} onClick={() => create(step.challenge)}>{busy ? 'Setting up…' : 'Use Face ID'}</button>
+        <button type="button" className="btn sec sm" onClick={() => setStep({ at: 'off' })}>Cancel</button>
+      </div>
+    </div>
+  );
+  if (step.at === 'off') return (
+    <Opt label="Face ID" note={`Unlock this ${device} with your PIN and Face ID, instead of a code from your authenticator app.`}>
+      {() => <button type="button" className="btn sec sm" disabled={busy} onClick={prepare}>Set up</button>}
+    </Opt>
+  );
+  return (
+    <>
+      <Opt label="Face ID" note="On: your iPhone or iPad unlocks with your PIN and Face ID. Codes from your authenticator app still work.">
+        {() => <button type="button" className="btn sec sm" disabled={busy} onClick={() => turnOff(step.ids)}>Turn off</button>}
+      </Opt>
+      {/* iCloud Keychain usually brings the passkey to your other devices; one that doesn't sync can add its own. */}
+      {step.here && <div className="minor"><button type="button" className="link" disabled={busy} onClick={prepare}>Set up on this {device} too</button></div>}
+    </>
   );
 }

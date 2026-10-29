@@ -20,12 +20,13 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0006` in order, then `supabase/roles/primary_backup_reader.sql`.
-   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it).
+2. SQL editor: run `supabase/migrations/0001` to `0007` in order, then `supabase/roles/primary_backup_reader.sql`.
+   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it; `0007` adds Face ID, and the weekly check wants the 2FA rule identical on both).
 3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
 4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
 5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
-6. Project Settings → API: copy the project URL and the `anon` key for Vercel.
+6. For Face ID on iPhone and iPad (optional): Authentication → Passkeys, turn on **Enable Passkey authentication**, and set **Relying Party Display Name** `Life is short`, **Relying Party ID** your app's domain with no `https://` (say `lifeisshort.vercel.app`) and **Relying Party Origins** its full address (`https://lifeisshort.vercel.app`). Pick the domain you'll keep: changing the ID makes every Face ID set-up stop working. Supabase marks passkeys experimental. The app never signs in with a passkey alone; see [`security.md`](security.md#face-id).
+7. Project Settings → API: copy the project URL and the `anon` key for Vercel.
 
 ### 2. Load your tasks
 
@@ -102,7 +103,7 @@ Open **Settings** from the header on a laptop or the `•••` menu on a phone
 - **Appearance**: three themes, Tide (light), Night train (dark) and Day train (light), or match your device (Night train when it's dark, Tide when it's light); the theme's own accent, one of ten others or your own (nudged until it reads against the background); ambient light (Present, Quiet or Still: the wave, the passing light and the lamp); motion (system, on, reduced; reduced also holds the ambient light still); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; list density; increased contrast; 12- or 24-hour clock.
 - **Calendar**: your day (the hours the calendar fits to and where tasks get slotted, also given to the AI); week start (Monday, Sunday or Saturday); what 5 days shows (the next 5 days, or Monday to Friday); hour height on a phone; colour events by label (the default), account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers. On a laptop the divider picks how many days the calendar shows (1, 2, 3, 5 or 7).
 - **Labels**: the parts of your life your tasks sort into (Work, Personal and Helping others to start). Rename, recolour, reorder, add up to 12 or remove them. The AI picks a label for each thing you dump, a `#tag` that names one picks it without the AI, and the task editor changes it. The backlog is a matrix of label by priority: click or tap a cell to filter the list to it.
-- **Google accounts**: connect, pull, colour, show or hide each account; give it a default label (and a calendar inside it another), so its events show in that label's colour. **Your tasks** (import) and **Account** (password, sign out).
+- **Google accounts**: connect, pull, colour, show or hide each account; give it a default label (and a calendar inside it another), so its events show in that label's colour. **Your tasks** (import) and **Account** (PIN, password, sign out, and Face ID: set up on an iPhone or iPad, turned off from any device).
 - **Sharing**: who can see your planner, what they see (backlog; calendar today, upcoming or all; titles or busy only; items from Google; whether they can suggest tasks) and until when; their signed-in devices, last visit, an activity log of every sign-in, view, wrong code and suggestion; their suggestions to approve or decline; "See what they see"; and Stop sharing, which signs them out at once. A badge on the planner shows suggestions waiting.
 
 The theme, accent, ambient light and the laptop split stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
@@ -120,8 +121,9 @@ The theme, accent, ambient light and the laptop split stay on each device. Every
 - The laptop layout: `lib/layout.ts` (the split between matrix and calendar as a fraction, its presets and the days each shows), `components/Split.tsx` (the divider), `lib/select.ts` (`visibleRange` fits the calendar to your day, `progress` feeds the header) and `lib/analytics.ts` (the week in Analytics).
 - Labels: `lib/labels.ts` (the list, and which label a task or event has), `components/Labels.tsx` (the picker and Settings → Labels) and `supabase/migrations/0006` (the `label` column, also in the backup's comparison).
 - Sharing: `supabase/migrations/0005` (the share tables and functions), `app/api/share/*` (the viewer's sign-in, view and suggestions), `app/shared` and `components/SharedPlanner.tsx` (the viewer's page), `components/SharingSection.tsx` (Settings → Sharing) and `lib/share.ts`.
+- Face ID: `lib/faceid.ts` (spotting an iPhone or iPad, the passkey ceremony and its JSON), the unlock screen in `components/Auth.tsx`, Settings → Account in `components/Settings.tsx`, and `supabase/migrations/0007` (`face_id_unlock` and the 2FA rule that accepts it).
 
-Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
+Every API route requires a signed-in Supabase user who passed 2FA (a code, or Face ID) in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
 
 ## Keeping keys and tasks out of this public repo
 

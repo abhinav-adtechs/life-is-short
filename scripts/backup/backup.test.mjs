@@ -116,6 +116,54 @@ describe('sign-in rule in the database', () => {
     expect(await rpc(s, `select public.unlock_with_pin('482915')`)).toBe('no-pin');
     expect(await rpc(session(S1, 30, 10), `select public.set_pin('482915')`)).toBe('ok');
   });
+  // Face ID: a passkey sign-in on the side (aal1 to Supabase, no password), which vouches for the device's own session.
+  const passkey = (ago = 5) => ({ sub: P_OWNER, role: 'authenticated', session_id: 'cccccccc-0000-0000-0000-00000000000f', aal: 'aal1', amr: [{ method: 'passkey', timestamp: nowS() - ago }] });
+  const DEVICE = 'aaaaaaaa-0000-0000-0000-000000000006';
+  const device = session(DEVICE, 200000, 200000); // signed in with the password and a code days ago: aal2, locked
+  const vouch = async (claims, sid = DEVICE) => rpc(claims, `select public.face_id_unlock('${sid}')`);
+  it('Face ID renews the device’s own session; the PIN is still needed', async () => {
+    await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${DEVICE}', '${P_OWNER}', 'aal2')`);
+    expect(await count(device)).toBe(0);
+    expect(await rpc(device, `select public.unlock_with_pin('482915')`)).toBe('code-required');
+    expect(await vouch(passkey())).toBe('ok');
+    expect(await count(device)).toBe(0);
+    const st = await rpc(device, 'select public.pin_status()');
+    expect(st).toMatchObject({ has_pin: true, unlocked: false, code_fresh: true });
+    expect(st.code_age).toBeLessThan(60);
+    expect(await rpc(device, `select public.unlock_with_pin('000000')`)).toBe('wrong');
+    expect(await rpc(device, `select public.unlock_with_pin('482915')`)).toBe('ok');
+    expect(await count(device)).toBe(3);
+    expect(await rpc(device, 'select public.pin_status()')).toMatchObject({ unlocked: true, code_fresh: true });
+    expect((await rpc(device, 'select public.pin_status()')).seconds_left).toBeGreaterThan(86000);
+  });
+  it('the passkey session itself gets nothing', async () => {
+    expect(await count(passkey())).toBe(0);
+    expect(await rpc(passkey(), `select public.unlock_with_pin('482915')`)).toBe('code-required');
+  });
+  it('only a passkey sign-in from the last two minutes can vouch', async () => {
+    expect(await vouch(passkey(300))).toBe('face-id-required');
+    expect(await vouch(session(S1, 30, 10))).toBe('face-id-required');
+  });
+  it('only for a session of yours that passed a code once', async () => {
+    const half = 'aaaaaaaa-0000-0000-0000-000000000007';
+    await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${half}', '${P_OWNER}', 'aal1'), ('aaaaaaaa-0000-0000-0000-000000000008', '${B_OWNER}', 'aal2')`);
+    expect(await vouch(passkey(), half)).toBe('not-this-session');
+    expect(await vouch(passkey(), 'aaaaaaaa-0000-0000-0000-000000000008')).toBe('not-this-session');
+    expect(await vouch(passkey(), 'aaaaaaaa-0000-0000-0000-0000000000ff')).toBe('not-this-session');
+    expect(await vouch({ ...passkey(), sub: B_OWNER })).toBe('not-this-session');
+    await primary.exec(`delete from auth.sessions where id <> '${DEVICE}'`);
+  });
+  it('Face ID lasts 24 hours, and can’t choose a PIN', async () => {
+    expect(await rpc(device, `select public.set_pin('111111')`)).toBe('password-required');
+    await primary.exec(`update private.face_ids set verified_at = now() - interval '25 hours'`);
+    expect(await count(device)).toBe(0);
+    expect(await rpc(device, 'select public.pin_status()')).toMatchObject({ code_fresh: false, unlocked: false });
+    await primary.exec('delete from private.face_ids; delete from auth.sessions');
+  });
+  it('Face ID records are out of reach from the app', async () => {
+    await expect(as(primary, 'authenticated', session(S1, 30, 10), 'select * from private.face_ids')).rejects.toThrow(/permission denied/);
+    await expect(as(primary, 'anon', {}, `select public.face_id_unlock('${DEVICE}')`)).rejects.toThrow(/permission denied/);
+  });
   it('the PIN table is out of reach from the app', async () => {
     await expect(as(primary, 'authenticated', session(S1, 30, 10), 'select * from private.pins')).rejects.toThrow(/permission denied/);
   });
@@ -191,9 +239,52 @@ describe('breach checks on real snapshots', () => {
       .toEqual(expect.arrayContaining(['primary:access-rule', 'both:access-rule']));
   });
   it('block when the 2FA rule itself is weakened', async () => {
-    const original = sql('migrations/0002_require_fresh_2fa.sql').match(/create or replace function private\.mfa_fresh\(\)[\s\S]*?\$\$;/)[0];
+    const original = sql('migrations/0007_face_id.sql').match(/create or replace function private\.mfa_fresh\(\)[\s\S]*?\$\$;/)[0];
     expect(await tampered(`create or replace function private.mfa_fresh() returns boolean language sql stable set search_path = '' as $$ select true $$;`, original))
       .toEqual(expect.arrayContaining(['primary:2fa-rule', 'both:2fa-rule']));
+  });
+  it('note Face ID, and warn when a passkey is new or on the backup', async () => {
+    const run = async () => evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings;
+    await primary.exec(`insert into auth.webauthn_credentials (user_id) values ('${P_OWNER}')`);
+    try {
+      let found = await run();
+      expect(found.filter(f => f.level !== 'info')).toEqual([]);
+      expect(found).toEqual(expect.arrayContaining([{ level: 'info', check: 'primary:face-id', detail: '1 Face ID passkey(s) set up, 0 Face ID unlock(s) in 7 days' }]));
+      // Used today: its row changes, but it isn't new.
+      await primary.exec(`update auth.webauthn_credentials set updated_at = now(), last_used_at = now()`);
+      expect((await run()).filter(f => f.level !== 'info')).toEqual([]);
+      await primary.exec(`insert into auth.webauthn_credentials (user_id, created_at) values ('${P_OWNER}', now())`);
+      expect(await run()).toEqual(expect.arrayContaining([{ level: 'warn', check: 'primary:face-id', detail: '1 Face ID passkey(s) added in the last 8 days' }]));
+      await backup.exec(`insert into auth.webauthn_credentials (user_id) values ('${B_OWNER}')`);
+      expect(await run()).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'warn', check: 'backup:face-id' })]));
+    } finally {
+      await primary.exec('delete from auth.webauthn_credentials');
+      await backup.exec('delete from auth.webauthn_credentials');
+    }
+  });
+  it('say so when the passkeys can’t be read', () => {
+    const p = { users: [], passkeys: { unavailable: true } };
+    expect(evaluate({ primary: p, backup: p, ownerSha: OWNER_SHA }).findings).toEqual(expect.arrayContaining([
+      { level: 'info', check: 'primary:face-id', detail: 'couldn’t read the Face ID passkeys (auth.webauthn_credentials)' },
+    ]));
+  });
+  it('don’t take a Face ID unlock for a password that skipped 2FA', async () => {
+    const [face, half] = ['bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002'];
+    await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${face}', '${P_OWNER}', 'aal1'), ('${half}', '${P_OWNER}', 'aal1');
+      insert into auth.mfa_amr_claims (session_id, authentication_method) values ('${face}', 'passkey'), ('${half}', 'password')`);
+    try {
+      const found = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings.filter(f => f.check === 'primary:sessions');
+      expect(found).toEqual([
+        { level: 'warn', check: 'primary:sessions', detail: '1 sign-in(s) in 7 days passed the password but not 2FA' },
+        { level: 'info', check: 'primary:sessions', detail: '2 sign-ins in 7 days from 0 IP(s), 0 device(s)' },
+      ]);
+    } finally {
+      await primary.exec('delete from auth.mfa_amr_claims; delete from auth.sessions');
+    }
+  });
+  it('block when a passkey belongs to another account', async () => {
+    expect(await tampered(`insert into auth.webauthn_credentials (user_id) values ('33333333-3333-3333-3333-333333333333')`,
+      'delete from auth.webauthn_credentials')).toContain('primary:face-id');
   });
   it('block when another account appears', async () => {
     expect(await tampered(`insert into auth.users (id, email) values ('33333333-3333-3333-3333-333333333333', 'intruder@example.com')`,

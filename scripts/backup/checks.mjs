@@ -14,6 +14,8 @@ const WARNING_EVENTS = [
 const DAY = 864e5;
 /** Functions the app calls; anything else in the public schema is a surprise. */
 const PUBLIC_FUNCTIONS = new Set(['pin_status', 'set_pin', 'unlock_with_pin']);
+/** Face ID (migration 0007). Allowed, but not required: the 2FA rule check already wants both projects on it. */
+const FACE_ID_FUNCTIONS = new Set(['face_id_unlock']);
 /** Sharing (migration 0005). Allowed, but not required: a project without it just shares nothing. */
 const VIEWER_FUNCTIONS = new Set(['share_ping', 'share_code', 'share_sign_in', 'share_view', 'share_request', 'share_sign_out']);
 const SHARE_FUNCTIONS = new Set([
@@ -43,11 +45,14 @@ function checkProject(snap, which, ownerSha, f) {
   if (users.length !== 1) f.block(`${P}:users`, `${users.length} accounts exist (expected exactly 1)`);
 
   const factors = snap.factors || [];
+  const passkeys = Array.isArray(snap.passkeys) ? snap.passkeys : [];
+  if (snap.passkeys?.unavailable) f.info(`${P}:face-id`, 'couldn’t read the Face ID passkeys (auth.webauthn_credentials)');
   const s = snap.sessions_7d || {};
   const pins = snap.pins || { count: 0, failed: 0 };
   if (which === 'backup') {
     // The backup has no app: nobody should ever sign in to it.
     if (factors.length) f.warn(`${P}:2fa`, `${factors.length} authenticator(s) set up on the backup, which has no app`);
+    if (passkeys.length) f.warn(`${P}:face-id`, `${passkeys.length} Face ID passkey(s) on the backup, which has no app`);
     if (!s.unavailable && s.count > 0) f.warn(`${P}:sessions`, `${s.count} sign-in(s) in 7 days on the backup, which has no app`);
     if (pins.count > 0) f.warn(`${P}:pin`, 'a PIN was set on the backup, which has no app');
   } else {
@@ -60,6 +65,12 @@ function checkProject(snap, which, ownerSha, f) {
     const nowMs = Date.parse(snap.at) || Date.now();
     const recent = factors.filter(x => nowMs - Date.parse(x.updated_at || x.created_at) < 8 * DAY).length;
     if (recent) f.warn(`${P}:2fa`, `${recent} authenticator factor(s) added or changed in the last 8 days`);
+    // Face ID stands in for the code, so a new passkey is a new way past it. Its row changes on every use: only when it was added counts.
+    const keyStrangers = passkeys.filter(x => !owner || x.user_id !== owner.id).length;
+    if (keyStrangers) f.block(`${P}:face-id`, `${keyStrangers} Face ID passkey(s) belong to another account`);
+    const newKeys = passkeys.filter(x => nowMs - Date.parse(x.created_at) < 8 * DAY).length;
+    if (newKeys) f.warn(`${P}:face-id`, `${newKeys} Face ID passkey(s) added in the last 8 days`);
+    if (passkeys.length) f.info(`${P}:face-id`, `${passkeys.length} Face ID passkey(s) set up, ${snap.face_id_7d || 0} Face ID unlock(s) in 7 days`);
     if (!s.unavailable && s.still_aal1 > 0) f.warn(`${P}:sessions`, `${s.still_aal1} sign-in(s) in 7 days passed the password but not 2FA`);
     if (!s.unavailable) f.info(`${P}:sessions`, `${s.count || 0} sign-ins in 7 days from ${s.distinct_ips || 0} IP(s), ${s.distinct_agents || 0} device(s)`);
     if (!pins.count) f.warn(`${P}:pin`, 'no PIN set yet');
@@ -92,7 +103,7 @@ function checkProject(snap, which, ownerSha, f) {
   for (const p of have) if (!want.some(w => w.table === p.table && w.name === p.name)) f.block(`${P}:policies`, `unexpected policy "${p.name}" on ${p.table}`);
 
   if ((snap.public_grants || []).length) f.block(`${P}:grants`, `signed-out visitors have ${snap.public_grants.length} privilege(s) on public tables`);
-  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n) && !SHARE_FUNCTIONS.has(n));
+  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n) && !SHARE_FUNCTIONS.has(n) && !FACE_ID_FUNCTIONS.has(n));
   if (extraFns.length) f.warn(`${P}:functions`, `${extraFns.length} unexpected function(s) in the public schema`);
   for (const n of PUBLIC_FUNCTIONS) if (!(snap.public_functions || []).includes(n)) f.block(`${P}:functions`, `the ${n} function is missing`);
 

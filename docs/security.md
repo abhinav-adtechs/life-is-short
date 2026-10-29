@@ -5,12 +5,23 @@ How Life is short keeps your tasks yours, and how the backup database works. Set
 ## Signing in
 
 - **First sign-in on a device:** email + password, then a 6-digit code from an authenticator app (TOTP), then, the very first time, choose a PIN (6–12 digits). There's no sign-up, password reset or email link in the app.
-- **Every sign-in after that:** your **PIN + an authenticator code**, once every 24 hours. Never the password. The app locks itself when the 24 hours run out.
+- **Every sign-in after that:** your **PIN + an authenticator code**, once every 24 hours. Never the password. The app locks itself when the 24 hours run out. On an iPhone or iPad you can use [Face ID](#face-id) instead of the code.
 - **Wrong PINs:** after 5 in a row, the PIN is erased and every session is signed out. You sign in with the password again and choose a new PIN.
-- **The database enforces all of this** (`supabase/migrations/0004`). Restrictive row-level security only returns or accepts rows for a session that passed an authenticator code in the last 24 hours **and** either signed in with the password or unlocked with the PIN in the last 24 hours. The PIN is stored as a bcrypt hash and checked inside the database. A stolen password, PIN or session token alone reads nothing. The API routes ask the database the same question.
-- **Changing the PIN** (Settings → Account) needs a password sign-in in the last 10 minutes.
+- **The database enforces all of this** (`supabase/migrations/0004`, and `0007` for Face ID). Restrictive row-level security only returns or accepts rows for a session that passed an authenticator code (or Face ID) in the last 24 hours **and** either signed in with the password or unlocked with the PIN in the last 24 hours. The PIN is stored as a bcrypt hash and checked inside the database. A stolen password, PIN or session token alone reads nothing. The API routes ask the database the same question.
+- **Changing the PIN** (Settings → Account) needs a password sign-in in the last 10 minutes. Face ID never counts for this.
 - **Browser hardening:** a strict nonce-based Content-Security-Policy (only our scripts run; the page talks only to itself and Supabase), no framing, HSTS, no referrer, and no caching of API responses.
-- **Lost your phone?** Remove the factor in Supabase → Authentication → Users → your user → MFA factors, then sign in with your password and set up a new one.
+- **Lost your phone?** Remove the factor in Supabase → Authentication → Users → your user → MFA factors, then sign in with your password and set up a new one. If it had Face ID, turn it off from another device (Settings → Account → Face ID → Turn off), or in the SQL editor: `delete from auth.webauthn_credentials;`.
+
+## Face ID
+
+On an iPhone or iPad, Face ID can stand in for the authenticator code. It's a passkey for your account, kept in iCloud Keychain: it only works on this app's domain, so it can't be phished, and the app never sees your face or the key. How it works (`supabase/migrations/0007`, `lib/faceid.ts`):
+
+- **It renews a device you've already signed in on.** Each device first signs in with the password and a code, which makes its session aal2 in Supabase's terms. On the unlock screen, Face ID signs in with the passkey on the side (Supabase calls that aal1), and that passkey session, within two minutes, calls `face_id_unlock` to vouch for the device's own session, then signs out. The 2FA rule (`private.mfa_fresh`) accepts a vouch for that session for 24 hours, just like a code. The PIN is still asked for on top.
+- **Why on the side:** Supabase signs out every aal1 session whenever a code is verified, so a passkey session of its own would be thrown out each time you unlock your laptop with a code. The device's aal2 session isn't.
+- **What it can't do:** vouch for a session that never passed a code, or someone else's; stand in for the password (choosing a PIN still takes the password); or show anything by itself, since a passkey session alone fails the 2FA rule. The app never offers sign-in with a passkey alone.
+- **Setting it up** (Settings → Account → Face ID) takes a session that passed a code (Supabase refuses to add a passkey at aal1 while an authenticator is set up). **Turning it off** removes every passkey for the account, from any device.
+- **Like a second authenticator.** Someone holding a stolen session token could already add their own authenticator, and now a passkey too; they'd still need your PIN. That's why the weekly check flags any passkey added in the last 8 days, as it does for authenticators. Expect a warning in the week or so after you set Face ID up.
+- **Supabase's passkey setting** (Authentication → Passkeys) also turns on passkey sign-in, which is how Face ID works here. Leave it off if you don't use Face ID.
 
 ## Sharing
 
@@ -34,13 +45,13 @@ A second Supabase project, in another region, holds a copy of your tasks. It has
 
 - **Daily** (`.github/workflows/backup-sync.yml`): the job reads the primary through `backup_reader`, a read-only login, and overwrites the backup through `backup_writer`, which can only replace task rows. Before every overwrite it runs the breach checks below. If any of them **blocks**, it doesn't overwrite, and the backup keeps the last good copy.
 - **Weekly** (`.github/workflows/backup-verify.yml`, Mondays): it repeats the checks on both databases, re-syncs, confirms the copies match byte for byte (by hash), and fails on warnings too. A failed run makes GitHub email you.
-- **What's checked** (`scripts/backup/checks.mjs`): exactly one account, and it's yours; exactly one verified authenticator, and none added or changed recently; wrong PIN attempts; sign-ins that passed the password but not 2FA; sign-up, password-change and recovery events; row-level security on every table; the exact set of policies and functions; no access for signed-out visitors; the 2FA and sign-in rules unchanged and identical on both projects; no unexpected database logins; any sign-in, authenticator, PIN or sharing on the backup (it has no app); wrong viewer codes; mass deletions or mass edits; and a backup that was edited since the last sync.
+- **What's checked** (`scripts/backup/checks.mjs`): exactly one account, and it's yours; exactly one verified authenticator, and none added or changed recently; Face ID passkeys, none of them someone else's or added recently; wrong PIN attempts; sign-ins that passed the password but not 2FA; sign-up, password-change and recovery events; row-level security on every table; the exact set of policies and functions; no access for signed-out visitors; the 2FA and sign-in rules unchanged and identical on both projects; no unexpected database logins; any sign-in, authenticator, PIN or sharing on the backup (it has no app); wrong viewer codes; mass deletions or mass edits; and a backup that was edited since the last sync.
 - **Public logs:** the repo is public, so the job prints check names and counts only. It never prints emails, IPs or task text.
 
 ### Set up the backup
 
 1. Create a second Supabase project, ideally under a separate Supabase organization.
-2. SQL editor: run `supabase/migrations/0001` to `0006`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
+2. SQL editor: run `supabase/migrations/0001` to `0007`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
 3. On each project set the job login's password (SQL editor, a long random value, never committed):
    `alter role backup_reader with password '…';` on the primary, and `alter role backup_writer with password '…';` on the backup.
 4. GitHub → Settings → Secrets and variables → Actions, add:
