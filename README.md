@@ -169,6 +169,8 @@ Connect **up to five Google accounts**, personal and work alike. Their **Google 
 
 Add a task on your phone in the queue for coffee and it's **on your laptop within seconds**. Live sync keeps every open screen up to date, and the phone and the laptop each get a layout built for them.
 
+**Apps for iPhone, iPad and Mac** wrap the same planner in a native window: dictation on the device, Siri and Shortcuts ("Dump a thought in Life is short"), Home Screen quick actions, and a Mac menu bar with every shortcut. They update whenever the planner does, and ship through TestFlight. See [`docs/apple.md`](docs/apple.md).
+
 Want to try it without an account? Run it with no keys and it works **entirely in your browser**.
 
 <br>
@@ -212,6 +214,7 @@ That's enough to try it. For your phone and laptop, add Supabase (sync and sign-
 - [**Setup guide**](docs/setup.md): local development, Supabase, Gemini, Google, Vercel and the full settings reference.
 - [**Go-live checklist**](docs/go-live.md): every step from zero to running on your phone, in order.
 - [**Security and backups**](docs/security.md): how sign-in, the database rules and the backup work.
+- [**iPhone, iPad and Mac apps**](docs/apple.md): the design, the one-time Apple setup, and releasing to TestFlight.
 
 Built with Next.js, TypeScript, Supabase and Gemini. Hosted on Vercel.
 

@@ -12,6 +12,7 @@ import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
+import { haptic } from '@/lib/native';
 import { useVoice, type Heard } from './hooks';
 import { usePlanner } from './Planner';
 import type { Store } from './store';
@@ -195,6 +196,7 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
     const { puts, summary } = commitChanges(plan.changes, store.get, Date.now(), labels);
     if (!puts.length) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
     const before = store.write(puts);
+    haptic('success');
     toast(summary, () => store.restore(before));
     remember(said(msgsRef.current), summary, () => store.restore(before));
     reset();

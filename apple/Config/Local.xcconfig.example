@@ -1,0 +1,11 @@
+// Your own settings, on top of Base.xcconfig. ./bootstrap.sh copies this to Local.xcconfig, which git ignores.
+// Uncomment what you need.
+
+// Your Team ID, to run on your iPhone, iPad or Mac.
+// DEVELOPMENT_TEAM = ABCDE12345
+
+// Your deployment's host, or localhost:3000 against npm run dev. Without it the app asks on first launch.
+// LIS_SERVER = life-is-short.vercel.app
+
+// Only if you registered a different bundle id.
+// LIS_BUNDLE_ID = com.example.lifeisshort
