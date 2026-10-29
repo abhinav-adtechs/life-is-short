@@ -381,6 +381,12 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .dock{position:fixed;left:50%;bottom:20px;z-index:30;display:flex;flex-direction:column;align-items:stretch;gap:10px;transform:translateX(-50%);pointer-events:none}
 .dock>*{pointer-events:auto}
 .dock>.toast,.dock>.waiting{align-self:center}
+/* While a task is dragged, Done and the trash take the chat bar's place (components/Tray.tsx). */
+.dock.dropping>.chat{visibility:hidden}
+.tray{position:absolute;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr;gap:10px;animation:lisPop 180ms var(--ease)}
+.tray-t{display:flex;align-items:center;justify-content:center;gap:8px;height:54px;border:1.5px dashed var(--hair2);border-radius:var(--r-chat);background:var(--raised);box-shadow:var(--shadow-float);font-weight:500;color:var(--muted);transition:background var(--fast),color var(--fast),border-color var(--fast),transform var(--fast) var(--ease)}
+.tray-t.over{border-style:solid;border-color:var(--ink);background:var(--ink);color:var(--raised);transform:scale(1.03)}
+.tray-t.trash.over{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
 .waiting{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 5px 0 12px;border:1px solid var(--hair2);border-radius:var(--r-md);background:var(--raised);box-shadow:var(--shadow-float);font-size:var(--t-13);color:var(--ink);animation:lisIn 200ms var(--ease)}
 .waiting b{display:inline-grid;place-items:center;height:24px;padding:0 9px;border-radius:var(--r-sm);background:var(--ink);color:var(--raised);font-weight:600}
 .chat{display:flex;flex-direction:column;min-height:0;background:var(--raised);border:1px solid var(--hair2);border-radius:var(--r-chat);box-shadow:var(--shadow-float);overflow:hidden}
@@ -811,6 +817,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .ph-list .mx-empty{padding:10px 16px}
 .prow{display:flex;align-items:flex-start;margin:0 8px;padding:0 8px 0 0;border:1px solid transparent;border-radius:var(--r-md);animation:var(--row-in)}
 .prow.ghosted{border-style:dashed;border-color:var(--faint)}
+.prow.lifting{opacity:.45}
 .prow .ck{width:44px;height:52px}
 .prow .ring{width:22px;height:22px}
 .prow-main{flex:1;min-width:0;display:block;padding:14px 0 12px;border:0;border-bottom:1px solid var(--hair);background:none;text-align:left;color:var(--ink)}
@@ -865,6 +872,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .dock.ph .mic.on{background:var(--accent);color:var(--on-accent)}
 .dock.ph .send{width:40px;height:40px}
 .dock.ph .hist-btn{width:44px;height:40px;border-left:1px solid var(--hair);border-radius:0}
+.dock.ph .tray-t{height:58px}
 .dock.ph.open{top:22%;left:0;right:0;bottom:0}
 .dock.ph.open .chat{flex:1;border-bottom:0;border-radius:var(--r-lg) var(--r-lg) 0 0;padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
 .dock.ph.open .chat-panel{flex:1;max-height:none;animation:lisSheet 240ms var(--ease)}
