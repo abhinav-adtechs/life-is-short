@@ -17,6 +17,7 @@ The PNGs are those two files rendered at these sizes:
 | `public/brand/icon-maskable-512.png` | square on the frame colour, with room around it | 512 | Android home screen, which crops to its own shape |
 | `public/brand/logo-120.png` | square | 120 | Google's OAuth consent screen ("App logo") |
 | `public/brand/logo-512.png` | square | 512 | Anywhere else that asks for a square logo |
+| `apple/Shared/Resources/Assets.xcassets/AppIcon.appiconset` | square (iOS), rounded on Apple's grid (Mac) | 1024; 16 to 1024 | The iPhone, iPad and Mac apps, drawn by `node apple/scripts/icons.mjs` |
 
 `app/opengraph-image.png` (and the same `twitter-image.png`) is the card a link to the app shows in chats and on
 social sites: the meadow from `public/scenes/meadow/`, the logo, and "Life is short. Look outside.", at 1200×630.

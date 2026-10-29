@@ -120,6 +120,7 @@ The theme, accent, ambient light and the laptop split stay on each device. Every
 - The laptop layout: `lib/layout.ts` (the split between matrix and calendar as a fraction, its presets and the days each shows), `components/Split.tsx` (the divider), `lib/select.ts` (`visibleRange` fits the calendar to your day, `progress` feeds the header) and `lib/analytics.ts` (the week in Analytics).
 - Labels: `lib/labels.ts` (the list, and which label a task or event has), `components/Labels.tsx` (the picker and Settings → Labels) and `supabase/migrations/0006` (the `label` column, also in the backup's comparison).
 - Sharing: `supabase/migrations/0005` (the share tables and functions), `app/api/share/*` (the viewer's sign-in, view and suggestions), `app/shared` and `components/SharedPlanner.tsx` (the viewer's page), `components/SharingSection.tsx` (Settings → Sharing) and `lib/share.ts`.
+- The iPhone, iPad and Mac apps: `apple/` (native shells around `/app`, [`apple.md`](apple.md)) and `lib/native.ts`, the page's side of their bridge: Siri, quick actions and the Mac menu bar reach `components/Planner.tsx` as commands, and Google's callback page hands sign-ins started in an app back to it. In a browser it does nothing.
 
 Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
 

@@ -75,6 +75,10 @@ Only if you want to share view-only links. Follow [setup.md → Sharing](setup.m
 
 Open `/app` → email + password → scan the QR code with an authenticator app → enter the code → choose a PIN. From then on you sign in with the PIN and an authenticator code, once a day.
 
+## 9. iPhone, iPad and Mac apps *(optional; account: Apple Developer)*
+
+Native apps around the same planner, installed from TestFlight. Follow [apple.md → One-time setup](apple.md#one-time-setup): register the bundle id, create the App Store Connect app, make an Admin API key, and add `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID` and `LIS_SERVER` to GitHub. Then Actions → **Apple release** → Run workflow. Nothing changes on Vercel or Google.
+
 ## Checks after go-live
 
 - In a private window, `/` and `/privacy` load without signing in; `/app` asks you to sign in.
