@@ -81,6 +81,12 @@ describe('Bridge.js', () => {
     expect(() => { win.lisNative = null; }).toThrow();
   });
 
+  it('says whether passkeys work in this app: only when it’s linked to the site', () => {
+    expect(loadBridge({}).win.lisNative.passkeys).toBe(false);
+    expect(loadBridge({ passkeys: 'yes' }).win.lisNative.passkeys).toBe(false);
+    expect(loadBridge({ passkeys: true }).win.lisNative.passkeys).toBe(true);
+  });
+
   it('holds commands until the planner listens', () => {
     const { win } = loadBridge({});
     win.lisNative._receive({ kind: 'command', command: { name: 'dump', text: 'Call mum' } });

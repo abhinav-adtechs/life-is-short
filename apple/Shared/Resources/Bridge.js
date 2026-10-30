@@ -36,6 +36,8 @@
     platform: config.platform,
     version: config.version,
     build: config.build,
+    /** The app is linked to this site (webcredentials), so passkeys work here. */
+    passkeys: config.passkeys === true,
     /** The app's own setup and offline page reads its state here. */
     page: config.page || null,
     post,

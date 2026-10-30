@@ -113,11 +113,12 @@ jobs:
         run: >
           xcodebuild archive -quiet -project apple/LifeIsShort.xcodeproj -scheme ${{ matrix.scheme }} -configuration Release
           -destination '${{ matrix.destination }}' -archivePath "$RUNNER_TEMP/LifeIsShort.xcarchive" CODE_SIGNING_ALLOWED=NO
-      - name: Sign it ad hoc with its entitlements, as a release does
+      - name: Sign it ad hoc with its entitlements, as a release with passkeys does
         run: |
-          apple/scripts/adhoc-sign.sh "$RUNNER_TEMP/LifeIsShort.xcarchive" ${{ matrix.platform }} ABCDE12345 io.github.abhinav-adtechs.lifeisshort
+          apple/scripts/adhoc-sign.sh "$RUNNER_TEMP/LifeIsShort.xcarchive" ${{ matrix.platform }} ABCDE12345 io.github.abhinav-adtechs.lifeisshort plan.example.com
+          app=$(find "$RUNNER_TEMP/LifeIsShort.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)
+          codesign -d --entitlements - --xml "$app" | grep -q 'webcredentials:plan.example.com'
           if [ ${{ matrix.platform }} = macos ]; then
-            mac="$RUNNER_TEMP/LifeIsShort.xcarchive/Products/Applications/Life is short.app"
-            codesign -d --entitlements - --xml "$mac" | grep -q com.apple.security.app-sandbox
-            lipo -info "$mac/Contents/MacOS/Life is short"
+            codesign -d --entitlements - --xml "$app" | grep -q com.apple.security.app-sandbox
+            lipo -info "$app/Contents/MacOS/Life is short"
           fi

@@ -5,7 +5,8 @@ name: Apple release
 # for each step are in docs/apple.md → Release to TestFlight.
 #
 # Needs: secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (an Admin API key); variables APPLE_TEAM_ID, LIS_SERVER and,
-# if it isn't the default, LIS_BUNDLE_ID.
+# if it isn't the default, LIS_BUNDLE_ID. LIS_PASSKEYS=1 links the apps to LIS_SERVER so passkeys work in them
+# (docs/apple.md → Passkeys in the apps).
 on:
   workflow_dispatch:
     inputs:
@@ -54,6 +55,7 @@ jobs:
       TEAM: ${{ vars.APPLE_TEAM_ID }}
       BUNDLE: ${{ vars.LIS_BUNDLE_ID || 'io.github.abhinav-adtechs.lifeisshort' }}
       SERVER: ${{ vars.LIS_SERVER }}
+      PASSKEYS: ${{ vars.LIS_PASSKEYS }}
       BUILD: ${{ github.run_number }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -70,6 +72,12 @@ jobs:
             exit 1
           fi
           [ -n "$SERVER" ] || echo "::warning::LIS_SERVER isn't set, so the app will ask for its server on first launch."
+          if [ "$PASSKEYS" = 1 ]; then
+            [ -n "$SERVER" ] || { echo "::error::LIS_PASSKEYS links the apps to LIS_SERVER for passkeys, so LIS_SERVER has to be set."; exit 1; }
+            host=${SERVER#*://}; host=${host%%/*}
+            echo "WEBCREDENTIALS=$host" >> "$GITHUB_ENV"
+            echo "LIS_PASSKEYS_SETTING=YES" >> "$GITHUB_ENV"
+          fi
           if [[ "$GITHUB_REF" == refs/tags/apple-v* ]]; then echo "VERSION=${GITHUB_REF_NAME#apple-v}" >> "$GITHUB_ENV"; fi
 
       - name: Generate the Xcode project
@@ -85,10 +93,10 @@ jobs:
           [ -z "${VERSION:-}" ] || version=("MARKETING_VERSION=$VERSION")
           xcodebuild archive -project apple/LifeIsShort.xcodeproj -scheme "$scheme" -configuration Release -destination "$dest" \
             -archivePath "$RUNNER_TEMP/LifeIsShort.xcarchive" CODE_SIGNING_ALLOWED=NO \
-            "LIS_BUNDLE_ID=$BUNDLE" "LIS_SERVER=$SERVER" "CURRENT_PROJECT_VERSION=$BUILD" "${version[@]}"
+            "LIS_BUNDLE_ID=$BUNDLE" "LIS_SERVER=$SERVER" "LIS_PASSKEYS=${LIS_PASSKEYS_SETTING:-NO}" "CURRENT_PROJECT_VERSION=$BUILD" "${version[@]}"
 
       - name: Sign ad hoc with the app's entitlements
-        run: apple/scripts/adhoc-sign.sh "$RUNNER_TEMP/LifeIsShort.xcarchive" "$PLATFORM" "$TEAM" "$BUNDLE"
+        run: apple/scripts/adhoc-sign.sh "$RUNNER_TEMP/LifeIsShort.xcarchive" "$PLATFORM" "$TEAM" "$BUNDLE" "${WEBCREDENTIALS:-}"
 
       - name: Sign for the App Store and upload
         run: |

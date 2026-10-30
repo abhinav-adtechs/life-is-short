@@ -22,6 +22,15 @@ enum AppEnvironment {
         UserDefaults.standard.set(server.absoluteString, forKey: serverKey)
     }
 
+    /// Passkeys work in the web view: the app is signed with webcredentials for the server it was built for
+    /// (LIS_PASSKEYS) and that's still the server. WebKit refuses passkeys for any site the app isn't linked to.
+    static var passkeys: Bool {
+        guard (Bundle.main.object(forInfoDictionaryKey: "LISPasskeys") as? String) == "YES",
+              let built = Bundle.main.object(forInfoDictionaryKey: serverKey) as? String,
+              let linked = ServerAddress.normalize(built), let server = Self.server else { return false }
+        return linked.host == server.host
+    }
+
     static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
     static var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0" }
 

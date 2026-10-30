@@ -150,6 +150,7 @@ final class WebController: NSObject {
             "version": AppEnvironment.version,
             "build": AppEnvironment.build,
             "speech": SpeechBridge.isSupported(),
+            "passkeys": AppEnvironment.passkeys,
             "debug": AppEnvironment.isDebug || AppEnvironment.smokeTest,
         ]
         if let page { config["page"] = page }

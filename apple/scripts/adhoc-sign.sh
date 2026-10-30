@@ -4,10 +4,12 @@
 # an export but not an archive, so the archive is built unsigned; but an unsigned archive carries no entitlements, and
 # the Mac app would lose its sandbox on export. Signing it here, ad hoc, gives the export entitlements to carry over.
 #
-# Usage: apple/scripts/adhoc-sign.sh <.xcarchive> ios|macos <team id> <bundle id>
+# Usage: apple/scripts/adhoc-sign.sh <.xcarchive> ios|macos <team id> <bundle id> [<webcredentials host>]
+# The host links the app to the planner's site for passkeys (docs/apple.md → Passkeys in the apps). The App ID needs the
+# Associated Domains capability for the export to keep it.
 set -euo pipefail
 
-ARCHIVE=$1 PLATFORM=$2 TEAM=$3 BUNDLE=$4
+ARCHIVE=$1 PLATFORM=$2 TEAM=$3 BUNDLE=$4 WEBCREDENTIALS=${5:-}
 HERE=$(cd "$(dirname "$0")" && pwd)
 APP=$(find "$ARCHIVE/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)
 [ -n "$APP" ] || { echo "No app in $ARCHIVE" >&2; exit 1; }
@@ -28,6 +30,10 @@ case $PLATFORM in
     ;;
 esac
 /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM" "$ENTITLEMENTS"
+if [ -n "$WEBCREDENTIALS" ]; then
+  /usr/libexec/PlistBuddy -c "Add :com.apple.developer.associated-domains array" \
+    -c "Add :com.apple.developer.associated-domains:0 string webcredentials:$WEBCREDENTIALS" "$ENTITLEMENTS"
+fi
 
 # Anything nested first (none today: the Swift package is linked in statically), then the app.
 find "$APP" -depth -mindepth 1 \( -name '*.framework' -o -name '*.dylib' -o -name '*.appex' \) -print0 |

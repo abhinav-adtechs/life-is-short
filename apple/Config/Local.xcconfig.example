@@ -9,3 +9,7 @@
 
 // Only if you registered a different bundle id.
 // LIS_BUNDLE_ID = com.example.lifeisshort
+
+// Passkeys in the app: after adding the Associated Domains capability with webcredentials:<LIS_SERVER> to the target
+// (docs/apple.md → Passkeys in the apps).
+// LIS_PASSKEYS = YES

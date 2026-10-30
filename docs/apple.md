@@ -116,6 +116,9 @@ tasks.
 | `external.open` | Open a link in the browser |
 | `server.set`, `page.retry` | Only from the app's own setup and offline page |
 
+`lisNative` also says what the app can do: `platform`, `version`, `build`, and `passkeys` when the app is linked to
+the site it's showing ([Passkeys in the apps](#passkeys-in-the-apps)).
+
 **App → page**: commands from Siri, quick actions, `lifeisshort://` links and the Mac menu: `dump` (with optional
 text), `listen`, `open` (`settings`, `analytics`, `review`, `share`). They wait in the app until the planner says
 `ready`, so a quick action that launches the app lands once you've unlocked it.
@@ -150,10 +153,11 @@ gets nothing, and the page can't navigate anywhere else inside the app.
   sends the next task to the app through the bridge; an App Group hands it to the widget.
 - **A nudge when a slot starts**: local notifications for the next day's scheduled tasks, set from the planner, so
   there's no push server.
-- **Face ID** in place of typing the PIN, with the PIN kept in the Keychain. The authenticator code stays.
+- [x] **Face ID** in place of the PIN and the code: done as **passkeys**, on the website and in the apps
+  ([Passkeys in the apps](#passkeys-in-the-apps)), rather than a PIN kept in the Keychain.
 - **Share extension**: send text or a link from any app into a dump.
-- **Password AutoFill** for the first sign-in: an `apple-app-site-association` file on the server and the
-  Associated Domains capability.
+- [x] **Password AutoFill** for the first sign-in: the same `apple-app-site-association` file and webcredentials
+  link that passkeys use.
 
 **Phase 3: App Store**, if you want strangers to install it: the first-launch server screen already exists. It needs a
 demo server and account for App Review, screenshots, and the privacy label below.
@@ -168,7 +172,7 @@ need Xcode to ship.
 2. **Pick a bundle id** you own, in reverse-DNS form. The default is `io.github.abhinav-adtechs.lifeisshort`. To use
    another, change `LIS_BUNDLE_ID` in `apple/Config/Base.xcconfig`. Register it at
    [Certificates, Identifiers & Profiles → Identifiers](https://developer.apple.com/account/resources/identifiers/list)
-   → **+** → App IDs → App, with no extra capabilities.
+   → **+** → App IDs → App. Tick **Associated Domains** if you'll use passkeys in the apps; nothing else.
 3. **Create the app** in [App Store Connect](https://appstoreconnect.apple.com) → Apps → **+** → New App. Tick
    **iOS** and **macOS**, pick the bundle id, and give it a name. App names are unique across the whole App Store,
    so if "Life is short" is taken use something like "Life is short: Planner". The name on the Home Screen stays
@@ -180,8 +184,31 @@ need Xcode to ship.
    - Secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_P8` (the whole `.p8` file, its BEGIN
      and END lines included).
    - Variables: `APPLE_TEAM_ID` (your Team ID), `LIS_SERVER` (your deployment's host, like
-     `life-is-short.vercel.app`) and, if you changed it, `LIS_BUNDLE_ID`.
+     `life-is-short.vercel.app`) and, if you changed it, `LIS_BUNDLE_ID`. `LIS_PASSKEYS` = `1` once passkeys in the
+     apps are set up ([Passkeys in the apps](#passkeys-in-the-apps)).
 6. **Google** needs nothing new. The app uses the same `https://<your server>/google/callback` redirect as the website.
+
+## Passkeys in the apps
+
+Passkeys work on the planner's website as soon as they're on in Supabase
+([setup.md → Passkeys](setup.md#7-passkeys-optional-face-id-touch-id-windows-hello)). Inside the apps, WebKit only
+allows a passkey for a site the app is linked to, in both directions:
+
+1. **The site lists the app.** The planner serves `/.well-known/apple-app-site-association` once Vercel has
+   `APPLE_TEAM_ID` (and `LIS_BUNDLE_ID`, if you changed it); redeploy after adding it. Open
+   `https://<your server>/.well-known/apple-app-site-association` and check it shows `<Team ID>.<bundle id>`. Apple's
+   CDN fetches it, so a change can take a day to reach devices.
+2. **The app names the site.** Certificates, Identifiers & Profiles → Identifiers → your bundle id → tick
+   **Associated Domains** → Save. Then set the GitHub variable `LIS_PASSKEYS` to `1`. The next Apple release signs both
+   apps with `webcredentials:<LIS_SERVER>` and tells the planner passkeys work there (`lisNative.passkeys`).
+
+Until both are in place the apps don't offer passkeys, and Settings → Account says why; the PIN and code work as
+before. A passkey made on the website works in the apps and the other way round: it's the same site. The link also
+lets the apps fill in the password you saved for the site.
+
+Running from Xcode, add the Associated Domains capability with `webcredentials:<your host>` to the target and set
+`LIS_PASSKEYS = YES` in `Local.xcconfig`. CI's builds stay unlinked, because macOS won't launch an app signed ad hoc
+with Associated Domains; CI only checks the release signing adds it.
 
 ## Run it from Xcode
 
@@ -250,6 +277,9 @@ TestFlight for yourself and up to 100 people on your team needs none of this. Fo
 - **The mic does nothing**: Settings → Privacy & Security → Microphone and Speech Recognition → Life is short.
 - **Google says "disallowed_useragent"**: the app is out of date (Connect Google must open the system sheet). Update
   from TestFlight.
+- **No passkey button in the app**: check both halves of [Passkeys in the apps](#passkeys-in-the-apps): the
+  association file names your Team ID and bundle id, and the build came from a release with `LIS_PASSKEYS` = `1`.
+  An app pointed at another server (Change Server…) isn't linked to it.
 - **Blank or stuck on the offline screen**: check `LIS_SERVER` in the build (Actions variables or
   `Local.xcconfig`). The Mac's **Change Server…** and the offline screen's link take a new address without
   rebuilding.
