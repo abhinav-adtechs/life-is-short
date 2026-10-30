@@ -1,0 +1,130 @@
+name: Apple release
+
+# Builds the iPhone/iPad app and the Mac app and uploads them to App Store Connect, where they show up in TestFlight.
+# Signing is Apple's cloud signing through an App Store Connect API key: no certificates to keep. Setup and the reasons
+# for each step are in docs/apple.md → Release to TestFlight.
+#
+# Needs: secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (an Admin API key); variables APPLE_TEAM_ID, LIS_SERVER and,
+# if it isn't the default, LIS_BUNDLE_ID. LIS_PASSKEYS=1 links the apps to LIS_SERVER so passkeys work in them
+# (docs/apple.md → Passkeys in the apps).
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which apps go to TestFlight
+        type: choice
+        options: [both, ios, macos]
+        default: both
+  push:
+    tags: ['apple-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.which.outputs.platforms }}
+    steps:
+      - id: which
+        env:
+          PICKED: ${{ inputs.platforms || 'both' }}
+        run: |
+          case "$PICKED" in
+            ios) echo 'platforms=["ios"]' ;;
+            macos) echo 'platforms=["macos"]' ;;
+            *) echo 'platforms=["ios","macos"]' ;;
+          esac >> "$GITHUB_OUTPUT"
+
+  testflight:
+    name: TestFlight (${{ matrix.platform }})
+    needs: plan
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.plan.outputs.platforms) }}
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      TEAM: ${{ vars.APPLE_TEAM_ID }}
+      BUNDLE: ${{ vars.LIS_BUNDLE_ID || 'io.github.abhinav-adtechs.lifeisshort' }}
+      SERVER: ${{ vars.LIS_SERVER }}
+      PASSKEYS: ${{ vars.LIS_PASSKEYS }}
+      BUILD: ${{ github.run_number }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the setup
+        run: |
+          missing=""
+          for name in TEAM ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do [ -n "${!name}" ] || missing="$missing $name"; done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing:$missing. Add the secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 and the variable APPLE_TEAM_ID (docs/apple.md → One-time setup)."
+            exit 1
+          fi
+          [ -n "$SERVER" ] || echo "::warning::LIS_SERVER isn't set, so the app will ask for its server on first launch."
+          if [ "$PASSKEYS" = 1 ]; then
+            [ -n "$SERVER" ] || { echo "::error::LIS_PASSKEYS links the apps to LIS_SERVER for passkeys, so LIS_SERVER has to be set."; exit 1; }
+            host=${SERVER#*://}; host=${host%%/*}
+            echo "WEBCREDENTIALS=$host" >> "$GITHUB_ENV"
+            echo "LIS_PASSKEYS_SETTING=YES" >> "$GITHUB_ENV"
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/apple-v* ]]; then echo "VERSION=${GITHUB_REF_NAME#apple-v}" >> "$GITHUB_ENV"; fi
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec apple/project.yml
+          xcodebuild -version
+
+      - name: Archive, unsigned
+        run: |
+          if [ "$PLATFORM" = ios ]; then scheme=LifeIsShort-iOS; dest='generic/platform=iOS'; else scheme=LifeIsShort-macOS; dest='generic/platform=macOS'; fi
+          version=()
+          [ -z "${VERSION:-}" ] || version=("MARKETING_VERSION=$VERSION")
+          xcodebuild archive -project apple/LifeIsShort.xcodeproj -scheme "$scheme" -configuration Release -destination "$dest" \
+            -archivePath "$RUNNER_TEMP/LifeIsShort.xcarchive" CODE_SIGNING_ALLOWED=NO \
+            "LIS_BUNDLE_ID=$BUNDLE" "LIS_SERVER=$SERVER" "LIS_PASSKEYS=${LIS_PASSKEYS_SETTING:-NO}" "CURRENT_PROJECT_VERSION=$BUILD" "${version[@]}"
+
+      - name: Sign ad hoc with the app's entitlements
+        run: apple/scripts/adhoc-sign.sh "$RUNNER_TEMP/LifeIsShort.xcarchive" "$PLATFORM" "$TEAM" "$BUNDLE" "${WEBCREDENTIALS:-}"
+
+      - name: Sign for the App Store and upload
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          (umask 077 && printf '%s\n' "$ASC_KEY_P8" > "$key")
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/LifeIsShort.xcarchive" -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -allowProvisioningUpdates \
+            -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Forget the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Summary
+        run: |
+          echo "### $PLATFORM build $BUILD${VERSION:+ (version $VERSION)} is on its way to TestFlight" >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processes it for a few minutes, then it shows in App Store Connect → TestFlight." >> "$GITHUB_STEP_SUMMARY"

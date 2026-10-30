@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { normalizeImport } from '@/lib/importer';
-import { hasSupabase, supabase } from '@/lib/supabase';
+import { hasSupabase } from '@/lib/supabase';
 import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, TEXT_SIZES, THEMES, accentColor, fontHref, type Prefs } from '@/lib/prefs';
 import { isHex } from '@/lib/color';
 import { fmtHour } from '@/lib/format';
@@ -13,6 +13,7 @@ import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
 import { LabelsSection } from './Labels';
 import { RepeatsSection } from './Repeating';
+import { AccountSection } from './AccountSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
@@ -243,7 +244,7 @@ function CalendarPrefs() {
   );
 }
 
-/* ---------- tasks and account ---------- */
+/* ---------- tasks ---------- */
 
 function TasksSection() {
   const { repo, store, toast } = usePlanner();
@@ -269,74 +270,6 @@ function TasksSection() {
         <input ref={file} type="file" accept="application/json,.json" hidden
           onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importFile(f); }} />
       </div>
-    </Section>
-  );
-}
-
-function AccountSection() {
-  const { email, toast } = usePlanner();
-  const [pw, setPw] = useState('');
-  const [pwOpen, setPwOpen] = useState(false);
-  const [pinOpen, setPinOpen] = useState(false);
-  const [pin, setPin] = useState('');
-  const [pin2, setPin2] = useState('');
-  const [pwRecent, setPwRecent] = useState(false);
-
-  // A PIN can only be changed within 10 minutes of a password sign-in (the database checks this too).
-  useEffect(() => {
-    supabase().rpc('pin_status').then(({ data }) => setPwRecent((data?.password_age ?? Infinity) < 600));
-  }, [pinOpen]);
-
-  const changePin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!/^[0-9]{6,12}$/.test(pin)) { toast('Use 6 to 12 digits.'); return; }
-    if (pin !== pin2) { toast('The two PINs don’t match.'); return; }
-    const { data, error } = await supabase().rpc('set_pin', { new_pin: pin });
-    if (error || data !== 'ok') { toast(data === 'password-required' ? 'Sign out and sign in with your password first, then change the PIN within 10 minutes.' : 'Couldn’t change the PIN.'); return; }
-    toast('PIN changed');
-    setPin(''); setPin2(''); setPinOpen(false);
-  };
-
-  const changePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pw.length < 8) { toast('Use at least 8 characters.'); return; }
-    const { error } = await supabase().auth.updateUser({ password: pw });
-    toast(error ? error.message : 'Password updated');
-    if (!error) { setPw(''); setPwOpen(false); }
-  };
-
-  return (
-    <Section id="account" title="Account" sub={email ? `signed in as ${email}` : undefined}>
-      {pwOpen ? (
-        <form onSubmit={changePassword} autoComplete="off" className="set-form">
-          <div className="fld"><label htmlFor="new-pw">New password</label>
-            <input id="new-pw" type="password" autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)} /></div>
-          <div className="acts"><button type="submit" className="btn pri sm">Save password</button>
-            <button type="button" className="btn sec sm" onClick={() => setPwOpen(false)}>Cancel</button></div>
-        </form>
-      ) : pinOpen ? (
-        pwRecent ? (
-          <form onSubmit={changePin} autoComplete="off" className="set-form">
-            <div className="fld"><label htmlFor="new-pin">New PIN (6 to 12 digits)</label>
-              <input id="new-pin" type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))} /></div>
-            <div className="fld"><label htmlFor="new-pin2">New PIN again</label>
-              <input id="new-pin2" type="password" inputMode="numeric" value={pin2} onChange={e => setPin2(e.target.value.replace(/\D/g, '').slice(0, 12))} /></div>
-            <div className="acts"><button type="submit" className="btn pri sm">Save PIN</button>
-              <button type="button" className="btn sec sm" onClick={() => setPinOpen(false)}>Cancel</button></div>
-          </form>
-        ) : (
-          <>
-            <p className="note">To change your PIN, sign out and sign in again with your password, then come back here within 10 minutes.</p>
-            <div className="acts"><button type="button" className="btn sec sm" onClick={() => setPinOpen(false)}>OK</button></div>
-          </>
-        )
-      ) : (
-        <div className="acts">
-          <button type="button" className="btn sec sm" onClick={() => setPinOpen(true)}>Change PIN</button>
-          <button type="button" className="btn sec sm" onClick={() => setPwOpen(true)}>Change password</button>
-          <button type="button" className="btn sec sm" onClick={() => supabase().auth.signOut()}>Sign out</button>
-        </div>
-      )}
     </Section>
   );
 }

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { as, migrated, sql } from '../db/pglite.mjs';
+import { MIGRATIONS, as, migrated, sql } from '../db/pglite.mjs';
 import { compareData, countLost, evaluate } from './checks.mjs';
 
 const EMAIL = 'Me@Example.com';
@@ -30,6 +30,9 @@ async function project(which) {
 }
 
 const snap = async db => (await db.query('select audit.snapshot() as s')).rows[0].s;
+/** A function as the last migration to define it left it, to put back after a test tampers with it. */
+const latestDef = name => MIGRATIONS.map(f => sql(f).match(new RegExp(`create or replace function ${name.replace('.', '\\.')}\\(\\)[\\s\\S]*?\\$\\$;`)))
+  .filter(Boolean).pop()[0];
 
 let primary, backup, pServer, bServer;
 const PORTS = [54391, 54392];
@@ -116,6 +119,79 @@ describe('sign-in rule in the database', () => {
     expect(await rpc(s, `select public.unlock_with_pin('482915')`)).toBe('no-pin');
     expect(await rpc(session(S1, 30, 10), `select public.set_pin('482915')`)).toBe('ok');
   });
+  // A session that signed in with a passkey `ago` seconds ago: Supabase gives it aal1 and amr 'passkey'.
+  const S5 = 'aaaaaaaa-0000-0000-0000-000000000005';
+  const passkey = (ago, extra = {}) => ({ sub: P_OWNER, role: 'authenticated', session_id: S5, aal: 'aal1', amr: [{ method: 'passkey', timestamp: nowS() - ago }], ...extra });
+  it('a passkey sign-in shows your tasks for 24 hours, without the PIN or a code', async () => {
+    expect(await count(passkey(60))).toBe(3);
+    expect(await count(passkey(86500))).toBe(0);
+    expect(await count(passkey(60, { sub: B_OWNER }))).toBe(0);
+    expect(await count({ ...passkey(60), amr: [{ method: 'passkey', timestamp: 'now' }] })).toBe(0);
+  });
+  it('reports a passkey session and how many passkeys you have', async () => {
+    await primary.exec(`insert into auth.webauthn_credentials (user_id, friendly_name) values ('${P_OWNER}', 'iCloud Keychain'), ('${B_OWNER}', 'Someone else')`);
+    try {
+      const st = await rpc(passkey(60), 'select public.pin_status()');
+      expect(st).toMatchObject({ signed_in: true, unlocked: true, passkeys: 1, password_age: null, code_age: null });
+      expect(st.passkey_age).toBeGreaterThanOrEqual(60);
+      expect(st.seconds_left).toBeGreaterThan(86000);
+      expect(await rpc(passkey(86500), 'select public.pin_status()')).toMatchObject({ unlocked: false, seconds_left: 0, passkeys: 1 });
+      expect(await rpc(session(S2, 90000, 20), 'select public.pin_status()')).toMatchObject({ passkey_age: null });
+    } finally { await primary.exec('delete from auth.webauthn_credentials'); }
+  });
+  it('a passkey doesn’t choose a PIN: that still takes the password and a code', async () => {
+    expect(await rpc(passkey(60), `select public.set_pin('482915')`)).toBe('code-required');
+    const stepped = { ...passkey(60), aal: 'aal2', amr: [...passkey(60).amr, { method: 'totp', timestamp: nowS() - 5 }] };
+    expect(await rpc(stepped, `select public.set_pin('482915')`)).toBe('password-required');
+    });
+  // Face ID: a passkey sign-in on the side (aal1 to Supabase, no password), which vouches for the device's own session.
+  const side = (ago = 5) => ({ sub: P_OWNER, role: 'authenticated', session_id: 'cccccccc-0000-0000-0000-00000000000f', aal: 'aal1', amr: [{ method: 'passkey', timestamp: nowS() - ago }] });
+  const DEVICE = 'aaaaaaaa-0000-0000-0000-000000000006';
+  const device = session(DEVICE, 200000, 200000); // signed in with the password and a code days ago: aal2, locked
+  const vouch = async (claims, sid = DEVICE) => rpc(claims, `select public.face_id_unlock('${sid}')`);
+  it('Face ID renews the device’s own session; the PIN is still needed', async () => {
+    await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${DEVICE}', '${P_OWNER}', 'aal2')`);
+    expect(await count(device)).toBe(0);
+    expect(await rpc(device, `select public.unlock_with_pin('482915')`)).toBe('code-required');
+    expect(await vouch(side())).toBe('ok');
+    expect(await count(device)).toBe(0);
+    const st = await rpc(device, 'select public.pin_status()');
+    expect(st).toMatchObject({ has_pin: true, unlocked: false, code_fresh: true });
+    expect(st.code_age).toBeLessThan(60);
+    expect(await rpc(device, `select public.unlock_with_pin('000000')`)).toBe('wrong');
+    expect(await rpc(device, `select public.unlock_with_pin('482915')`)).toBe('ok');
+    expect(await count(device)).toBe(3);
+    expect(await rpc(device, 'select public.pin_status()')).toMatchObject({ unlocked: true, code_fresh: true });
+    expect((await rpc(device, 'select public.pin_status()')).seconds_left).toBeGreaterThan(86000);
+  });
+  it('the side session is a passkey sign-in like any other (0007): it reads your tasks, but the PIN can’t unlock it', async () => {
+    expect(await count(side())).toBe(3);
+    expect(await rpc(side(), `select public.unlock_with_pin('482915')`)).toBe('code-required');
+  });
+  it('only a passkey sign-in from the last two minutes can vouch', async () => {
+    expect(await vouch(side(300))).toBe('face-id-required');
+    expect(await vouch(session(S1, 30, 10))).toBe('face-id-required');
+  });
+  it('only for a session of yours that passed a code once', async () => {
+    const half = 'aaaaaaaa-0000-0000-0000-000000000007';
+    await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${half}', '${P_OWNER}', 'aal1'), ('aaaaaaaa-0000-0000-0000-000000000008', '${B_OWNER}', 'aal2')`);
+    expect(await vouch(side(), half)).toBe('not-this-session');
+    expect(await vouch(side(), 'aaaaaaaa-0000-0000-0000-000000000008')).toBe('not-this-session');
+    expect(await vouch(side(), 'aaaaaaaa-0000-0000-0000-0000000000ff')).toBe('not-this-session');
+    expect(await vouch({ ...side(), sub: B_OWNER })).toBe('not-this-session');
+    await primary.exec(`delete from auth.sessions where id <> '${DEVICE}'`);
+  });
+  it('Face ID lasts 24 hours, and can’t choose a PIN', async () => {
+    expect(await rpc(device, `select public.set_pin('111111')`)).toBe('password-required');
+    await primary.exec(`update private.face_ids set verified_at = now() - interval '25 hours'`);
+    expect(await count(device)).toBe(0);
+    expect(await rpc(device, 'select public.pin_status()')).toMatchObject({ code_fresh: false, unlocked: false });
+    await primary.exec('delete from private.face_ids; delete from auth.sessions');
+  });
+  it('Face ID records are out of reach from the app', async () => {
+    await expect(as(primary, 'authenticated', session(S1, 30, 10), 'select * from private.face_ids')).rejects.toThrow(/permission denied/);
+    await expect(as(primary, 'anon', {}, `select public.face_id_unlock('${DEVICE}')`)).rejects.toThrow(/permission denied/);
+  });
   it('the PIN table is out of reach from the app', async () => {
     await expect(as(primary, 'authenticated', session(S1, 30, 10), 'select * from private.pins')).rejects.toThrow(/permission denied/);
   });
@@ -153,6 +229,26 @@ describe('breach checks on real snapshots', () => {
     } finally { await primary.exec('update private.pins set failed = 0'); }
   });
 
+  it('warn about a passkey added this week, and on the backup', async () => {
+    await primary.exec(`insert into auth.webauthn_credentials (user_id, created_at) values ('${P_OWNER}', now() - interval '2 days'), ('${P_OWNER}', default)`);
+    await backup.exec(`insert into auth.webauthn_credentials (user_id) values ('${B_OWNER}')`);
+    try {
+      const r = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA });
+      expect(r.findings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ level: 'warn', check: 'primary:passkeys', detail: '1 passkey(s) added in the last 8 days' }),
+        expect.objectContaining({ level: 'info', check: 'primary:passkeys', detail: '2 passkey(s), 0 Face ID unlock(s) in 7 days' }),
+        expect.objectContaining({ level: 'warn', check: 'backup:passkeys' }),
+      ]));
+      expect(r.blocked).toBe(false);
+    } finally { await primary.exec('delete from auth.webauthn_credentials'); await backup.exec('delete from auth.webauthn_credentials'); }
+  });
+  it('read a project from before passkeys as having none, and say the passkeys couldn’t be read', () => {
+    const r = evaluate({ primary: { passkeys: { unavailable: true } }, backup: {}, ownerSha: OWNER_SHA });
+    expect(r.findings.filter(f => f.check.endsWith(':passkeys'))).toEqual([
+      { level: 'info', check: 'primary:passkeys', detail: 'couldn’t read the passkeys (auth.webauthn_credentials)' },
+    ]);
+  });
+
   it('count what a sync would lose by comparing the rows, not timestamps', () => {
     const b = [{ id: 'a', title: 'A', notes: '', raw: 'a' }, { id: 'b', title: 'B', notes: null, raw: null }, { id: 'c', title: 'C', notes: 'n', raw: '' }];
     expect(countLost(b.map(t => ({ ...t, status: 'done', start: 1 })), b)).toBe(0);
@@ -186,18 +282,48 @@ describe('breach checks on real snapshots', () => {
       `create policy "unlocked" on public.tasks as restrictive for all to authenticated using ((select private.access_ok())) with check ((select private.access_ok()))`)).toContain('primary:policies');
   });
   it('block when the sign-in rule is weakened', async () => {
-    const original = sql('migrations/0004_pin_unlock.sql').match(/create or replace function private\.access_ok\(\)[\s\S]*?\$\$;/)[0];
-    expect(await tampered(`create or replace function private.access_ok() returns boolean language sql stable security definer set search_path = '' as $$ select private.mfa_fresh() $$;`, original))
+    expect(await tampered(`create or replace function private.access_ok() returns boolean language sql stable security definer set search_path = '' as $$ select private.mfa_fresh() $$;`, latestDef('private.access_ok')))
       .toEqual(expect.arrayContaining(['primary:access-rule', 'both:access-rule']));
   });
   it('block when the 2FA rule itself is weakened', async () => {
-    const original = sql('migrations/0002_require_fresh_2fa.sql').match(/create or replace function private\.mfa_fresh\(\)[\s\S]*?\$\$;/)[0];
-    expect(await tampered(`create or replace function private.mfa_fresh() returns boolean language sql stable set search_path = '' as $$ select true $$;`, original))
+    expect(await tampered(`create or replace function private.mfa_fresh() returns boolean language sql stable set search_path = '' as $$ select true $$;`, latestDef('private.mfa_fresh')))
       .toEqual(expect.arrayContaining(['primary:2fa-rule', 'both:2fa-rule']));
+  });
+  it('count Face ID unlocks, and take a passkey that was used as used, not new', async () => {
+    const run = async () => evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings;
+    await primary.exec(`insert into auth.webauthn_credentials (user_id) values ('${P_OWNER}')`);
+    await primary.exec(`insert into private.face_ids (session_id, user_id) values ('${'aaaaaaaa-0000-0000-0000-0000000000ee'}', '${P_OWNER}')`);
+    try {
+      expect((await run()).filter(f => f.level !== 'info')).toEqual([]);
+      expect(await run()).toEqual(expect.arrayContaining([{ level: 'info', check: 'primary:passkeys', detail: '1 passkey(s), 1 Face ID unlock(s) in 7 days' }]));
+      // Used today: its row changes, but it isn't new.
+      await primary.exec(`update auth.webauthn_credentials set updated_at = now(), last_used_at = now()`);
+      expect((await run()).filter(f => f.level !== 'info')).toEqual([]);
+    } finally {
+      await primary.exec('delete from auth.webauthn_credentials; delete from private.face_ids');
+    }
+  });
+  it('don’t take a passkey sign-in (Face ID’s too) for a password that skipped 2FA', async () => {
+    const [face, half] = ['bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002'];
+    await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${face}', '${P_OWNER}', 'aal1'), ('${half}', '${P_OWNER}', 'aal1');
+      insert into auth.mfa_amr_claims (session_id, authentication_method) values ('${face}', 'passkey'), ('${half}', 'password')`);
+    try {
+      const found = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings.filter(f => f.check === 'primary:sessions');
+      expect(found).toEqual([
+        { level: 'warn', check: 'primary:sessions', detail: '1 sign-in(s) in 7 days passed the password but not 2FA' },
+        { level: 'info', check: 'primary:sessions', detail: '2 sign-ins in 7 days from 0 IP(s), 0 device(s)' },
+      ]);
+    } finally {
+      await primary.exec('delete from auth.mfa_amr_claims; delete from auth.sessions');
+    }
   });
   it('block when another account appears', async () => {
     expect(await tampered(`insert into auth.users (id, email) values ('33333333-3333-3333-3333-333333333333', 'intruder@example.com')`,
       `delete from auth.users where email = 'intruder@example.com'`)).toContain('primary:users');
+  });
+  it('block when a passkey belongs to another account', async () => {
+    expect(await tampered(`insert into auth.webauthn_credentials (user_id) values ('33333333-3333-3333-3333-333333333333')`,
+      'delete from auth.webauthn_credentials')).toContain('primary:passkeys');
   });
   it('block when the authenticator is removed', async () => {
     expect(await tampered(`update auth.mfa_factors set status = 'unverified'`, `update auth.mfa_factors set status = 'verified'`)).toContain('primary:2fa');

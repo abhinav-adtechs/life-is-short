@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MFA_WINDOW_S, lastCodeAt, mfaState, msUntilStale } from './mfa';
+import { MFA_WINDOW_S, lastCodeAt, lastMethodAt, mfaState, msUntilStale } from './mfa';
 
 const NOW = 1_800_000_000;
 
@@ -34,5 +34,17 @@ describe('msUntilStale', () => {
   it('counts down to the 24-hour mark', () => {
     expect(msUntilStale([{ method: 'totp', timestamp: NOW }], NOW * 1000 + 1000)).toBe(MFA_WINDOW_S * 1000 - 1000);
     expect(msUntilStale([], NOW * 1000)).toBe(0);
+  });
+});
+
+describe('passkey sign-ins', () => {
+  it('a passkey isn’t a code: Supabase calls it aal1, and the database decides (pin_status)', () => {
+    expect(mfaState({ aal: 'aal1', amr: [{ method: 'passkey', timestamp: NOW - 60 }] }, NOW)).toBe('stale');
+  });
+
+  it('finds the last use of any method', () => {
+    expect(lastMethodAt([{ method: 'passkey', timestamp: 5 }, { method: 'passkey', timestamp: 9 }], 'passkey')).toBe(9);
+    expect(lastMethodAt([{ method: 'passkey', timestamp: String(NOW) }], 'passkey')).toBe(null);
+    expect(lastMethodAt(undefined, 'passkey')).toBe(null);
   });
 });

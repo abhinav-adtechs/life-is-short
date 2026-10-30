@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { clockLine } from '@/lib/format';
+import { PASSKEY_PROBLEMS, passkeysEnabled, passkeysSupported, signInWithPasskey } from '@/lib/passkey';
+import { unlockChallenge, unlockWithFaceId } from '@/lib/faceid';
+import { UNLOCK_WAYS, unlockWays, type UnlockWay } from '@/lib/pin';
 import { Brand } from './Brand';
-import { ArrowIcon } from './icons';
+import { ArrowIcon, KeyIcon } from './icons';
 import { useNow } from './hooks';
 
 /**
@@ -30,12 +33,70 @@ export function Shell({ title, hero, onSubmit, children }: {
   );
 }
 
-/** First sign-in on a device: email and password. There's no sign-up or email link. */
+const PASSKEY_KEY = 'lis-passkey';
+/** This device has signed in with a passkey, or added one: lead with it next time. */
+const usesPasskey = () => { try { return localStorage.getItem(PASSKEY_KEY) === '1'; } catch { return false; } };
+export const rememberPasskey = () => { try { localStorage.setItem(PASSKEY_KEY, '1'); } catch { /* private mode */ } };
+
+/**
+ * Offer a passkey here: this browser can use one and passkeys are on in Supabase. `known` is how many the account
+ * has, when a session can tell (pin_status); none means there's nothing to offer.
+ */
+function usePasskeyOffer(known?: number | null): boolean {
+  // Known up front when the account has passkeys, so the first render already offers one (and the PIN doesn't grab focus).
+  const [offer, setOffer] = useState(() => passkeysSupported() && (known ?? 0) > 0);
+  useEffect(() => {
+    if (!passkeysSupported() || known === 0) return;
+    if (known && known > 0) { setOffer(true); return; }
+    let live = true;
+    passkeysEnabled().then(on => { if (live) setOffer(on); });
+    return () => { live = false; };
+  }, [known]);
+  return offer;
+}
+
+/**
+ * Sign in, or unlock, with a passkey. The device picks the account and checks it's you; App moves on when Supabase
+ * announces the new session. `replacing`: unlocking a locked session, which is signed out once the passkey's in.
+ */
+function PasskeyButton({ label, primary, replacing }: { label: string; primary: boolean; replacing?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const locked = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (replacing) supabase().auth.getSession().then(({ data }) => { locked.current = data.session?.access_token; });
+  }, [replacing]);
+
+  async function go() {
+    setBusy(true); setMsg('');
+    const r = await signInWithPasskey(supabase(), locked.current);
+    setBusy(false);
+    if (r.ok) rememberPasskey();
+    else setMsg(PASSKEY_PROBLEMS[r.problem]);
+  }
+
+  return (
+    <>
+      <button type="button" className={'btn ' + (primary ? 'pri' : 'sec')} disabled={busy} onClick={go}>
+        <KeyIcon />{busy ? 'Waiting for your passkey…' : label}
+      </button>
+      {msg && <p className="msg" role="alert">{msg}</p>}
+    </>
+  );
+}
+
+/**
+ * First sign-in on a device: email and password, or a passkey. There's no sign-up or email link.
+ * A device that's used a passkey leads with it.
+ */
 export function SignIn({ notice }: { notice?: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const offer = usePasskeyOffer();
+  const [first] = useState(usesPasskey);
+  const lead = offer && first;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,6 +110,7 @@ export function SignIn({ notice }: { notice?: string }) {
   return (
     <Shell title="Life is short." hero onSubmit={submit}>
       {notice && <p className="msg" role="alert">{notice}</p>}
+      {lead && <><PasskeyButton label="Sign in with a passkey" primary /><div className="auth-or">or your password</div></>}
       <div className="fld">
         <label htmlFor="em">Email</label>
         <input id="em" type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} />
@@ -57,15 +119,18 @@ export function SignIn({ notice }: { notice?: string }) {
         <label htmlFor="pw">Password</label>
         <input id="pw" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
       </div>
-      <button type="submit" className="btn pri" disabled={busy}>Continue<ArrowIcon /></button>
+      <button type="submit" className={'btn ' + (lead ? 'sec' : 'pri')} disabled={busy}>Continue<ArrowIcon /></button>
       {msg && <p className="msg" role="alert">{msg}</p>}
       <p className="msg">You’ll confirm with your authenticator app next.</p>
+      {offer && !lead && <><div className="auth-or">or</div><PasskeyButton label="Sign in with a passkey" primary={false} /></>}
       <a className="legal-link" href="/privacy">Privacy</a>
     </Shell>
   );
 }
 
-function CodeField({ code, setCode, onCode, busy, focus = true }: { code: string; setCode: (v: string) => void; onCode: (code: string) => void; busy: boolean; focus?: boolean }) {
+function CodeField({ code, setCode, onCode, busy, focus = true, secondary }: {
+  code: string; setCode: (v: string) => void; onCode: (code: string) => void; busy: boolean; focus?: boolean; secondary?: boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
   return (
@@ -79,12 +144,12 @@ function CodeField({ code, setCode, onCode, busy, focus = true }: { code: string
             if (v.length === 6 && !busy) onCode(v);
           }} />
       </div>
-      <button type="submit" className="btn pri" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Unlock'}</button>
+      <button type="submit" className={'btn ' + (secondary ? 'sec' : 'pri')} disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Unlock'}</button>
     </>
   );
 }
 
-const codeError = (e: { status?: number; message?: string }) =>
+export const codeError = (e: { status?: number; message?: string }) =>
   e.status === 429 ? 'Too many attempts. Wait a few minutes and try again.' : 'That code didn’t work. Codes change every 30 seconds; try the current one.';
 
 /** One-time setup: scan the QR code into an authenticator app and confirm with a code. */
@@ -201,21 +266,65 @@ export function CreatePin({ onDone, onSignOut }: { onDone: () => void; onSignOut
   );
 }
 
-/** Every sign-in after the first: the PIN and an authenticator code. `codeDone` skips the code when one was just given. */
-export function PinUnlock({ factorId, email, codeDone, onDone, onLocked, onSignOut }: {
-  factorId: string; email: string | null; codeDone: boolean; onDone: () => void; onLocked: () => void; onSignOut: () => void;
+/**
+/**
+ * Keeps a Face ID challenge ready while `on`, so the Unlock tap goes straight to Face ID (Safari only shows it from a tap).
+ * Returns the unlock: Face ID, which renews this device's session. It resolves to an error message, or null.
+ */
+function useFaceIdUnlock(on: boolean) {
+  const ready = useRef<Awaited<ReturnType<typeof unlockChallenge>>>(null);
+  const load = () => { unlockChallenge().then(c => { ready.current = c; }); };
+  useEffect(() => {
+    if (!on) return;
+    load();
+    // A challenge lasts 5 minutes, and phones pause timers in the background.
+    const timer = window.setInterval(load, 4 * 60_000);
+    const vis = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', vis); };
+  }, [on]);
+  return async () => {
+    const c = ready.current;
+    ready.current = null; // each challenge works once
+    const err = await unlockWithFaceId(c);
+    if (err) load();
+    return err;
+  };
+}
+
+/**
+ * Every sign-in after the first, the way a Google account offers its sign-in options: the quickest way you have, and
+ * "Try another way" for the rest (lib/pin.ts, unlockWays). A passkey on its own; on an iPhone or iPad with a passkey,
+ * the PIN and Face ID; or the PIN and an authenticator code, which always works. `codeDone` skips the second step when
+ * one was just given. `passkeys`: how many the account has (pin_status), to offer one first.
+ */
+export function PinUnlock({ factorId, email, codeDone, passkeys, faceId, onDone, onLocked, onSignOut }: {
+  factorId: string; email: string | null; codeDone: boolean; passkeys?: number | null; faceId: boolean;
+  onDone: () => void; onLocked: () => void; onSignOut: () => void;
 }) {
   const [pin, setPin] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const offer = usePasskeyOffer(passkeys);
+  const ways = unlockWays({ passkey: offer, faceId, codeDone });
+  // A way you picked, or started typing into, stays put even if a quicker one turns up.
+  const [chosen, setChosen] = useState<UnlockWay | null>(null);
+  const [others, setOthers] = useState(false);
+  const way = chosen && ways.includes(chosen) ? chosen : ways[0];
+  const withFaceId = way === 'pin-face-id';
+  const faceIdUnlock = useFaceIdUnlock(withFaceId);
 
   async function unlock(e?: React.FormEvent) {
     e?.preventDefault();
-    if (pin.length < 6 || (!codeDone && code.length !== 6) || busy) return;
+    if (pin.length < 6 || (!codeDone && !withFaceId && code.length !== 6) || busy) return;
     setBusy(true); setMsg('');
     const sb = supabase();
-    if (!codeDone) {
+    if (withFaceId) {
+      // First thing after the tap, so Safari shows Face ID.
+      const err = await faceIdUnlock();
+      if (err) { setMsg(err); setBusy(false); return; }
+    } else if (!codeDone) {
       const { error } = await sb.auth.mfa.challengeAndVerify({ factorId, code });
       if (error) { setMsg(codeError(error)); setCode(''); setBusy(false); return; }
     }
@@ -231,12 +340,32 @@ export function PinUnlock({ factorId, email, codeDone, onDone, onLocked, onSignO
 
   return (
     <Shell title="Unlock" onSubmit={unlock}>
-      <div className="nm">{codeDone ? 'Enter your PIN.' : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
-      <PinField id="pin" label="PIN" value={pin} onChange={setPin} autoFocus />
-      {!codeDone && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
-      {codeDone && <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>{busy ? 'Checking…' : 'Unlock'}</button>}
+      {way === 'passkey' ? (
+        <>
+          <div className="nm">Use a passkey: Face ID, Touch ID, your device’s PIN or a security key. It stands in for your PIN and the code.</div>
+          <PasskeyButton label="Unlock with a passkey" primary replacing />
+        </>
+      ) : (
+        <>
+          <div className="nm">{codeDone ? 'Enter your PIN.'
+            : withFaceId ? 'Enter your PIN, then confirm with Face ID.'
+              : `Enter your PIN and the code from your authenticator app${email ? ` (${email})` : ''}.`}</div>
+          <PinField id="pin" label="PIN" value={pin} onChange={v => { setPin(v); setChosen(way); }} autoFocus />
+          {!codeDone && !withFaceId && <CodeField code={code} setCode={setCode} onCode={() => { /* wait for Unlock: the PIN may not be done */ }} busy={busy} focus={false} />}
+          {(codeDone || withFaceId) && (
+            <button type="submit" className="btn pri" disabled={busy || pin.length < 6}>
+              {busy ? 'Checking…' : withFaceId ? 'Unlock with Face ID' : 'Unlock'}
+            </button>
+          )}
+        </>
+      )}
       {msg && <p className="msg" role="alert">{msg}</p>}
       <div className="minor">
+        {ways.length > 1 && (others
+          ? ways.filter(w => w !== way).map(w => (
+            <button key={w} type="button" className="link" onClick={() => { setChosen(w); setOthers(false); setMsg(''); }}>{UNLOCK_WAYS[w]}</button>
+          ))
+          : <button type="button" className="link" onClick={() => setOthers(true)}>Try another way</button>)}
         <button type="button" className="link" onClick={onSignOut}>Forgot your PIN? Sign in with your password</button>
       </div>
     </Shell>

@@ -1,6 +1,7 @@
 import { postJson } from './api';
 import { PALETTE, isHex } from './color';
 import { calendarOf, type ExternalItem } from './google';
+import { googleState } from './native';
 import { addDays, startOfDay } from './time';
 
 export const STATE_KEY = 'ds.google.state';
@@ -152,7 +153,8 @@ export function ownCalendars(accounts: GoogleAccount[], id: string): Set<string>
 
 /** Send you to Google's consent screen. `hint` pre-picks an account when reconnecting one. */
 export async function startGoogleConnect(hint?: string | null): Promise<string | null> {
-  const state = crypto.randomUUID();
+  // From the app, Google's sign-in runs in the system's sign-in sheet; the mark tells the callback page to hand back.
+  const state = googleState(crypto.randomUUID());
   sessionStorage.setItem(STATE_KEY, state);
   const { status, data } = await postJson<{ url?: string; reason?: string }>('/api/google/auth-url', { state, hint: hint || undefined });
   if (status === 200 && data?.url) { window.location.assign(data.url); return null; }
