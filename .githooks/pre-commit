@@ -2,7 +2,7 @@
 # Blocks commits that include key/secret or task files, or staged content
 # that looks like a credential. Enable with: git config core.hooksPath .githooks
 
-blocked_paths='(^|/)(\.env(\..*)?|.*\.(pem|key|p12|pfx|jks|keystore|gpg|asc|ppk)|id_(rsa|ed25519|ecdsa).*|secrets?(/|\..*)|.*credentials.*|service-account.*\.json|\.npmrc|\.pypirc|\.netrc|tasks?(/|\..*)|\.tasks/.*|todo\..*|.*\.tasks|\.claude/.*)$'
+blocked_paths='(^|/)(\.env(\..*)?|.*\.(pem|key|p12|p8|pfx|jks|keystore|gpg|asc|ppk|mobileprovision|provisionprofile|cer)|id_(rsa|ed25519|ecdsa).*|secrets?(/|\..*)|.*credentials.*|service-account.*\.json|\.npmrc|\.pypirc|\.netrc|tasks?(/|\..*)|\.tasks/.*|todo\..*|.*\.tasks|\.claude/.*)$'
 allowed_paths='(^|/)\.env\.example$'
 
 files=$(git diff --cached --name-only --diff-filter=ACMR)

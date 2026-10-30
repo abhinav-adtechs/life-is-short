@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MFA_WINDOW_S, lastCodeAt, mfaState, msUntilStale } from './mfa';
+import { MFA_WINDOW_S, lastCodeAt, lastMethodAt, mfaState, msUntilStale, passkeyFresh } from './mfa';
 
 const NOW = 1_800_000_000;
 
@@ -34,5 +34,21 @@ describe('msUntilStale', () => {
   it('counts down to the 24-hour mark', () => {
     expect(msUntilStale([{ method: 'totp', timestamp: NOW }], NOW * 1000 + 1000)).toBe(MFA_WINDOW_S * 1000 - 1000);
     expect(msUntilStale([], NOW * 1000)).toBe(0);
+  });
+});
+
+describe('passkeyFresh', () => {
+  it('a passkey sign-in counts for 24 hours, though Supabase calls it aal1', () => {
+    const amr = [{ method: 'passkey', timestamp: NOW - 60 }];
+    expect(passkeyFresh(amr, NOW)).toBe(true);
+    expect(passkeyFresh(amr, NOW - 60 + MFA_WINDOW_S)).toBe(false);
+    expect(mfaState({ aal: 'aal1', amr }, NOW)).toBe('stale');
+  });
+
+  it('only a passkey entry counts', () => {
+    expect(passkeyFresh([{ method: 'password', timestamp: NOW }, { method: 'totp', timestamp: NOW }], NOW)).toBe(false);
+    expect(passkeyFresh([{ method: 'passkey', timestamp: String(NOW) }], NOW)).toBe(false);
+    expect(passkeyFresh(undefined, NOW)).toBe(false);
+    expect(lastMethodAt([{ method: 'passkey', timestamp: 5 }, { method: 'passkey', timestamp: 9 }], 'passkey')).toBe(9);
   });
 });

@@ -1,0 +1,124 @@
+name: Apple apps
+
+# The iPhone, iPad and Mac apps (apple/): the Swift core's tests, both apps built, each app run against a local copy of
+# the planner (the smoke test, with snapshots), and the release archives signed the way apple-release.yml signs them.
+on:
+  pull_request:
+    paths:
+      - 'apple/**'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'proxy.ts'
+      - 'next.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/apple.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apple/**'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'proxy.ts'
+      - 'next.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/apple.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core tests
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+      - name: swift test
+        run: swift test --package-path apple/Core
+
+  apps:
+    name: Build and smoke test (iPhone, iPad, Mac)
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build the planner
+        run: npm ci --ignore-scripts && npm run build
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec apple/project.yml
+          xcodebuild -version
+      - name: Build the iPhone and iPad app (Simulator)
+        run: >
+          xcodebuild build -quiet -project apple/LifeIsShort.xcodeproj -scheme LifeIsShort-iOS -configuration Debug
+          -destination 'generic/platform=iOS Simulator' -derivedDataPath apple/build CODE_SIGNING_ALLOWED=NO
+      - name: Build the Mac app (signed ad hoc, so it runs sandboxed)
+        # Even when the iPhone build fails, so one run reports both.
+        if: success() || failure()
+        run: >
+          xcodebuild build -quiet -project apple/LifeIsShort.xcodeproj -scheme LifeIsShort-macOS -configuration Debug
+          -destination 'platform=macOS' -derivedDataPath apple/build
+          CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+      - name: Smoke test against a local planner
+        run: |
+          PORT=3000 npm start > "$RUNNER_TEMP/next.log" 2>&1 &
+          for _ in $(seq 60); do curl -fsS -o /dev/null http://localhost:3000/app && break; sleep 1; done
+          curl -fsS -o /dev/null http://localhost:3000/app || { cat "$RUNNER_TEMP/next.log"; exit 1; }
+          apple/scripts/smoke.sh apple/build "$RUNNER_TEMP/smoke" mac iphone ipad
+      - name: Keep the snapshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+
+  archive:
+    name: Release archive, signed ad hoc (${{ matrix.platform }})
+    runs-on: macos-26
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            scheme: LifeIsShort-iOS
+            destination: generic/platform=iOS
+          - platform: macos
+            scheme: LifeIsShort-macOS
+            destination: generic/platform=macOS
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec apple/project.yml
+      - name: Archive, unsigned
+        run: >
+          xcodebuild archive -quiet -project apple/LifeIsShort.xcodeproj -scheme ${{ matrix.scheme }} -configuration Release
+          -destination '${{ matrix.destination }}' -archivePath "$RUNNER_TEMP/LifeIsShort.xcarchive" CODE_SIGNING_ALLOWED=NO
+      - name: Sign it ad hoc with its entitlements, as a release with passkeys does
+        run: |
+          apple/scripts/adhoc-sign.sh "$RUNNER_TEMP/LifeIsShort.xcarchive" ${{ matrix.platform }} ABCDE12345 io.github.abhinav-adtechs.lifeisshort plan.example.com
+          app=$(find "$RUNNER_TEMP/LifeIsShort.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)
+          codesign -d --entitlements - --xml "$app" | grep -q 'webcredentials:plan.example.com'
+          if [ ${{ matrix.platform }} = macos ]; then
+            codesign -d --entitlements - --xml "$app" | grep -q com.apple.security.app-sandbox
+            lipo -info "$app/Contents/MacOS/Life is short"
+          fi

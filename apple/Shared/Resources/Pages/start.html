@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>Life is short</title>
+<!-- The app's own page, bundled with it: where's your planner (setup), and can't reach it (offline). Same look as the
+     planner's sign-in screens, in Tide by day and Night train in the dark. Bridge.js gives it window.lisNative. -->
+<style>
+:root{--bg:#EDF2F4;--raised:#FFFFFF;--ink:#12202A;--muted:#4F5E69;--hair:#DFE7EB;--hair2:#CBD6DC;--accent:#0A7DB2;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0D1117;--raised:#141A22;--ink:#E9E7E2;--muted:#9DA4AE;--hair:#1E252F;--hair2:#2B333E;--accent:#F2A541;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font:15px/21px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+main{min-height:100vh;display:flex;flex-direction:column}
+header{flex:none;display:flex;align-items:center;height:calc(56px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 20px 0;border-bottom:1px solid var(--hair)}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:650;font-size:16px;letter-spacing:-.015em}
+.logo{width:26px;height:26px}
+.mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 16px calc(64px + env(safe-area-inset-bottom,0px))}
+section{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
+section[hidden]{display:none}
+h1{margin:0;font-size:26px;line-height:32px;font-weight:600;letter-spacing:-.02em;text-align:center;text-wrap:balance}
+.lead{max-width:400px;margin:0;color:var(--muted);text-align:center;text-wrap:pretty}
+.card{display:flex;flex-direction:column;gap:12px;width:min(400px,100%);margin-top:14px;padding:20px;border:1px solid var(--hair);border-radius:6px;background:var(--raised)}
+label{font-size:13px;font-weight:600;color:var(--muted)}
+input{width:100%;height:44px;padding:0 12px;border:1px solid var(--hair2);border-radius:3px;background:var(--raised);color:var(--ink);font:inherit;font-size:16px;outline:none}
+input:focus{border-color:var(--muted)}
+.btn{height:44px;border:0;border-radius:3px;background:var(--ink);color:var(--raised);font:inherit;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.55;cursor:default}
+.link{align-self:center;padding:6px;border:0;background:none;color:var(--muted);font:inherit;font-size:14px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.msg{min-height:18px;margin:0;font-size:13px;line-height:18px;color:var(--muted);text-align:center}
+.msg.err{color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+  <header><span class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="logo" aria-hidden="true">
+<defs>
+<linearGradient id="frame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6EFDF"/><stop offset="1" stop-color="#E2D6BC"/></linearGradient>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1A5BCB"/><stop offset=".45" stop-color="#4E98E8"/><stop offset=".62" stop-color="#A9D3F2"/></linearGradient>
+<radialGradient id="glow"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset=".45" stop-color="#FFF4D0" stop-opacity=".25"/><stop offset="1" stop-color="#FFF4D0" stop-opacity="0"/></radialGradient>
+<linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8BCB5A"/><stop offset="1" stop-color="#5DB447"/></linearGradient>
+<linearGradient id="field" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#45A63F"/><stop offset="1" stop-color="#2E7F31"/></linearGradient>
+<linearGradient id="lip" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0A1E3C" stop-opacity=".28"/><stop offset="1" stop-color="#0A1E3C" stop-opacity="0"/></linearGradient>
+<clipPath id="win"><rect x="34" y="34" width="444" height="444" rx="82"/></clipPath>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#frame)"/>
+<g clip-path="url(#win)"><rect x="34" y="34" width="444" height="444" fill="url(#sky)"/><circle cx="360.8" cy="188.2" r="164.4" fill="url(#glow)"/><circle cx="360.8" cy="188.2" r="43.2" fill="#FFF7DA"/><g fill="#B9CCEB"><circle cx="114.2" cy="227.2" r="25.2"/><circle cx="149.1" cy="206.7" r="37.7"/><circle cx="190.2" cy="194.3" r="44.0"/><circle cx="231.3" cy="210.8" r="33.5"/><circle cx="262.2" cy="227.2" r="23.1"/><rect x="93.6" y="219.0" width="189.1" height="30.8" rx="15.4"/></g><g fill="#FFFFFF"><circle cx="114.2" cy="216.9" r="24.7"/><circle cx="149.1" cy="196.4" r="37.0"/><circle cx="190.2" cy="184.1" r="43.2"/><circle cx="231.3" cy="200.5" r="32.9"/><circle cx="262.2" cy="216.9" r="22.6"/><rect x="93.6" y="208.7" width="189.1" height="30.8" rx="15.4"/></g><path d="M23.7 290.9C95.7 262.2 157.3 253.9 229.3 266.3C301.2 278.6 373.2 247.8 488.3 258.1V342.3H23.7Z" fill="#8EC3B0"/><path d="M23.7 303.3C105.9 272.4 188.2 266.3 266.3 284.8S414.3 303.3 488.3 276.6V488.3H23.7Z" fill="url(#hill)"/><path d="M23.7 317.7C105.9 290.9 188.2 284.8 266.3 303.3S414.3 321.8 488.3 295.1V309.4C414.3 336.2 342.3 323.8 266.3 313.6S105.9 303.3 23.7 332.1Z" fill="#F2D43A"/><path d="M23.7 373.2C147.1 348.5 290.9 354.7 488.3 381.4V488.3H23.7Z" fill="url(#field)"/><path d="M286.8 140.9c8.2 -8.2 16.4 -7.2 22.6 4.1c6.2 -11.3 14.4 -12.3 22.6 -4.1" fill="none" stroke="#173055" stroke-width="7.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M290.9 23.7 352.6 23.7 157.3 496.5 95.7 496.5Z" fill="#FFFFFF" opacity=".09"/><rect x="34" y="34" width="444" height="61.7" fill="url(#lip)"/></g>
+<rect x="34" y="34" width="444" height="444" rx="82" fill="none" stroke="#C8BB9E" stroke-width="4"/>
+</svg><span>Life is short</span></span></header>
+  <div class="mid">
+    <section id="setup" hidden>
+      <h1>Where&rsquo;s your planner?</h1>
+      <p class="lead">Life is short runs on your own server. Enter the address you open it at in a browser.</p>
+      <form class="card" id="setup-form" novalidate>
+        <label for="address">Server address</label>
+        <input id="address" type="text" inputmode="url" autocapitalize="none" autocorrect="off" autocomplete="url" spellcheck="false" enterkeyhint="go" placeholder="life-is-short.vercel.app" required>
+        <button class="btn" id="connect" type="submit">Connect</button>
+        <p class="msg" id="setup-msg" role="status"></p>
+        <button class="link" id="cancel" type="button" hidden>Cancel</button>
+      </form>
+    </section>
+    <section id="offline" hidden>
+      <h1>Can&rsquo;t reach your planner</h1>
+      <p class="lead" id="offline-msg">Check your connection. It tries again by itself when you&rsquo;re back online.</p>
+      <div class="card">
+        <button class="btn" id="retry" type="button">Try again</button>
+        <p class="msg" id="server-line"></p>
+        <button class="link" id="change" type="button">Use a different server</button>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+(function () {
+  'use strict';
+  var app = window.lisNative;
+  var state = (app && app.page) || { mode: 'setup' };
+  var $ = function (id) { return document.getElementById(id); };
+  var form = $('setup-form'), address = $('address'), connect = $('connect'), setupMsg = $('setup-msg');
+
+  function show(mode) {
+    $('setup').hidden = mode !== 'setup';
+    $('offline').hidden = mode !== 'offline';
+    $('cancel').hidden = !state.server;
+    if (mode === 'setup') { address.value = address.value || state.server || ''; setTimeout(function () { address.focus(); }, 50); }
+  }
+  function say(el, text, error) { el.textContent = text || ''; el.className = 'msg' + (error ? ' err' : ''); }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!app || connect.disabled) return;
+    connect.disabled = true;
+    say(setupMsg, 'Checking\u2026');
+    app.post('server.set', { address: address.value }).then(function (r) {
+      if (r && r.ok) { say(setupMsg, 'Opening your planner\u2026'); return; }
+      say(setupMsg, (r && r.message) || 'That didn\u2019t work. Check the address and try again.', true);
+      connect.disabled = false;
+    }, function (err) {
+      say(setupMsg, String((err && err.message) || err), true);
+      connect.disabled = false;
+    });
+  });
+
+  var retrying = false;
+  function retry() {
+    if (!app || retrying) return;
+    retrying = true;
+    say($('server-line'), 'Trying again\u2026');
+    app.post('page.retry').catch(function () {}).then(function () { setTimeout(function () { retrying = false; }, 1500); });
+  }
+  $('retry').addEventListener('click', retry);
+  $('cancel').addEventListener('click', retry);
+  $('change').addEventListener('click', function () { show('setup'); });
+  window.addEventListener('online', function () { if (!$('offline').hidden) retry(); });
+
+  if (state.message) $('offline-msg').textContent = state.message;
+  if (state.server) say($('server-line'), state.server);
+  show(state.mode === 'offline' ? 'offline' : 'setup');
+})();
+</script>
+</body>
+</html>

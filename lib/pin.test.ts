@@ -28,7 +28,17 @@ describe('nextStep', () => {
     expect(nextStep({ hasFactor: true, codeFresh: true, status: { ...base, has_pin: false } })).toBe('password');
   });
 
+  it('a passkey sign-in goes straight in for 24 hours, no PIN or code', () => {
+    const pk = { ...base, unlocked: true, passkey_age: 30, password_age: null, code_age: null };
+    expect(nextStep({ hasFactor: true, codeFresh: false, status: pk })).toBe('ready');
+    // Even with no PIN left: five wrong ones erased it, and the passkey still works.
+    expect(nextStep({ hasFactor: true, codeFresh: false, status: { ...pk, has_pin: false } })).toBe('ready');
+    // A day later it locks like any other session, and the PIN and code (or a passkey again) open it.
+    expect(nextStep({ hasFactor: true, codeFresh: false, status: { ...pk, unlocked: false, passkey_age: 90000 } })).toBe('pin-code');
+  });
+
   it('never shows data the database would refuse', () => {
+    expect(nextStep({ hasFactor: true, codeFresh: false, status: { ...base, unlocked: false, passkey_age: 30 } })).not.toBe('ready');
     expect(nextStep({ hasFactor: true, codeFresh: false, status: { ...base, unlocked: true } })).not.toBe('ready');
     expect(nextStep({ hasFactor: true, codeFresh: true, status: { signed_in: false } })).toBe('password');
   });

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { as, migrated, sql } from '../db/pglite.mjs';
+import { MIGRATIONS, as, migrated, sql } from '../db/pglite.mjs';
 import { compareData, countLost, evaluate } from './checks.mjs';
 
 const EMAIL = 'Me@Example.com';
@@ -30,6 +30,9 @@ async function project(which) {
 }
 
 const snap = async db => (await db.query('select audit.snapshot() as s')).rows[0].s;
+/** A function as the last migration to define it left it, to put back after a test tampers with it. */
+const latestDef = name => MIGRATIONS.map(f => sql(f).match(new RegExp(`create or replace function ${name.replace('.', '\\.')}\\(\\)[\\s\\S]*?\\$\\$;`)))
+  .filter(Boolean).pop()[0];
 
 let primary, backup, pServer, bServer;
 const PORTS = [54391, 54392];
@@ -116,6 +119,31 @@ describe('sign-in rule in the database', () => {
     expect(await rpc(s, `select public.unlock_with_pin('482915')`)).toBe('no-pin');
     expect(await rpc(session(S1, 30, 10), `select public.set_pin('482915')`)).toBe('ok');
   });
+  // A session that signed in with a passkey `ago` seconds ago: Supabase gives it aal1 and amr 'passkey'.
+  const S5 = 'aaaaaaaa-0000-0000-0000-000000000005';
+  const passkey = (ago, extra = {}) => ({ sub: P_OWNER, role: 'authenticated', session_id: S5, aal: 'aal1', amr: [{ method: 'passkey', timestamp: nowS() - ago }], ...extra });
+  it('a passkey sign-in shows your tasks for 24 hours, without the PIN or a code', async () => {
+    expect(await count(passkey(60))).toBe(3);
+    expect(await count(passkey(86500))).toBe(0);
+    expect(await count(passkey(60, { sub: B_OWNER }))).toBe(0);
+    expect(await count({ ...passkey(60), amr: [{ method: 'passkey', timestamp: 'now' }] })).toBe(0);
+  });
+  it('reports a passkey session and how many passkeys you have', async () => {
+    await primary.exec(`insert into auth.webauthn_credentials (user_id, friendly_name) values ('${P_OWNER}', 'iCloud Keychain'), ('${B_OWNER}', 'Someone else')`);
+    try {
+      const st = await rpc(passkey(60), 'select public.pin_status()');
+      expect(st).toMatchObject({ signed_in: true, unlocked: true, passkeys: 1, password_age: null, code_age: null });
+      expect(st.passkey_age).toBeGreaterThanOrEqual(60);
+      expect(st.seconds_left).toBeGreaterThan(86000);
+      expect(await rpc(passkey(86500), 'select public.pin_status()')).toMatchObject({ unlocked: false, seconds_left: 0, passkeys: 1 });
+      expect(await rpc(session(S2, 90000, 20), 'select public.pin_status()')).toMatchObject({ passkey_age: null });
+    } finally { await primary.exec('delete from auth.webauthn_credentials'); }
+  });
+  it('a passkey doesn’t choose a PIN: that still takes the password and a code', async () => {
+    expect(await rpc(passkey(60), `select public.set_pin('482915')`)).toBe('code-required');
+    const stepped = { ...passkey(60), aal: 'aal2', amr: [...passkey(60).amr, { method: 'totp', timestamp: nowS() - 5 }] };
+    expect(await rpc(stepped, `select public.set_pin('482915')`)).toBe('password-required');
+  });
   it('the PIN table is out of reach from the app', async () => {
     await expect(as(primary, 'authenticated', session(S1, 30, 10), 'select * from private.pins')).rejects.toThrow(/permission denied/);
   });
@@ -153,6 +181,24 @@ describe('breach checks on real snapshots', () => {
     } finally { await primary.exec('update private.pins set failed = 0'); }
   });
 
+  it('warn about a passkey added this week, and on the backup', async () => {
+    await primary.exec(`insert into auth.webauthn_credentials (user_id, created_at) values ('${P_OWNER}', now() - interval '2 days'), ('${P_OWNER}', default)`);
+    await backup.exec(`insert into auth.webauthn_credentials (user_id) values ('${B_OWNER}')`);
+    try {
+      const r = evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA });
+      expect(r.findings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ level: 'warn', check: 'primary:passkeys', detail: '1 passkey(s) added in the last 8 days' }),
+        expect.objectContaining({ level: 'info', check: 'primary:passkeys', detail: '2 passkey(s)' }),
+        expect.objectContaining({ level: 'warn', check: 'backup:passkeys' }),
+      ]));
+      expect(r.blocked).toBe(false);
+    } finally { await primary.exec('delete from auth.webauthn_credentials'); await backup.exec('delete from auth.webauthn_credentials'); }
+  });
+  it('read a project from before passkeys as having none', () => {
+    const r = evaluate({ primary: { passkeys: { unavailable: true } }, backup: {}, ownerSha: OWNER_SHA });
+    expect(r.findings.filter(f => f.check.endsWith(':passkeys'))).toEqual([]);
+  });
+
   it('count what a sync would lose by comparing the rows, not timestamps', () => {
     const b = [{ id: 'a', title: 'A', notes: '', raw: 'a' }, { id: 'b', title: 'B', notes: null, raw: null }, { id: 'c', title: 'C', notes: 'n', raw: '' }];
     expect(countLost(b.map(t => ({ ...t, status: 'done', start: 1 })), b)).toBe(0);
@@ -186,18 +232,20 @@ describe('breach checks on real snapshots', () => {
       `create policy "unlocked" on public.tasks as restrictive for all to authenticated using ((select private.access_ok())) with check ((select private.access_ok()))`)).toContain('primary:policies');
   });
   it('block when the sign-in rule is weakened', async () => {
-    const original = sql('migrations/0004_pin_unlock.sql').match(/create or replace function private\.access_ok\(\)[\s\S]*?\$\$;/)[0];
-    expect(await tampered(`create or replace function private.access_ok() returns boolean language sql stable security definer set search_path = '' as $$ select private.mfa_fresh() $$;`, original))
+    expect(await tampered(`create or replace function private.access_ok() returns boolean language sql stable security definer set search_path = '' as $$ select private.mfa_fresh() $$;`, latestDef('private.access_ok')))
       .toEqual(expect.arrayContaining(['primary:access-rule', 'both:access-rule']));
   });
   it('block when the 2FA rule itself is weakened', async () => {
-    const original = sql('migrations/0002_require_fresh_2fa.sql').match(/create or replace function private\.mfa_fresh\(\)[\s\S]*?\$\$;/)[0];
-    expect(await tampered(`create or replace function private.mfa_fresh() returns boolean language sql stable set search_path = '' as $$ select true $$;`, original))
+    expect(await tampered(`create or replace function private.mfa_fresh() returns boolean language sql stable set search_path = '' as $$ select true $$;`, latestDef('private.mfa_fresh')))
       .toEqual(expect.arrayContaining(['primary:2fa-rule', 'both:2fa-rule']));
   });
   it('block when another account appears', async () => {
     expect(await tampered(`insert into auth.users (id, email) values ('33333333-3333-3333-3333-333333333333', 'intruder@example.com')`,
       `delete from auth.users where email = 'intruder@example.com'`)).toContain('primary:users');
+  });
+  it('block when a passkey belongs to another account', async () => {
+    expect(await tampered(`insert into auth.webauthn_credentials (user_id) values ('33333333-3333-3333-3333-333333333333')`,
+      'delete from auth.webauthn_credentials')).toContain('primary:passkeys');
   });
   it('block when the authenticator is removed', async () => {
     expect(await tampered(`update auth.mfa_factors set status = 'unverified'`, `update auth.mfa_factors set status = 'verified'`)).toContain('primary:2fa');

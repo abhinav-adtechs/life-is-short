@@ -1,0 +1,23 @@
+// What both apps build with. Change it here for everyone, or override any of it in Local.xcconfig (yours, not
+// committed; ./bootstrap.sh makes one) or on the xcodebuild command line, as the release workflow does.
+
+// Your reverse-DNS bundle id, registered under Certificates, Identifiers & Profiles. The iPhone/iPad app and the Mac app
+// share it, so they're one App Store product.
+LIS_BUNDLE_ID = io.github.abhinav-adtechs.lifeisshort
+
+// Your deployment's host, like life-is-short.vercel.app (https is assumed; localhost:3000 for npm run dev on this Mac).
+// Leave it empty and the app asks on first launch.
+LIS_SERVER =
+
+// YES when the app is signed with webcredentials for LIS_SERVER, so the planner can use passkeys inside the app.
+// The release workflow turns it on with the LIS_PASSKEYS variable (docs/apple.md → Passkeys in the apps).
+LIS_PASSKEYS = NO
+
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = 1
+
+// Your Apple Developer Team ID (developer.apple.com → Account → Membership details), to run on your own devices.
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+
+#include? "Local.xcconfig"

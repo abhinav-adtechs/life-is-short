@@ -13,6 +13,7 @@ import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
 import { dayName, describeRule, placeFirst, repeatChoices, sameRule, type Repeat, type RepeatOp, type Rule } from '@/lib/repeat';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
+import { haptic } from '@/lib/native';
 import { useVoice, type Heard } from './hooks';
 import { usePlanner } from './Planner';
 import type { Store } from './store';
@@ -205,6 +206,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     const unrepeat = repeats.apply(ops);
     const before = new Map([...store.remove(removes), ...store.write(puts)]);
     const undo = () => { store.restore(before); unrepeat(); };
+    haptic('success');
     toast(summary, undo);
     remember(said(msgsRef.current), summary, undo);
     reset();

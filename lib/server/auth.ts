@@ -1,11 +1,11 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
-import { mfaState } from '../mfa';
+import { mfaState, passkeyFresh } from '../mfa';
 
 /**
  * Our API routes spend your Gemini quota and touch your Google account, so they only answer you:
  * a verified session the database itself would show your data to (2FA code in the last 24 hours,
- * plus the password or the PIN in the last 24 hours).
+ * plus the password or the PIN in the last 24 hours, or a passkey in the last 24 hours).
  * Returns a 401 response to send back, or null when the caller is allowed.
  * Without Supabase configured (local-only mode) they're open in development, and in production only with ALLOW_LOCAL_MODE=1.
  */
@@ -21,7 +21,7 @@ export async function denyUnlessSignedIn(req: Request): Promise<Response | null>
   const sb = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await sb.auth.getClaims(token);
   if (error || !data?.claims?.sub) return Response.json({ reason: 'signed-out' }, { status: 401 });
-  if (mfaState(data.claims) !== 'fresh') return Response.json({ reason: 'code-required' }, { status: 401 });
+  if (mfaState(data.claims) !== 'fresh' && !passkeyFresh(data.claims.amr)) return Response.json({ reason: 'code-required' }, { status: 401 });
   // Ask the database the same question its row-level security asks.
   const asUser = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
   const { data: status } = await asUser.rpc('pin_status');

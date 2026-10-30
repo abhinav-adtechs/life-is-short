@@ -19,6 +19,7 @@ import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
+import { haptic, nativeReady, onNativeCommand } from '@/lib/native';
 import type { WorkHours } from '@/lib/place';
 import type { Change as Write, Slip } from '@/lib/slips';
 import { dueNow, followTask, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
@@ -249,6 +250,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
       undoable('Back on the list', store.patch(id, { status: 'open', doneAt: null }));
       return;
     }
+    haptic('success');
     const commit = () => undoable(`Done · ${shortTitle(t.title, 36)}`, store.patch(id, { status: 'done', doneAt: Date.now() }));
     if (!animate || prefersReducedMotion()) { commit(); return; }
     // The ring fills and the strike draws, then the row leaves for Done.
@@ -435,8 +437,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   /* ---------- keys: ⌘K to the chat; Esc closes the editor or panel, then the pick, then the mic, then the chat ---------- */
 
-  const keys = useRef({ editorId, hashSheet, picked, chat, closeEditor, closeSheet });
-  keys.current = { editorId, hashSheet, picked, chat, closeEditor, closeSheet };
+  const keys = useRef({ editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet });
+  keys.current = { editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const k = keys.current;
@@ -455,6 +457,24 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /* ---------- the iPhone, iPad and Mac apps: Siri, Home Screen quick actions and the menu bar (lib/native.ts) ---------- */
+
+  useEffect(() => {
+    const off = onNativeCommand(c => {
+      const k = keys.current;
+      if (c.name === 'open') { k.openSheet(c.sheet); return; }
+      if (k.editorId) k.closeEditor();
+      if (k.hashSheet) k.closeSheet();
+      if (c.name === 'listen') { if (!k.chat.listening) k.chat.mic(); return; }
+      // Words from Siri become a plan waiting for review; a half-typed thought keeps them in the box instead.
+      if (!c.text) { k.chat.focus(); return; }
+      if (k.chat.draft.trim()) { k.chat.setDraft(`${k.chat.draft.trim()} ${c.text}`); k.chat.focus(); return; }
+      k.chat.send(c.text);
+    });
+    nativeReady();
+    return off;
   }, []);
 
   // A picked or edited task that disappears (done elsewhere, deleted) lets go.

@@ -184,6 +184,8 @@ Connect **up to five Google accounts**, personal and work alike. Their **Google 
 
 Add a task on your phone in the queue for coffee and it's **on your laptop within seconds**. Live sync keeps every open screen up to date, and the phone and the laptop each get a layout built for them.
 
+**Apps for iPhone, iPad and Mac** wrap the same planner in a native window: dictation on the device, Siri and Shortcuts ("Dump a thought in Life is short"), Home Screen quick actions, and a Mac menu bar with every shortcut. They update whenever the planner does, and ship through TestFlight. See [`docs/apple.md`](docs/apple.md).
+
 Want to try it without an account? Run it with no keys and it works **entirely in your browser**.
 
 <br>
@@ -203,8 +205,8 @@ Let someone see your planner without handing it over. **Settings → Sharing**: 
 
 Your task list is a map of your life, so it's protected like one.
 
-- **PIN + authenticator code** to get in, once a day. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish. People you share with never get an account: they get a view-only window, decided by the database.
-- **The database checks it, not only the app.** Row-level security refuses to return a single task unless this session passed both checks in the last 24 hours. A stolen password, PIN or session token on its own reads nothing.
+- **PIN + authenticator code** to get in, once a day, or a **passkey** (Face ID, Touch ID, Windows Hello) in their place. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish. People you share with never get an account: they get a view-only window, decided by the database.
+- **The database checks it, not only the app.** Row-level security refuses to return a single task unless this session passed both checks, or a passkey, in the last 24 hours. A stolen password, PIN or session token on its own reads nothing.
 - **Five wrong PINs** and the PIN is wiped and every session is signed out.
 - **A strict Content-Security-Policy**, HSTS, no framing and no caching of API responses.
 - **A nightly backup** to a second database in another region. Before each copy it runs a set of breach checks, and if anything looks off it refuses to overwrite your last good copy. A weekly check confirms the two copies match exactly.
@@ -227,6 +229,7 @@ That's enough to try it. For your phone and laptop, add Supabase (sync and sign-
 - [**Setup guide**](docs/setup.md): local development, Supabase, Gemini, Google, Vercel and the full settings reference.
 - [**Go-live checklist**](docs/go-live.md): every step from zero to running on your phone, in order.
 - [**Security and backups**](docs/security.md): how sign-in, the database rules and the backup work.
+- [**iPhone, iPad and Mac apps**](docs/apple.md): the design, the one-time Apple setup, and releasing to TestFlight.
 
 Built with Next.js, TypeScript, Supabase and Gemini. Hosted on Vercel.
 

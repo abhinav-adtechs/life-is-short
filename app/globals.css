@@ -201,7 +201,7 @@ html.resizing-all,html.resizing-all *{cursor:ns-resize!important;-webkit-user-se
 
 .lp{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;isolation:isolate}
 .lp.sizing{cursor:col-resize;-webkit-user-select:none;user-select:none}
-.lp-top{flex:none;display:flex;align-items:center;gap:20px;height:56px;padding:0 14px 0 20px;border-bottom:1px solid var(--hair)}
+.lp-top{flex:none;display:flex;align-items:center;gap:20px;height:calc(56px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 14px 0 20px;border-bottom:1px solid var(--hair)}
 .metrics{flex:none;display:flex;align-items:center;gap:22px;font-size:var(--t-13);line-height:18px;white-space:nowrap}
 .metric{display:flex;align-items:center;gap:8px}
 .metric>span:not(.bar){color:var(--muted)}
@@ -209,7 +209,7 @@ html.resizing-all,html.resizing-all *{cursor:ns-resize!important;-webkit-user-se
 .lp-end{flex:none;display:flex;align-items:center;gap:12px}
 .clock{font-family:var(--font-time);font-size:var(--t-13);color:var(--muted);white-space:nowrap}
 .lp-tools{display:flex;align-items:center;gap:2px}
-.lp-body{flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);padding:12px}
+.lp-body{flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);padding:12px 12px max(12px,env(safe-area-inset-bottom,0px))}
 .lp-left{min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px}
 
 /* ---------- Next task (components/Next.tsx) ---------- */
@@ -385,7 +385,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 
 /* ---------- the chat bar (components/Chat.tsx) ---------- */
 
-.dock{position:fixed;left:50%;bottom:20px;z-index:30;display:flex;flex-direction:column;align-items:stretch;gap:10px;transform:translateX(-50%);pointer-events:none}
+.dock{position:fixed;left:50%;bottom:max(20px,calc(env(safe-area-inset-bottom,0px) + 8px));z-index:30;display:flex;flex-direction:column;align-items:stretch;gap:10px;transform:translateX(-50%);pointer-events:none}
 .dock>*{pointer-events:auto}
 .dock>.toast,.dock>.waiting{align-self:center}
 /* While a task is dragged, Done and the trash take the chat bar's place (components/Tray.tsx). */
@@ -480,8 +480,8 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 /* ---------- side panels and sheets (components/Panel.tsx) ---------- */
 
 .scrim{position:fixed;inset:0;z-index:40;background:var(--scrim);animation:lisFade 180ms var(--ease)}
-.scrim.below-top{top:56px}
-.side{position:fixed;z-index:41;top:68px;right:12px;bottom:12px;width:min(440px,calc(100vw - 24px));display:flex;flex-direction:column;background:var(--raised);border:1px solid var(--hair2);border-radius:var(--r-lg);box-shadow:var(--shadow-float);overflow:hidden;outline:none;animation:lisSlide 220ms var(--ease)}
+.scrim.below-top{top:calc(56px + env(safe-area-inset-top,0px))}
+.side{position:fixed;z-index:41;top:calc(68px + env(safe-area-inset-top,0px));right:12px;bottom:max(12px,env(safe-area-inset-bottom,0px));width:min(440px,calc(100vw - 24px));display:flex;flex-direction:column;background:var(--raised);border:1px solid var(--hair2);border-radius:var(--r-lg);box-shadow:var(--shadow-float);overflow:hidden;outline:none;animation:lisSlide 220ms var(--ease)}
 .side.edit{width:min(460px,calc(100vw - 24px))}
 .sheet{position:fixed;z-index:51;left:0;right:0;bottom:0;top:calc(env(safe-area-inset-top,0px) + 62px);display:flex;flex-direction:column;background:var(--raised);border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:var(--shadow-float);overflow:hidden;outline:none;animation:lisSheet 240ms var(--ease)}
 .phone .scrim:not(.chat-scrim){z-index:50}
@@ -610,6 +610,9 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 /* Sharing. */
 .sh-sum{margin:0;font-size:var(--t-13);line-height:18px}
 .sh-card{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--hair);border-radius:var(--r-md)}
+.pk{display:flex;flex-direction:column;gap:10px}
+.set-form.step{padding:12px;border:1px solid var(--hair);border-radius:var(--r-md)}
+.set-form.step .qr{align-self:flex-start}
 .sh-card.fresh{border-color:var(--accent)}
 .sh-card.ended{opacity:.75}
 .sh-h{display:flex;align-items:center;gap:10px}
@@ -624,7 +627,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .sh-log em{font-style:normal;color:var(--muted);white-space:nowrap}
 .sh-log li.warn span{color:var(--accent-ink)}
 .setpage{position:fixed;inset:0;z-index:70;overflow-y:auto;background:var(--bg);outline:none}
-.sp-top{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;height:56px;padding:0 16px;border-bottom:1px solid var(--hair);background:var(--bg)}
+.sp-top{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;height:calc(56px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid var(--hair);background:var(--bg)}
 .sp-top h1{margin:0;font-size:var(--t-16);font-weight:600}
 .sp-saved{margin-left:auto;font-size:var(--t-13);color:var(--muted)}
 
@@ -933,6 +936,8 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .qr{display:block;align-self:center;padding:8px;border-radius:var(--r-md);background:#FFFFFF}
 .secret{font-family:var(--font-code);font-size:var(--t-12);color:var(--ink);word-break:break-all}
 .fld input.code{height:44px;font-family:var(--font-code);font-size:var(--t-20);letter-spacing:.3em;text-align:center}
+.auth-or{display:flex;align-items:center;gap:10px;font-size:var(--t-12);color:var(--muted)}
+.auth-or::before,.auth-or::after{content:'';flex:1;height:1px;background:var(--hair)}
 .legal-link{align-self:flex-start;font-size:var(--t-13);color:var(--muted);text-decoration:none}
 .legal-link:hover{color:var(--ink)}
 

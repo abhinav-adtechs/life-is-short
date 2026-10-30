@@ -45,11 +45,14 @@ function checkProject(snap, which, ownerSha, f) {
   const factors = snap.factors || [];
   const s = snap.sessions_7d || {};
   const pins = snap.pins || { count: 0, failed: 0 };
+  // Missing before migration 0007, or {unavailable} on a project without Supabase's passkey table.
+  const passkeys = Array.isArray(snap.passkeys) ? snap.passkeys : [];
   if (which === 'backup') {
     // The backup has no app: nobody should ever sign in to it.
     if (factors.length) f.warn(`${P}:2fa`, `${factors.length} authenticator(s) set up on the backup, which has no app`);
     if (!s.unavailable && s.count > 0) f.warn(`${P}:sessions`, `${s.count} sign-in(s) in 7 days on the backup, which has no app`);
     if (pins.count > 0) f.warn(`${P}:pin`, 'a PIN was set on the backup, which has no app');
+    if (passkeys.length) f.warn(`${P}:passkeys`, `${passkeys.length} passkey(s) on the backup, which has no app`);
   } else {
     const strangers = factors.filter(x => !owner || x.user_id !== owner.id);
     if (strangers.length) f.block(`${P}:2fa`, `${strangers.length} authenticator factor(s) belong to another account`);
@@ -65,6 +68,12 @@ function checkProject(snap, which, ownerSha, f) {
     if (!pins.count) f.warn(`${P}:pin`, 'no PIN set yet');
     if (pins.failed > 0) f.warn(`${P}:pin`, `${pins.failed} wrong PIN attempt(s) since the last unlock`);
     if (pins.updated_at && nowMs - Date.parse(pins.updated_at) < 8 * DAY) f.info(`${P}:pin`, 'PIN set or changed in the last 8 days');
+    // A passkey signs in on its own, without the PIN or a code: one you didn't add is a way in.
+    const strangerKeys = passkeys.filter(x => !owner || x.user_id !== owner.id).length;
+    if (strangerKeys) f.block(`${P}:passkeys`, `${strangerKeys} passkey(s) belong to another account`);
+    const newKeys = passkeys.filter(x => nowMs - Date.parse(x.created_at) < 8 * DAY).length;
+    if (newKeys) f.warn(`${P}:passkeys`, `${newKeys} passkey(s) added in the last 8 days`);
+    if (passkeys.length) f.info(`${P}:passkeys`, `${passkeys.length} passkey(s)`);
   }
 
   const ev = snap.auth_events_7d || {};

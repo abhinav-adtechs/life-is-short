@@ -20,8 +20,8 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0006` in order, then `supabase/roles/primary_backup_reader.sql`.
-   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it).
+2. SQL editor: run `supabase/migrations/0001` to `0007` in order, then `supabase/roles/primary_backup_reader.sql`.
+   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it; `0007` lets a passkey sign-in in, and the backup job compares that rule between the two).
 3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
 4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
 5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
@@ -92,8 +92,25 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
 | `SHARE_SERVER_KEY`, plus `SHARE_SMTP_USER` and `SHARE_SMTP_PASS` (Gmail) or `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (Resend) | Sharing, from step 5 (optional) |
 | `GOOGLE_SITE_VERIFICATION` | Search Console's HTML-tag token, only while proving you own the site for Google (optional) |
+| `APPLE_TEAM_ID`, and `LIS_BUNDLE_ID` if you changed it | Lets the iPhone, iPad and Mac apps use this site's passkeys ([apple.md → Passkeys in the apps](apple.md#passkeys-in-the-apps), optional) |
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
+
+### 7. Passkeys (optional: Face ID, Touch ID, Windows Hello)
+
+A passkey signs you in on a new device, and unlocks the planner each day, with your face, your finger or your device's PIN, in place of the PIN and an authenticator code. How that fits the sign-in rules is in [`security.md`](security.md#passkeys).
+
+1. Run `supabase/migrations/0007_passkeys.sql` on the primary **and** the backup, if you haven't (step 1).
+2. Supabase → Authentication → **Passkeys**: turn passkeys on and fill in
+   - **Relying party ID**: your planner's host as the address bar shows it, with no `https://` and no path: `life-is-short.vercel.app`, or your own domain. Passkeys are bound to it; change it later and every passkey stops working.
+   - **Display name**: `Life is short`.
+   - **Origins**: `https://` and that host. A separate project for `npm run dev` would use `localhost` and `http://localhost:3000`.
+
+   Through the Management API these are `passkey_enabled`, `webauthn_rp_id`, `webauthn_rp_display_name` and `webauthn_rp_origins`.
+3. In the planner: Settings → Account → **Add a passkey**. It asks for an authenticator code first (Supabase wants one before a passkey is added or removed), then your device makes the passkey. Name it after the device.
+4. From then on: **Unlock with a passkey** when the planner locks, and **Sign in with a passkey** on a new device. The PIN and code keep working.
+
+Settings → Account lists your passkeys, with when each was added and last used, and renames or removes them. It also moves your authenticator to a new app, changes the PIN and the password, and signs you out here or everywhere. Passkeys inside the iPhone, iPad and Mac apps need a little more: [apple.md → Passkeys in the apps](apple.md#passkeys-in-the-apps).
 
 ## Settings reference
 
@@ -102,7 +119,8 @@ Open **Settings** from the header on a laptop or the `•••` menu on a phone
 - **Appearance**: three themes, Tide (light), Night train (dark) and Day train (light), or match your device (Night train when it's dark, Tide when it's light); the theme's own accent, one of ten others or your own (nudged until it reads against the background); ambient light (Present, Quiet or Still: the wave, the passing light and the lamp); motion (system, on, reduced; reduced also holds the ambient light still); nine fonts, including Lexend and Atkinson Hyperlegible for easier reading; text size; list density; increased contrast; 12- or 24-hour clock.
 - **Calendar**: your day (the hours the calendar fits to and where tasks get slotted, also given to the AI); week start (Monday, Sunday or Saturday); what 5 days shows (the next 5 days, or Monday to Friday); hour height on a phone; colour events by label (the default), account, Google calendar, priority or none; show done tasks; shade weekends; ISO week numbers. On a laptop the divider picks how many days the calendar shows (1, 2, 3, 5 or 7).
 - **Labels**: the parts of your life your tasks sort into (Work, Personal and Helping others to start). Rename, recolour, reorder, add up to 12 or remove them. The AI picks a label for each thing you dump, a `#tag` that names one picks it without the AI, and the task editor changes it. The backlog is a matrix of label by priority: click or tap a cell to filter the list to it.
-- **Google accounts**: connect, pull, colour, show or hide each account; give it a default label (and a calendar inside it another), so its events show in that label's colour. **Your tasks** (import) and **Account** (password, sign out).
+- **Google accounts**: connect, pull, colour, show or hide each account; give it a default label (and a calendar inside it another), so its events show in that label's colour. **Your tasks** (import).
+- **Account**: passkeys (add, rename, remove, and when each was last used), moving your authenticator to a new app, the PIN, the password, and signing out on this device or everywhere.
 - **Sharing**: who can see your planner, what they see (backlog; calendar today, upcoming or all; titles or busy only; items from Google; whether they can suggest tasks) and until when; their signed-in devices, last visit, an activity log of every sign-in, view, wrong code and suggestion; their suggestions to approve or decline; "See what they see"; and Stop sharing, which signs them out at once. A badge on the planner shows suggestions waiting.
 
 The theme, accent, ambient light and the laptop split stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
@@ -119,9 +137,11 @@ The theme, accent, ambient light and the laptop split stay on each device. Every
 - `components/`: `Phone.tsx` (under 860px) and `Laptop.tsx`, sharing `Next.tsx` (the Next task card), `Matrix.tsx`, `Calendar.tsx`, `Chat.tsx` (the chat bar, plan and history) and `Panel.tsx` (the editor, Analytics, Share and Settings as side panels or sheets). Drag uses pointer events, so the same code handles touch.
 - The laptop layout: `lib/layout.ts` (the split between matrix and calendar as a fraction, its presets and the days each shows), `components/Split.tsx` (the divider), `lib/select.ts` (`visibleRange` fits the calendar to your day, `progress` feeds the header) and `lib/analytics.ts` (the week in Analytics).
 - Labels: `lib/labels.ts` (the list, and which label a task or event has), `components/Labels.tsx` (the picker and Settings → Labels) and `supabase/migrations/0006` (the `label` column, also in the backup's comparison).
+- Passkeys: `supabase/migrations/0007` (a passkey sign-in in the sign-in rule, and in the weekly check), `lib/passkey.ts` (the WebAuthn ceremonies through Supabase, always asking the device to check it's you), `components/Auth.tsx` (sign in and unlock) and `components/AccountSection.tsx` (Settings → Account). `app/.well-known/apple-app-site-association` links the Apple apps to the site.
 - Sharing: `supabase/migrations/0005` (the share tables and functions), `app/api/share/*` (the viewer's sign-in, view and suggestions), `app/shared` and `components/SharedPlanner.tsx` (the viewer's page), `components/SharingSection.tsx` (Settings → Sharing) and `lib/share.ts`.
+- The iPhone, iPad and Mac apps: `apple/` (native shells around `/app`, [`apple.md`](apple.md)) and `lib/native.ts`, the page's side of their bridge: Siri, quick actions and the Mac menu bar reach `components/Planner.tsx` as commands, and Google's callback page hands sign-ins started in an app back to it. In a browser it does nothing.
 
-Every API route requires a signed-in Supabase user who passed 2FA in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
+Every API route requires a signed-in Supabase user who passed 2FA, or signed in with a passkey, in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
 
 ## Keeping keys and tasks out of this public repo
 
