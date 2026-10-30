@@ -6,7 +6,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 
 1. Create a project. Pick a region near you (Mumbai, `ap-south-1`) and a strong database password, and keep that password in your password manager.
 2. SQL editor, in order:
-   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, then `supabase/roles/primary_backup_reader.sql`.
+   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, `0007_passkeys.sql`, then `supabase/roles/primary_backup_reader.sql`.
 3. Authentication settings:
    - Sign In / Providers → Email: **Allow new users to sign up: off**. Minimum password length 16.
    - Multi-Factor: TOTP **enabled** (enroll and verify).
@@ -17,7 +17,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 ## 2. Backup database *(account: Supabase, ideally a separate organization)*
 
 1. Create a second project.
-2. SQL editor: `0001` to `0006`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
+2. SQL editor: `0001` to `0007`, then `supabase/roles/backup_writer.sql`. Don't set a sharing key on the backup: it has no app.
 3. Same auth settings as above. Add the same email as a user, with its **own** password. Nobody signs in to the backup; the user only owns the copied rows.
 
 ## 3. Logins for the backup job *(account: Supabase)*
@@ -79,11 +79,16 @@ Open `/app` → email + password → scan the QR code with an authenticator app 
 
 Native apps around the same planner, installed from TestFlight. Follow [apple.md → One-time setup](apple.md#one-time-setup): register the bundle id, create the App Store Connect app, make an Admin API key, and add `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID` and `LIS_SERVER` to GitHub. Then Actions → **Apple release** → Run workflow. Nothing changes on Vercel or Google.
 
+## 10. Passkeys *(optional; account: Supabase)*
+
+Face ID, Touch ID or Windows Hello instead of the PIN and code. Supabase → Authentication → **Passkeys**: on, relying party ID = your planner's host (no `https://`), display name `Life is short`, origin `https://<that host>`. Then Settings → Account → **Add a passkey** on each device you use. Details: [setup.md → Passkeys](setup.md#7-passkeys-optional-face-id-touch-id-windows-hello). For passkeys inside the Apple apps, add `APPLE_TEAM_ID` to Vercel and follow [apple.md → Passkeys in the apps](apple.md#passkeys-in-the-apps).
+
 ## Checks after go-live
 
 - In a private window, `/` and `/privacy` load without signing in; `/app` asks you to sign in.
 - Sign out, sign in: password, then code. Wrong code is refused.
 - A day later: PIN + code, no password. A wrong PIN is refused.
+- With a passkey: the lock screen leads with **Unlock with a passkey**, and a private window can **Sign in with a passkey**. Settings → Account lists it with when it was last used.
 - In another browser, sign in with the password only: no tasks load.
 - The task you add on your phone shows on the laptop within a few seconds.
 - Actions → Weekly security check → Run workflow: green.

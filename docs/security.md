@@ -6,11 +6,23 @@ How Life is short keeps your tasks yours, and how the backup database works. Set
 
 - **First sign-in on a device:** email + password, then a 6-digit code from an authenticator app (TOTP), then, the very first time, choose a PIN (6–12 digits). There's no sign-up, password reset or email link in the app.
 - **Every sign-in after that:** your **PIN + an authenticator code**, once every 24 hours. Never the password. The app locks itself when the 24 hours run out.
+- **Or a passkey**, if you add one (Settings → Account): Face ID, Touch ID, Windows Hello, your phone or a security key, in place of all of the above, on a new device too. See [Passkeys](#passkeys).
 - **Wrong PINs:** after 5 in a row, the PIN is erased and every session is signed out. You sign in with the password again and choose a new PIN.
-- **The database enforces all of this** (`supabase/migrations/0004`). Restrictive row-level security only returns or accepts rows for a session that passed an authenticator code in the last 24 hours **and** either signed in with the password or unlocked with the PIN in the last 24 hours. The PIN is stored as a bcrypt hash and checked inside the database. A stolen password, PIN or session token alone reads nothing. The API routes ask the database the same question.
+- **The database enforces all of this** (`supabase/migrations/0004`, `0007`). Restrictive row-level security only returns or accepts rows for a session that passed an authenticator code in the last 24 hours **and** either signed in with the password or unlocked with the PIN in the last 24 hours, or that signed in with a passkey in the last 24 hours. The PIN is stored as a bcrypt hash and checked inside the database. A stolen password, PIN or session token alone reads nothing. The API routes ask the database the same question.
 - **Changing the PIN** (Settings → Account) needs a password sign-in in the last 10 minutes.
 - **Browser hardening:** a strict nonce-based Content-Security-Policy (only our scripts run; the page talks only to itself and Supabase), no framing, HSTS, no referrer, and no caching of API responses.
 - **Lost your phone?** Remove the factor in Supabase → Authentication → Users → your user → MFA factors, then sign in with your password and set up a new one.
+
+## Passkeys
+
+A passkey is a key pair your device makes for this site: the private half never leaves the device (or your iCloud Keychain, Google Password Manager or password manager, which sync it), and Supabase keeps the public half. Setup is in [`setup.md`](setup.md#7-passkeys-optional-face-id-touch-id-windows-hello).
+
+- **Why it can stand in for the PIN and the code:** it proves two things at once, the device you hold and that it's you, because the app always asks the device to check (your face, your finger or the device's PIN). And it only answers this site, so a look-alike page can't phish it. A session that signed in with a passkey sees your data for 24 hours, then locks like any other (`supabase/migrations/0007`); the API routes ask the database the same question.
+- **Always checking it's you:** Supabase asks for that check as "preferred". The app asks for it as "required" every time, so a security key without a PIN can't be added, and every prompt asks for your face, finger or device PIN. Apple, Google and Windows passkeys always check anyway.
+- **Adding or removing one needs an authenticator code**, even on a passkey session: Supabase wants a code-verified (aal2) session to manage passkeys while 2FA is on. So does moving the authenticator to a new app, and changing the password. Changing the PIN still needs a password sign-in in the last 10 minutes.
+- **Supabase counts a passkey sign-in as one step (aal1).** Whenever an authenticator code is entered, on any device, Supabase signs out every session of yours that hasn't passed a code, passkey sessions on your other devices included. Those devices show the sign-in screen, which leads with **Sign in with a passkey**: one tap.
+- **The weekly check lists every passkey.** It blocks on a passkey belonging to another account, warns when one was added in the last 8 days (so one you didn't add gets you an email), and warns on any passkey on the backup.
+- **Lost a device?** Remove its passkey in Settings → Account, or in Supabase → Authentication → Users. A synced passkey lives on in your other devices' keychains: remove it there too if you're done with it.
 
 ## Sharing
 
@@ -34,13 +46,13 @@ A second Supabase project, in another region, holds a copy of your tasks. It has
 
 - **Daily** (`.github/workflows/backup-sync.yml`): the job reads the primary through `backup_reader`, a read-only login, and overwrites the backup through `backup_writer`, which can only replace task rows. Before every overwrite it runs the breach checks below. If any of them **blocks**, it doesn't overwrite, and the backup keeps the last good copy.
 - **Weekly** (`.github/workflows/backup-verify.yml`, Mondays): it repeats the checks on both databases, re-syncs, confirms the copies match byte for byte (by hash), and fails on warnings too. A failed run makes GitHub email you.
-- **What's checked** (`scripts/backup/checks.mjs`): exactly one account, and it's yours; exactly one verified authenticator, and none added or changed recently; wrong PIN attempts; sign-ins that passed the password but not 2FA; sign-up, password-change and recovery events; row-level security on every table; the exact set of policies and functions; no access for signed-out visitors; the 2FA and sign-in rules unchanged and identical on both projects; no unexpected database logins; any sign-in, authenticator, PIN or sharing on the backup (it has no app); wrong viewer codes; mass deletions or mass edits; and a backup that was edited since the last sync.
+- **What's checked** (`scripts/backup/checks.mjs`): exactly one account, and it's yours; exactly one verified authenticator, and none added or changed recently; passkeys, all yours and none added recently; wrong PIN attempts; sign-ins that passed the password but not 2FA; sign-up, password-change and recovery events; row-level security on every table; the exact set of policies and functions; no access for signed-out visitors; the 2FA and sign-in rules unchanged and identical on both projects; no unexpected database logins; any sign-in, authenticator, PIN, passkey or sharing on the backup (it has no app); wrong viewer codes; mass deletions or mass edits; and a backup that was edited since the last sync.
 - **Public logs:** the repo is public, so the job prints check names and counts only. It never prints emails, IPs or task text.
 
 ### Set up the backup
 
 1. Create a second Supabase project, ideally under a separate Supabase organization.
-2. SQL editor: run `supabase/migrations/0001` to `0006`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
+2. SQL editor: run `supabase/migrations/0001` to `0007`, then `supabase/roles/backup_writer.sql`. Add the same user (same email, its own password; nobody signs in with it, it just owns the copied rows) and turn sign-ups off.
 3. On each project set the job login's password (SQL editor, a long random value, never committed):
    `alter role backup_reader with password '…';` on the primary, and `alter role backup_writer with password '…';` on the backup.
 4. GitHub → Settings → Secrets and variables → Actions, add:

@@ -190,8 +190,8 @@ Let someone see your planner without handing it over. **Settings → Sharing**: 
 
 Your task list is a map of your life, so it's protected like one.
 
-- **PIN + authenticator code** to get in, once a day. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish. People you share with never get an account: they get a view-only window, decided by the database.
-- **The database checks it, not only the app.** Row-level security refuses to return a single task unless this session passed both checks in the last 24 hours. A stolen password, PIN or session token on its own reads nothing.
+- **PIN + authenticator code** to get in, once a day, or a **passkey** (Face ID, Touch ID, Windows Hello) in their place. After your first sign-in it never asks for your password again. There's no sign-up page and no email links to phish. People you share with never get an account: they get a view-only window, decided by the database.
+- **The database checks it, not only the app.** Row-level security refuses to return a single task unless this session passed both checks, or a passkey, in the last 24 hours. A stolen password, PIN or session token on its own reads nothing.
 - **Five wrong PINs** and the PIN is wiped and every session is signed out.
 - **A strict Content-Security-Policy**, HSTS, no framing and no caching of API responses.
 - **A nightly backup** to a second database in another region. Before each copy it runs a set of breach checks, and if anything looks off it refuses to overwrite your last good copy. A weekly check confirms the two copies match exactly.

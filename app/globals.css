@@ -586,6 +586,9 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 /* Sharing. */
 .sh-sum{margin:0;font-size:var(--t-13);line-height:18px}
 .sh-card{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--hair);border-radius:var(--r-md)}
+.pk{display:flex;flex-direction:column;gap:10px}
+.set-form.step{padding:12px;border:1px solid var(--hair);border-radius:var(--r-md)}
+.set-form.step .qr{align-self:flex-start}
 .sh-card.fresh{border-color:var(--accent)}
 .sh-card.ended{opacity:.75}
 .sh-h{display:flex;align-items:center;gap:10px}
@@ -907,6 +910,8 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .qr{display:block;align-self:center;padding:8px;border-radius:var(--r-md);background:#FFFFFF}
 .secret{font-family:var(--font-code);font-size:var(--t-12);color:var(--ink);word-break:break-all}
 .fld input.code{height:44px;font-family:var(--font-code);font-size:var(--t-20);letter-spacing:.3em;text-align:center}
+.auth-or{display:flex;align-items:center;gap:10px;font-size:var(--t-12);color:var(--muted)}
+.auth-or::before,.auth-or::after{content:'';flex:1;height:1px;background:var(--hair)}
 .legal-link{align-self:flex-start;font-size:var(--t-13);color:var(--muted);text-decoration:none}
 .legal-link:hover{color:var(--ink)}
 

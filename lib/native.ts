@@ -19,6 +19,8 @@ interface LisNative {
   platform: 'ios' | 'ipados' | 'macos';
   version: string;
   build: string;
+  /** The app is linked to this site (webcredentials), so passkeys work inside it. */
+  passkeys?: boolean;
   post(type: string, body?: Record<string, unknown>): Promise<unknown>;
   onCommand(fn: (command: unknown) => void): () => void;
   ready(): Promise<unknown>;

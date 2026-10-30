@@ -1,12 +1,15 @@
-/** What public.pin_status() reports for this session (supabase/migrations/0004). */
+/** What public.pin_status() reports for this session (supabase/migrations/0004, 0007). */
 export interface PinStatus {
   signed_in: boolean;
   has_pin?: boolean;
   /** The database will show this session your data right now. */
   unlocked?: boolean;
-  /** Seconds since this session used the password / an authenticator code; null if never. */
+  /** Seconds since this session used the password / an authenticator code / a passkey; null if never. */
   password_age?: number | null;
   code_age?: number | null;
+  passkey_age?: number | null;
+  /** How many passkeys you have; null when Supabase can't say. Missing before migration 0007. */
+  passkeys?: number | null;
   /** Seconds until this session locks again. */
   seconds_left?: number;
 }
@@ -28,10 +31,12 @@ const CODE_REUSE_S = 300;
 /**
  * The next sign-in screen.
  * First time on a device: password → code (→ choose a PIN, once). After that: PIN + code, every 24 hours.
+ * A passkey sign-in skips all of it for 24 hours: it stands in for the PIN and the code.
  */
 export function nextStep(a: { hasFactor: boolean; codeFresh: boolean; status: PinStatus }): Step {
   const s = a.status;
   if (!s.signed_in) return 'password';
+  if (s.unlocked && (s.passkey_age ?? Infinity) < 86400) return 'ready';
   if (!a.hasFactor) return 'enroll';
   if (s.unlocked && a.codeFresh) return s.has_pin ? 'ready' : 'create-pin';
   const pwAge = s.password_age ?? Infinity;

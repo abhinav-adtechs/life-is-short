@@ -20,6 +20,9 @@ export const ChevronRight = ({ size = 14 }: P) => (
 export const ChevronDown = ({ size = 12 }: P) => (
   <svg {...svg(size, 1.6)}><path d="M3.5 6l4.5 4.5L12.5 6" /></svg>
 );
+export const KeyIcon = ({ size = 15 }: P) => (
+  <svg {...svg(size, 1.5)}><circle cx="5" cy="11" r="3" /><path d="M7.2 8.8L13.5 2.5M11.5 4.5l1.6 1.6M9.6 6.4l1.4 1.4" /></svg>
+);
 export const XIcon = ({ size = 14 }: P) => (
   <svg {...svg(size, 1.6)}><path d="M4 4l8 8M12 4l-8 8" /></svg>
 );
