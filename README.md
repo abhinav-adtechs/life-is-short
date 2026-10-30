@@ -7,7 +7,7 @@
 Say what's on your mind. **Life is short** turns it into tasks, puts them on your calendar,<br>
 and shows you the one thing to do **right now**.
 
-[How it works](#how-it-works) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
+[How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
 
 <br>
 
@@ -84,6 +84,20 @@ Slipped past something? When its slot ends without a tick, it goes **back on top
 </table>
 
 Every capture, move and tick comes with **Undo**. A half-typed thought is still there when you come back. No AI key? A built-in parser understands "tomorrow at 9", "by Friday", "urgent", "2h" and "someday", so it keeps working.
+
+<br>
+
+## Things that come back
+
+*"Order groceries every Monday and Thursday."* *"Gym Mon, Wed and Fri at 7am."* *"Pay rent on the 1st of every month."*
+
+Say it once and it's a **repeat**: every day, on weekdays, on the days you name, every other week, every few days or once a month. The AI hears it, and so does the built-in parser. Or open any task and pick **Repeat**.
+
+- **On its day, not before.** Each day it lands on, you get one ordinary task. With a time it goes on the calendar; without one it waits in the backlog, due that day. Thursday's grocery order is never Tuesday's Next task.
+- **One at a time.** Skip Monday's order and Thursday's takes its place, so you never have two "Order groceries". The one you skipped still counts as missed in the review.
+- **Ahead on the calendar.** Repeats with a time show faintly on the days to come, and slotting works around them.
+- **Change the task, change the repeat.** Rename it, re-prioritise it or give it a label, and the ones to come follow. Moving one on the calendar moves just that one.
+- **Skip one or stop them all.** Delete today's to skip it; it won't come back. Pick *Doesn't repeat*, say *"stop the grocery repeat"*, or use **Settings → Repeats**, which lists everything that repeats and when it comes next.
 
 <br>
 

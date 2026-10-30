@@ -12,11 +12,13 @@ import { CheckIcon } from './icons';
 import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
 import { LabelsSection } from './Labels';
+import { RepeatsSection } from './Repeating';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
   { id: 'calendar', name: 'Calendar' },
   { id: 'labels', name: 'Labels' },
+  { id: 'repeats', name: 'Repeats' },
   { id: 'google', name: 'Calendars' },
   { id: 'tasks', name: 'Tasks' },
   { id: 'account', name: 'Account', needsSupabase: true },
@@ -48,6 +50,7 @@ export function Settings() {
       <Appearance />
       <CalendarPrefs />
       <LabelsSection />
+      <RepeatsSection />
       <GoogleSection />
       <TasksSection />
       {hasSupabase() && <AccountSection />}

@@ -11,6 +11,7 @@ import { buildPrompt } from '@/lib/prompt';
 import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
+import { dayName, describeRule, placeFirst, repeatChoices, sameRule, type Repeat, type RepeatOp, type Rule } from '@/lib/repeat';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
 import { useVoice, type Heard } from './hooks';
 import { usePlanner } from './Planner';
@@ -57,10 +58,12 @@ const NOTES: Partial<Record<Via, string>> = {
  * accept it. Say more to change the plan, or edit its cards by hand. Accepting or discarding files the conversation
  * away in your history and starts a fresh one.
  */
-export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId }: {
-  store: Store; repo: TaskRepo; liveTasks: () => Task[]; hours: WorkHours; toast: (msg: string, undo?: () => void) => void;
+export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, repeats }: {
+  store: Store; repo: TaskRepo; liveTasks: () => Task[]; busyTasks: () => Task[]; hours: WorkHours; toast: (msg: string, undo?: () => void) => void;
   /** Your labels, and the label a task counts as (a Google event takes its calendar's). */
   labels: Label[]; labelId: (t: Task) => string | null;
+  /** Your repeats, the one a task is one of, and how to change them. */
+  repeats: { list: Repeat[]; repeatOf: (t: Task) => Repeat | null; apply: (ops: RepeatOp[]) => () => void };
 }) {
   const [open, setOpen] = useState(false);
   const [msgs, setMsgsState] = useState<ChatMsg[]>([]);
@@ -108,7 +111,10 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
     let msg: ChatMsg;
     try {
       const tasks = liveTasks();
-      const { refs, ctx } = promptContext(tasks, labelId);
+      // Slotting goes around the repeating tasks still to come, too.
+      const busy = busyTasks();
+      const ruleOf = (id: string) => { const t = store.get(id); return (t && repeats.repeatOf(t)?.rule) ?? null; };
+      const { refs, ctx } = promptContext(tasks, labelId, repeats.repeatOf);
       const live = plan ? plan.changes.filter(c => !c.skip) : [];
       const refOf = new Map([...refs].map(([ref, id]) => [id, ref]));
       const convo = plan ? { earlier, draft: draftOf(live, refOf) } : undefined;
@@ -118,11 +124,11 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
       let how: Via = via;
       if (plan && via !== 'ai') {
         // No model to revise the plan: keep it, and add whatever the keywords find in what you just said.
-        const view = new Map(tasks.map(x => [x.id, x]));
+        const view = new Map(busy.map(x => [x.id, x]));
         for (const c of live) view.set(c.id, c.after);
         changes = [...live, ...changesOf(applyCapture({ text, tasks: [...view.values()], refs: new Map(), result: null, via, hours, labels }))];
       } else {
-        const out = applyCapture({ text: [...earlier, text].join('\n'), tasks, refs, result, via, hours, labels, revise: !!plan });
+        const out = applyCapture({ text: [...earlier, text].join('\n'), tasks: busy, refs, result, via, hours, labels, revise: !!plan, ruleOf });
         changes = changesOf(out);
         how = out.via;
       }
@@ -137,7 +143,7 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
       if (thread.current === t0) { busyRef.current = false; setBusy(false); }
     }
     setMsgs(m => m.map(x => (x.id === waitId ? msg : x)));
-  }, [liveTasks, hours, labels, labelId, setDraft, setMsgs, past]);
+  }, [liveTasks, busyTasks, store, repeats, hours, labels, labelId, setDraft, setMsgs, past]);
 
   const voice = useVoice({
     onHeard: setHeard,
@@ -193,14 +199,17 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
   const accept = useCallback(() => {
     const plan = lastPlan(msgsRef.current);
     if (!plan || busyRef.current) return;
-    const { puts, summary } = commitChanges(plan.changes, store.get, Date.now(), labels);
-    if (!puts.length) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
-    const before = store.write(puts);
-    toast(summary, () => store.restore(before));
-    remember(said(msgsRef.current), summary, () => store.restore(before));
+    const { puts, removes, ops, summary } = commitChanges(plan.changes, store.get, Date.now(), labels, repeats.list);
+    if (!puts.length && !removes.length && !ops.length) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
+    // The repeats first, so the tasks written next already belong to them.
+    const unrepeat = repeats.apply(ops);
+    const before = new Map([...store.remove(removes), ...store.write(puts)]);
+    const undo = () => { store.restore(before); unrepeat(); };
+    toast(summary, undo);
+    remember(said(msgsRef.current), summary, undo);
     reset();
     setOpen(false);
-  }, [store, toast, remember, reset, labels]);
+  }, [store, toast, remember, reset, labels, repeats]);
 
   const discard = useCallback(() => {
     remember(said(msgsRef.current), 'Discarded');
@@ -257,7 +266,10 @@ export function useChat({ store, repo, liveTasks, hours, toast, labels, labelId 
       return plan ? m.map(x => (x === plan ? { ...plan, changes: plan.changes.map(fn) } : x)) : m;
     });
   }, [setMsgs]);
-  const edit = useCallback((id: string, patch: Partial<Task>) => updatePlan(c => (c.id === id ? { ...c, after: { ...c.after, ...patch } } : c)), [updatePlan]);
+  /** Change a proposed change; `repeat` (when given) is how a new task repeats, or null for not at all. */
+  const edit = useCallback((id: string, patch: Partial<Task>, repeat?: Rule | null) => updatePlan(c => (
+    c.id === id ? { ...c, after: { ...c.after, ...patch }, ...(repeat !== undefined ? { repeat } : {}) } : c
+  )), [updatePlan]);
   const toggle = useCallback((id: string) => updatePlan(c => (c.id === id ? { ...c, skip: !c.skip } : c)), [updatePlan]);
 
   const loadHistory = useCallback(() => {
@@ -300,12 +312,18 @@ function metaOf(c: Change, now: number, labels: Label[]): { text: string; hot?: 
       { text: PRI[a.priority], hot: a.priority === 1 },
       ...(label ? [{ text: label }] : []),
       { text: fmtDur(a.minutes) },
-      a.start != null ? { text: fmtWhen(a.start, now) } : due ? { text: due.text, hot: due.hot } : { text: 'Backlog' },
+      // A repeat: how, and its first one.
+      ...(c.repeat ? [
+        { text: describeRule(c.repeat) },
+        { text: `from ${a.start != null ? fmtWhen(a.start, now) : dayName(a.due ?? ymd(now), now)}` },
+      ] : [a.start != null ? { text: fmtWhen(a.start, now) } : due ? { text: due.text, hot: due.hot } : { text: 'Backlog' }]),
     ];
   }
   const b = c.before;
   if (kindOf(c) === 'done') return [{ text: 'Marks it done' }];
   const out: { text: string; hot?: boolean }[] = [];
+  if (c.repeat) out.push({ text: describeRule(c.repeat) });
+  else if (c.repeat === null) out.push({ text: 'Stops repeating' });
   for (const f of changedFields(b, a)) {
     if (f === 'start') out.push({ text: `${whenText(b, now)} → ${whenText(a, now)}` });
     if (f === 'priority') out.push({ text: `${PRI[b.priority]} → ${PRI[a.priority]}`, hot: a.priority === 1 });
@@ -437,22 +455,34 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
 
 /** Edit one change in place. Day and Start work like the task editor's: a day alone takes that day's first free slot. */
 function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
-  const { chat, liveTasks, hours, prefs } = usePlanner();
+  const { chat, busyTasks, hours, prefs, now } = usePlanner();
   const t = c.after;
   const id = useId();
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
-  const [date, setDate] = useState(t.start != null ? ymd(t.start) : '');
+  // A new repeat without a time has its first day as its due date.
+  const [date, setDate] = useState(t.start != null ? ymd(t.start) : c.repeat && !c.before ? t.due ?? '' : '');
   const [time, setTime] = useState(t.start != null ? `${pad(new Date(t.start).getHours())}:${pad(new Date(t.start).getMinutes())}` : '');
   const [minutes, setMinutes] = useState(t.minutes);
   const [due, setDue] = useState(t.due || '');
   const [notes, setNotes] = useState(t.notes || '');
   const [label, setLabel] = useState<string | null>(t.label ?? null);
+  // Only a new task can be made to repeat here.
+  const [repeat, setRepeat] = useState<Rule | null>(c.repeat ?? null);
   const first = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { first.current?.focus(); }, []);
+  const repeats = !c.before ? repeatChoices(c.repeat ?? null, date || (t.start != null ? ymd(t.start) : t.due) || ymd(now)) : [];
 
   const save = (e?: React.FormEvent) => {
     e?.preventDefault();
+    const fields = { title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title, priority, minutes, notes: notes.trim(), label };
+    if (repeat) {
+      // Its first one: at its time on its day, else in the backlog, due that day.
+      const pl = placeFirst(repeat, { date: date || null, time: time || null, deadline: false }, Date.now());
+      chat.edit(c.id, { ...fields, ...pl }, repeat);
+      onDone();
+      return;
+    }
     let start: number | null = null;
     if (date || time) {
       const day = date ? fromYmd(date) : startOfDay(Date.now());
@@ -460,11 +490,11 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
       else if (t.start != null && ymd(t.start) === ymd(day)) start = t.start;
       else {
         // Around your calendar and the rest of this plan.
-        const others = [...liveTasks().filter(x => !chat.preview.has(x.id)), ...chat.preview.values()];
+        const others = [...busyTasks().filter(x => !chat.preview.has(x.id)), ...chat.preview.values()];
         start = findSlot(others, minutes, { onDate: day, sameDay: true, exclude: t.id, hours }) ?? atMinutes(day, hours.start);
       }
     }
-    chat.edit(c.id, { title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title, priority, minutes, start, due: due || null, notes: notes.trim(), label });
+    chat.edit(c.id, { ...fields, start, due: due || null }, c.before ? undefined : null);
     onDone();
   };
   const lengths = LENGTHS.includes(minutes) ? LENGTHS : [...LENGTHS, minutes].sort((a, b) => a - b);
@@ -502,8 +532,20 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
             {lengths.map(m => <option key={m} value={m}>{lenLabel(m)}</option>)}
           </select>
         </div>
-        <div className="fld"><label htmlFor={`${id}-u`}>Due by</label><input id={`${id}-u`} type="date" value={due} onChange={e => setDue(e.target.value)} /></div>
+        {repeat
+          ? <div className="fld" />
+          : <div className="fld"><label htmlFor={`${id}-u`}>Due by</label><input id={`${id}-u`} type="date" value={due} onChange={e => setDue(e.target.value)} /></div>}
       </div>
+      {!c.before && (
+        <div className="fld">
+          <label htmlFor={`${id}-r`}>Repeat</label>
+          <select id={`${id}-r`} value={repeats.find(x => sameRule(x.rule, repeat))?.key ?? ''}
+            onChange={e => setRepeat(repeats.find(x => x.key === e.target.value)?.rule ?? null)}>
+            {repeats.map(x => <option key={x.key} value={x.key}>{x.name}</option>)}
+          </select>
+          {repeat && <p className="note">Day is its first one. With a start, each one goes on the calendar then; without, each waits in the backlog on its day.</p>}
+        </div>
+      )}
       <div className="fld">
         <label htmlFor={`${id}-n`}>Notes</label>
         <textarea id={`${id}-n`} rows={2} value={notes} onChange={e => setNotes(e.target.value)} />

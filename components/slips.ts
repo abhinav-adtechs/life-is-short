@@ -28,14 +28,16 @@ export function useSlips(repo: TaskRepo) {
 
   useEffect(() => { sync(); }, [sync]);
 
-  /** Every write to tasks comes through here; most aren't slips. */
-  const record = useCallback((changes: Change[]) => {
-    const found = slipsFrom(changes, Date.now());
+  /** Slips noted elsewhere: repeating tasks the next one replaced. */
+  const note = useCallback((found: Slip[]) => {
     if (!found.length) return;
     pending.current.push(...found);
     setSlips(s => mergeSlips(s, found, Date.now()));
     sync();
   }, [sync]);
 
-  return { slips, record, refresh: sync };
+  /** Every write to tasks comes through here; most aren't slips. */
+  const record = useCallback((changes: Change[]) => note(slipsFrom(changes, Date.now())), [note]);
+
+  return { slips, record, note, refresh: sync };
 }

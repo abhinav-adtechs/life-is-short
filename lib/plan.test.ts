@@ -67,7 +67,7 @@ describe('draftOf', () => {
     const edited: Change[] = changes.map(c => (c.after.title === 'A' ? { ...c, after: { ...c.after, title: 'A, edited', start: at(27, 10) } } : c));
     edited[1] = { ...edited[1], skip: true };
     expect(draftOf(edited, inverse(refs))).toEqual({
-      add: [{ title: 'A, edited', priority: 2, minutes: 30, date: '2026-10-27', time: '10:00', deadline: false, notes: '', label: null }],
+      add: [{ title: 'A, edited', priority: 2, minutes: 30, date: '2026-10-27', time: '10:00', deadline: false, notes: '', label: null, repeat: null }],
       update: [{ ref: 'T1', unschedule: true }],
     });
     expect(draftOf(edited, new Map()).update).toEqual([]);

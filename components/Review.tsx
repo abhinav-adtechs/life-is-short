@@ -559,7 +559,7 @@ function ItemRow({ it, kind }: { it: Item; kind: Tab }) {
   else if (kind === 'pending') meta = when;
   else {
     const since = !live ? 'deleted' : live.status === 'done' ? `done ${live.doneAt ? fmtWhen(live.doneAt, now) : ''}` : live.start != null ? `moved to ${fmtWhen(live.start, now)}` : 'back in the backlog';
-    meta = <>{when} · {it.how === 'open' ? 'still waiting' : it.how === 'dropped' ? 'deleted' : since}</>;
+    meta = <>{when} · {it.how === 'open' ? 'still waiting' : it.how === 'dropped' ? 'deleted' : it.how === 'replaced' ? 'the next one took its place' : since}</>;
     // Back in the backlog: one tap puts it in the next free slot.
     if (live?.status === 'open' && live.start == null) act = <button type="button" className="btn sec sm" aria-label={`Reslot: ${it.title}`} title="Next free slot" onClick={() => slot(it.id)}>Reslot</button>;
   }

@@ -4,9 +4,10 @@ import { Fragment, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
+import { describeRepeat, describeRule } from '@/lib/repeat';
 import type { Label } from '@/lib/labels';
 import { usePlanner, useLists, type Filter } from './Planner';
-import { CheckIcon, ChevronDown, XIcon } from './icons';
+import { CheckIcon, ChevronDown, RepeatIcon, XIcon } from './icons';
 
 const PRIS: Priority[] = [1, 2, 3];
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -59,9 +60,10 @@ function useTag(t: Task, kind: Kind) {
 
 /** A backlog row on a laptop: tick it, click then click a time, drag it to the calendar or another cell, double-click to edit. */
 function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan } = usePlanner();
+  const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
+  const repeat = repeatOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
   const ticking = plan.ticks.has(t.id);
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
@@ -81,6 +83,7 @@ function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
         onDoubleClick={() => { if (kind !== 'new') openEditor(t.id); }}
         onKeyDown={e => { if ((e.key === 'e' || e.key === 'E') && kind !== 'new') { e.preventDefault(); openEditor(t.id); } }}>
         <span className="rt"><span className="strike">{t.title}</span></span>
+        {repeat && <span className="rep-g" title={describeRepeat(repeat)}><RepeatIcon size={11} /><span className="sr">, {describeRepeat(repeat)}</span></span>}
         {tag && <span className={tag.cls}>{tag.text}</span>}
         {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
         {due && <span className={'due' + (due.hot ? ' hot' : '')}>{due.text}</span>}
@@ -93,7 +96,8 @@ function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
 
 /** A task in a cell of the full matrix: drag it to another cell to change its label and priority. */
 function Chip({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, picked, setPicked, openEditor, drag, now, plan } = usePlanner();
+  const { completing, picked, setPicked, openEditor, drag, now, plan, repeatOf } = usePlanner();
+  const repeat = repeatOf(t);
   const { focus } = useLists();
   const tag = useTag(t, kind);
   const due = t.due ? dueLabel(t.due, now) : null;
@@ -112,6 +116,7 @@ function Chip({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
         {tag && <b className={tag.cls === 'tag now' ? 'hot' : undefined}>{tag.text}</b>}
         <span className="num">{fmtDur(t.minutes)}</span>
         {due && <span className={due.hot ? 'hot' : undefined}>{due.text}</span>}
+        {repeat && <span className="rep-g" title={describeRepeat(repeat)}><RepeatIcon size={11} /><span className="sr">{describeRepeat(repeat)}</span></span>}
       </span>
     </button>
   );
@@ -296,14 +301,15 @@ function FullMatrix() {
 
 /** A backlog row on a phone: a big ring, the title in full, and a line of facts. Tap to open it; press and hold to drag it to Done or the trash. */
 function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, openEditor, labelOf, now, drag } = usePlanner();
+  const { completing, openEditor, labelOf, now, drag, repeatOf } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
+  const repeat = repeatOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
   const facts = [
     kind === 'new' ? 'New' : null,
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
-    due?.text ?? null, label?.name ?? null, fmtDur(t.minutes),
+    due?.text ?? null, label?.name ?? null, fmtDur(t.minutes), repeat ? describeRule(repeat.rule) : null,
   ].filter(Boolean).join(' · ');
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '');

@@ -8,7 +8,7 @@ import { DAYS, splitFor, type Days } from '@/lib/layout';
 import { VIEW_LABELS, VIEW_FOR_DAYS, rangeTitle, stepDay, viewDays } from '@/lib/calview';
 import { DOW, DOWL, MIN, MON, addDays, atMinutes, endOf, isWeekend, minsOf, startOfDay, weekStart, ymd } from '@/lib/time';
 import { usePlanner, suggestOn } from './Planner';
-import { ChevronLeft, ChevronRight } from './icons';
+import { ChevronLeft, ChevronRight, RepeatIcon } from './icons';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 /** Room under the laptop's grid for the chat bar floating over it. */
@@ -21,17 +21,19 @@ interface Item {
   minutes: number;
   title: string;
   meta: string;
-  /** Block styles: task, event, done, missed, proposed, nowblk, preview, faded (moved by the plan), ticking. */
+  /** Block styles: task, event, done, missed, proposed, upcoming (a repeat's still to come), nowblk, preview, faded (moved by the plan), ticking. */
   cls: string[];
   color?: string | null;
   task?: Task;
   /** Real tasks and events open, drag and resize; proposals and previews don't. */
   live?: boolean;
+  /** One of a repeat's: marked with the repeat glyph. */
+  repeats?: boolean;
 }
 
 /** Everything a day column shows, before laying it out in lanes. */
 function useItems() {
-  const { tasks, now, onCalendar, colorOf, plan, picked, drag, lists } = usePlanner();
+  const { tasks, now, onCalendar, colorOf, plan, picked, drag, lists, repeatOf, upcomingOn } = usePlanner();
   const sched = tasks.filter(t => t.start != null && onCalendar(t));
   const nowTask = lists.focus.now && lists.focus.now.start == null && picked !== lists.focus.now.id && drag.view?.id !== lists.focus.now.id ? lists.focus.now : null;
   return (d: Date): Item[] => {
@@ -46,8 +48,15 @@ function useItems() {
       if (plan.moves.has(t.id)) cls.push('faded');
       if (plan.ticks.has(t.id)) cls.push('ticking');
       if (drag.view?.kind === 'block' && drag.view.id === t.id) cls.push('lifted');
-      return { key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? 'Missed · back to the backlog' : fmtRange(t.start as number, t.minutes), cls, color, task: t, live: true };
+      return {
+        key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? 'Missed · back to the backlog' : fmtRange(t.start as number, t.minutes),
+        cls, color, task: t, live: true, repeats: !!repeatOf(t),
+      };
     });
+    for (const t of upcomingOn(d)) {
+      const color = colorOf(t);
+      out.push({ key: `rep:${t.id}`, start: t.start as number, minutes: t.minutes, title: t.title, meta: `Repeats · ${fmtRange(t.start as number, t.minutes)}`, cls: ['task', 'upcoming', ...(color ? ['tint'] : [])], color, repeats: true });
+    }
     for (const t of tasksOn(plan.proposed, d)) {
       out.push({ key: `plan:${t.id}`, start: t.start as number, minutes: t.minutes, title: t.title, meta: `Proposed · ${fmtRange(t.start as number, t.minutes)}`, cls: ['task', 'proposed'] });
     }
@@ -77,11 +86,12 @@ function Block({ it, top, height, lane, lanes, phone }: { it: Item; top: number;
       <div className="blk-t">
         {it.cls[0] === 'task' && <span className="blk-ring" aria-hidden="true" />}
         <span className="blk-title" style={{ WebkitLineClamp: lines }}>{it.title}</span>
+        {it.repeats && <span className="blk-rep" title="Repeats"><RepeatIcon size={11} /></span>}
       </div>
       {showMeta && <div className="blk-m num">{it.meta}</div>}
     </>
   );
-  if (!t) return <div className={cls} style={style} role="img" aria-label={`${it.title}, ${it.meta}`}>{body}</div>;
+  if (!t) return <div className={cls} style={style} role="img" aria-label={`${it.title}, ${it.meta}`} title={it.cls.includes('upcoming') ? `${it.title} · repeats, and comes on its day` : undefined}>{body}</div>;
   // The backlog task you're on, shown at now: open it, or drag it to a time.
   if (!it.live) {
     return (
@@ -234,11 +244,11 @@ function PickStrip({ phone }: { phone?: boolean }) {
  * is counted on its day ("2 earlier"), and clicking the count shows every hour. Weekends are shaded.
  */
 export function LaptopCalendar() {
-  const { day, setDay, view, prefs, now, split, tasks, onCalendar, plan } = usePlanner();
+  const { day, setDay, view, prefs, now, split, tasks, onCalendar, plan, upcomingOn } = usePlanner();
   const days = viewDays(view, day, prefs);
   const [allHours, setAllHours] = useState(false);
   const itemsOf = useItems();
-  const sched = [...tasks.filter(t => t.start != null && onCalendar(t)), ...plan.proposed];
+  const sched = [...tasks.filter(t => t.start != null && onCalendar(t)), ...plan.proposed, ...days.flatMap(upcomingOn)];
   const base: [number, number] = [prefs.dayStart, prefs.dayEnd];
   const fit = visibleRange(days, sched, base);
   const [h0, h1] = allHours ? hourRange(days, sched, base) : [fit.h0, fit.h1];
@@ -292,19 +302,19 @@ export function LaptopCalendar() {
  * picked, the best free slot shows dashed: tap it, or tap any other time.
  */
 export function PhoneCalendar() {
-  const { day, setDay, prefs, now, tasks, onCalendar, plan, picked, place, store, liveTasks, hours } = usePlanner();
+  const { day, setDay, prefs, now, tasks, onCalendar, plan, picked, place, store, busyTasks, hours, upcomingOn } = usePlanner();
   const itemsOf = useItems();
   const timeline = useRef<HTMLDivElement>(null);
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
   const d = startOfDay(day);
   const hour = prefs.hourHeight;
-  const sched = [...tasks.filter(t => t.start != null && onCalendar(t)), ...plan.proposed];
+  const sched = [...tasks.filter(t => t.start != null && onCalendar(t)), ...plan.proposed, ...upcomingOn(d)];
   const r = visibleRange([d], sched, [prefs.dayStart, prefs.dayEnd]);
   const { h0, h1 } = r;
   const isToday = ymd(d) === ymd(now);
   const pickedTask = picked ? store.get(picked) : undefined;
   const past = d.getTime() < startOfDay(now).getTime();
-  const sugMin = pickedTask && !past ? suggestOn(liveTasks(), pickedTask, d, hours, now) : null;
+  const sugMin = pickedTask && !past ? suggestOn(busyTasks(), pickedTask, d, hours, now) : null;
   const week = Array.from({ length: 7 }, (_, i) => addDays(weekStart(d, prefs.weekStart), i));
   const busyDays = new Set(sched.filter(t => t.status === 'open').map(t => ymd(t.start as number)));
   const items = itemsOf(d);

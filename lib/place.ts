@@ -1,4 +1,5 @@
 import type { ParsedItem, Priority, Task } from './model';
+import { toRule } from './repeat';
 import { MIN, WORK_END, WORK_START, addDays, atMinutes, ceil15, endOf, fromYmd, minsOf, startOfDay, ymd } from './time';
 
 type Slottable = Pick<Task, 'id' | 'status' | 'start' | 'minutes'>;
@@ -51,6 +52,7 @@ export function cleanItem(it: unknown, raw: string): ParsedItem {
   let minutes = Number(o.minutes);
   if (!isFinite(minutes) || minutes <= 0) minutes = 30;
   minutes = Math.min(480, Math.max(15, Math.round(minutes / 15) * 15));
+  const rule = toRule(o.repeat);
   return {
     title, priority: priority as Priority, minutes,
     notes: String(o.notes || '').trim().slice(0, 1000),
@@ -59,6 +61,7 @@ export function cleanItem(it: unknown, raw: string): ParsedItem {
     deadline: o.deadline === true,
     // Checked against your labels when the task is made.
     label: typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, 40) : null,
+    ...(rule ? { repeat: rule } : {}),
   };
 }
 
