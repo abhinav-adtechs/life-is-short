@@ -16,7 +16,9 @@ const nameOf = (p: Passkey) => p.friendly_name || 'Passkey';
 const digits = (v: string, n: number) => v.replace(/\D/g, '').slice(0, n);
 
 /**
- * Settings → Account: everything about signing in. Passkeys, the authenticator app, the PIN, the password, signing out.
+ * Settings → Account: every way in, in one place, like a Google account's sign-in options. Passkeys, the authenticator
+ * app, the PIN, the password, signing out. The authenticator can be moved to a new app but never removed, so there's
+ * always a second step, whatever passkeys come and go.
  * Supabase asks for a fresh authenticator code (aal2) before adding or removing a passkey, moving the authenticator or
  * changing the password; a passkey sign-in doesn't count as one, so those ask for a code first.
  */
@@ -25,6 +27,11 @@ export function AccountSection() {
   return (
     <section id="set-account" className="set-sec" aria-labelledby="set-account-h">
       <div className="set-h"><h3 id="set-account-h">Account</h3>{email && <span className="muted sm">signed in as {email}</span>}</div>
+      <p className="note">
+        Ways in: a passkey on its own; or your PIN with Face ID (on an iPhone or iPad) or a code from your authenticator app.
+        A new device starts with your password and a code, or a passkey. Your authenticator app always stays, so there’s
+        always a second step.
+      </p>
       <Passkeys />
       <Authenticator />
       <PinRow />
@@ -139,7 +146,7 @@ function Passkeys() {
 
   return (
     <Opt label="Passkeys" stack
-      note="Face ID, Touch ID, Windows Hello, your phone or a security key instead of the PIN and code. A passkey opens the planner for 24 hours, and it can’t be phished.">
+      note="Face ID, Touch ID, Windows Hello, your phone or a security key. On its own, a passkey stands in for the PIN and code for 24 hours, and it can’t be phished. On an iPhone or iPad it can also follow your PIN, instead of a code.">
       {() => (
         <div className="pk">
           {on === false && (
@@ -287,7 +294,7 @@ function Authenticator() {
 
   return (
     <>
-      <Opt label="Authenticator app" note={`For a new device’s first sign-in, the PIN, and changes like these.${since ? ` Set up ${dayWord(Date.parse(since))}.` : ''}`}>
+      <Opt label="Authenticator app" note={`Always on, so there’s always a second step: for a new device’s first sign-in, the PIN, and changes like these. It can move to a new app, but not be removed.${since ? ` Set up ${dayWord(Date.parse(since))}.` : ''}`}>
         {() => !step && <button type="button" className="btn sec sm" disabled={busy} onClick={start}>Move to a new app</button>}
       </Opt>
       {step === 'confirm' && <ConfirmCode why="move your codes to a new app" onCancel={() => setStep(null)} onDone={() => { setStep(null); start(); }} />}
@@ -338,7 +345,7 @@ function PinRow() {
 
   return (
     <>
-      <Opt label="PIN" note="Unlocks the planner with an authenticator code, when you don’t use a passkey.">
+      <Opt label="PIN" note="Unlocks the planner with a code from your authenticator app, or with Face ID on an iPhone or iPad.">
         {() => !open && <button type="button" className="btn sec sm" onClick={() => setOpen(true)}>Change PIN</button>}
       </Opt>
       {open && (pwRecent ? (

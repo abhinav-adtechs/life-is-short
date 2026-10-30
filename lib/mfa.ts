@@ -19,15 +19,6 @@ export function lastMethodAt(amr: unknown, method: string): number | null {
 export const lastCodeAt = (amr: unknown) => lastMethodAt(amr, 'totp');
 
 /**
- * The session signed in with a passkey in the last 24 hours. A passkey stands in for the PIN and the code, so the
- * database lets it in (private.access_ok, supabase/migrations/0007), though Supabase itself calls it aal1.
- */
-export function passkeyFresh(amr: unknown, nowS = Math.floor(Date.now() / 1000)): boolean {
-  const at = lastMethodAt(amr, 'passkey');
-  return at != null && nowS - at < MFA_WINDOW_S;
-}
-
-/**
  * 'fresh' when the session passed 2FA (aal2) with a code in the last 24 hours.
  * 'stale' when it needs a new code; the password isn't asked for again.
  */

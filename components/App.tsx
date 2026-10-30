@@ -7,6 +7,7 @@ import { supabaseRepo } from '@/lib/repo/supabase';
 import { hasSupabase, supabase } from '@/lib/supabase';
 import { mfaState } from '@/lib/mfa';
 import { nextStep, type PinStatus } from '@/lib/pin';
+import { faceIdReady } from '@/lib/faceid';
 import Planner from './Planner';
 import { CodeCheck, CreatePin, EnrollTotp, PinUnlock, Shell, SignIn } from './Auth';
 
@@ -16,15 +17,15 @@ type State =
   | { phase: 'enroll' }
   | { phase: 'code'; factorId: string; email: string | null }
   | { phase: 'create-pin' }
-  | { phase: 'pin'; factorId: string; email: string | null; codeDone: boolean; passkeys: number | null }
+  | { phase: 'pin'; factorId: string; email: string | null; codeDone: boolean; passkeys: number | null; faceId: boolean }
   | { phase: 'error' }
   | { phase: 'ready'; repo: TaskRepo; email: string | null; userId: string | null };
 
 /**
  * Sign-in gate. First time on a device: password, then an authenticator code, then (once) choose a PIN.
- * After that, every 24 hours: the PIN and an authenticator code, never the password. Or a passkey, any time,
- * which stands in for all of it.
- * The database enforces the same rule (supabase/migrations/0004, 0007), so this is the friendly front of it.
+ * After that, every 24 hours: the PIN and an authenticator code (or Face ID, on an iPhone or iPad), never the password.
+ * Or a passkey, any time, which stands in for all of it.
+ * The database enforces the same rule (supabase/migrations/0004, 0007 and 0008), so this is the friendly front of it.
  */
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'boot' });
@@ -40,8 +41,9 @@ export default function App() {
     ]);
     if (error || !status) { setState({ phase: 'error' }); return; }
     const totp = factors?.totp.find(f => f.status === 'verified');
-    const codeFresh = !!aal && mfaState({ aal: aal.currentLevel, amr: aal.currentAuthenticationMethods }) === 'fresh';
     const st = status as PinStatus;
+    // A code shows in the session's claims; Face ID only in the database.
+    const codeFresh = (!!aal && mfaState({ aal: aal.currentLevel, amr: aal.currentAuthenticationMethods }) === 'fresh') || !!st.code_fresh;
     const step = nextStep({ hasFactor: !!totp, codeFresh, status: st });
     const email = session.user.email ?? null;
     clearTimeout(lockTimer.current);
@@ -49,9 +51,12 @@ export default function App() {
       case 'enroll': setState({ phase: 'enroll' }); return;
       case 'code': setState({ phase: 'code', factorId: totp!.id, email }); return;
       case 'create-pin': setState({ phase: 'create-pin' }); return;
-      case 'pin-code': case 'pin-only':
-        setState({ phase: 'pin', factorId: totp!.id, email, codeDone: step === 'pin-only', passkeys: st.passkeys ?? null });
+      case 'pin-code': case 'pin-only': {
+        // Face ID needs a passkey: with none on the account (pin_status says), there's nothing to ask the device.
+        const faceId = step === 'pin-code' && st.passkeys !== 0 && await faceIdReady();
+        setState({ phase: 'pin', factorId: totp!.id, email, codeDone: step === 'pin-only', passkeys: st.passkeys ?? null, faceId });
         return;
+      }
       case 'password':
         await sb.auth.signOut();
         setState({ phase: 'signin', notice: st.passkeys ? 'Sign in again with your passkey, or with your password to set up a PIN.' : 'Sign in with your password to set up your PIN.' });
@@ -93,7 +98,10 @@ export default function App() {
     case 'enroll': return <EnrollTotp onSignOut={signOut} />;
     case 'code': return <CodeCheck factorId={state.factorId} email={state.email} onSignOut={signOut} />;
     case 'create-pin': return <CreatePin onDone={check} onSignOut={signOut} />;
-    case 'pin': return <PinUnlock factorId={state.factorId} email={state.email} codeDone={state.codeDone} passkeys={state.passkeys} onDone={check} onLocked={locked} onSignOut={signOut} />;
+    case 'pin': return (
+      <PinUnlock factorId={state.factorId} email={state.email} codeDone={state.codeDone} passkeys={state.passkeys} faceId={state.faceId}
+        onDone={check} onLocked={locked} onSignOut={signOut} />
+    );
     case 'error': return (
       <Shell title="Can’t reach your account">
         <p className="nm">Check your connection and try again.</p>

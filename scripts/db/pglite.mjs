@@ -17,6 +17,7 @@ export const STUB = `
   create table auth.mfa_factors (id uuid primary key default gen_random_uuid(), user_id uuid, factor_type text, status text,
     created_at timestamptz default now() - interval '30 days', updated_at timestamptz default now() - interval '30 days');
   create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid, created_at timestamptz default now(), aal text, ip inet, user_agent text);
+  create table auth.mfa_amr_claims (session_id uuid, authentication_method text, created_at timestamptz default now(), updated_at timestamptz default now());
   create table auth.webauthn_credentials (id uuid primary key default gen_random_uuid(), user_id uuid, credential_id bytea, public_key bytea,
     friendly_name text not null default '', created_at timestamptz default now() - interval '30 days',
     updated_at timestamptz default now() - interval '30 days', last_used_at timestamptz);

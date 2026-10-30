@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextStep } from './pin';
+import { nextStep, unlockWays } from './pin';
 
 const base = { signed_in: true, has_pin: true, unlocked: false, password_age: 200000, code_age: 200000 };
 
@@ -41,5 +41,18 @@ describe('nextStep', () => {
     expect(nextStep({ hasFactor: true, codeFresh: false, status: { ...base, unlocked: false, passkey_age: 30 } })).not.toBe('ready');
     expect(nextStep({ hasFactor: true, codeFresh: false, status: { ...base, unlocked: true } })).not.toBe('ready');
     expect(nextStep({ hasFactor: true, codeFresh: true, status: { signed_in: false } })).toBe('password');
+  });
+});
+
+describe('unlockWays', () => {
+  it('leads with the quickest way you have, and always keeps the PIN and a code', () => {
+    expect(unlockWays({ passkey: true, faceId: true, codeDone: false })).toEqual(['passkey', 'pin-face-id', 'pin-code']);
+    expect(unlockWays({ passkey: true, faceId: false, codeDone: false })).toEqual(['passkey', 'pin-code']);
+    expect(unlockWays({ passkey: false, faceId: true, codeDone: false })).toEqual(['pin-face-id', 'pin-code']);
+    expect(unlockWays({ passkey: false, faceId: false, codeDone: false })).toEqual(['pin-code']);
+  });
+
+  it('asks only for the PIN once a code was just given', () => {
+    expect(unlockWays({ passkey: true, faceId: true, codeDone: true })).toEqual(['pin-code']);
   });
 });
