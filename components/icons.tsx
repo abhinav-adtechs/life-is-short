@@ -23,6 +23,9 @@ export const ChevronDown = ({ size = 12 }: P) => (
 export const XIcon = ({ size = 14 }: P) => (
   <svg {...svg(size, 1.6)}><path d="M4 4l8 8M12 4l-8 8" /></svg>
 );
+export const TrashIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M2.5 4.5h11M6.5 4.5V3a1 1 0 011-1h1a1 1 0 011 1v1.5M4 4.5l.6 8.6a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8.6M6.75 7v4.5M9.25 7v4.5" /></svg>
+);
 export const ChatIcon = ({ size = 17 }: P) => (
   <svg {...svg(size, 1.5)}><path d="M2.5 3.5h11v7.5h-6.5l-3.25 2.5v-2.5h-1.25z" /></svg>
 );

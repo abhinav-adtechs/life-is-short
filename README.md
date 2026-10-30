@@ -112,7 +112,7 @@ Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the
   <img alt="Three phone screens: the Next task above the Priority matrix, the day's timeline with a suggested slot, and Night train" src="docs/images/phone.png" width="100%">
 </p>
 
-**On your phone** it's focused: the Next task on top with Done and Schedule, then the Priority matrix or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. How the day and week are going, Analytics, Share and Settings are in the `•••` menu.
+**On your phone** it's focused: the Next task on top with Done and Schedule, then the Priority matrix or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. Press and hold a task to drag it onto **Done** or the **trash**. How the day and week are going, Analytics, Share and Settings are in the `•••` menu.
 
 **On your laptop** it opens up into a full planner: the Next task and the Priority matrix on the left, a calendar that fits your day on the right, and the chat bar floating over it.
 
@@ -120,6 +120,7 @@ Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the
 - **One divider, sized your way.** Drag it and the calendar shows 1, 2, 3, 5 or 7 days, settling on the nearest. Arrow keys step it, a double-click resets it. Give the matrix the room and it opens into the full grid of tasks.
 - **The calendar fits your day:** your hours fill the height, with one tap for anything earlier or later, and a live wave (or line) at the current time.
 - **Drag** a task from the matrix onto any time. Drag it back to unschedule it.
+- **Drop it on Done or the trash.** While you drag a task, two targets rise where the chat bar sits: **Done** ticks it off, the **trash** deletes it. Both come with Undo.
 - **Drag the edge** of a block to make it longer or shorter.
 - **Click, then click.** Pick a task, then click a time slot, or take the next free one.
 - **The chat bar** (`⌘K`) grows into a panel: the plan comes back as a list of changes to tick on or off before you apply them, and History keeps every past chat with its Undo.

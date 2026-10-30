@@ -294,9 +294,9 @@ function FullMatrix() {
 
 /* ---------- phone ---------- */
 
-/** A backlog row on a phone: a big ring, the title in full, and a line of facts. Tap to open it. */
+/** A backlog row on a phone: a big ring, the title in full, and a line of facts. Tap to open it; press and hold to drag it to Done or the trash. */
 function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, openEditor, labelOf, now } = usePlanner();
+  const { completing, openEditor, labelOf, now, drag } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
@@ -305,11 +305,14 @@ function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
     due?.text ?? null, label?.name ?? null, fmtDur(t.minutes),
   ].filter(Boolean).join(' · ');
-  const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '');
+  const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
+  const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '');
   return (
     <div className={cls} style={{ animationDelay: delay }}>
       <Ring t={t} kind={kind} size={12} />
-      <button type="button" className="prow-main" disabled={kind === 'new'} onClick={() => openEditor(t.id)}>
+      <button type="button" className="prow-main" disabled={kind === 'new'}
+        onPointerDown={kind === 'open' ? e => drag.begin(e, 'row', t.id) : undefined}
+        onClick={() => { if (!drag.ignoreClick()) openEditor(t.id); }}>
         <span className="prow-t"><span className="rt"><span className="strike">{t.title}</span></span>{tag && <span className={tag.cls}>{tag.text}</span>}</span>
         <span className="prow-m"><span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} /><span className={due?.hot ? 'hot' : undefined}>{facts}</span></span>
       </button>

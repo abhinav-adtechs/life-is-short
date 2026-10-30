@@ -7,6 +7,8 @@ export const HOUR = 56;
 const snap15 = (m: number) => Math.round(m / 15) * 15;
 
 export type DragKind = 'row' | 'block' | 'resize';
+/** The tray that rises while you drag: tick it off, or throw it away. */
+export type DropZone = 'done' | 'trash';
 
 export interface DragView {
   kind: DragKind;
@@ -17,6 +19,8 @@ export interface DragView {
   target: { day: string; min: number } | null;
   /** Backlog matrix cell under the pointer, as "label|priority" ('' for no label). */
   cell: string | null;
+  /** Done or the trash, under the pointer. */
+  zone: DropZone | null;
   overBacklog: boolean;
   /** New length while resizing. */
   minutes: number | null;
@@ -46,6 +50,8 @@ export interface DragHandlers {
   onDropBacklog: (id: string) => void;
   /** Dropped on a matrix cell: take that cell's label and priority. */
   onDropCell: (id: string, cell: string, kind: DragKind) => void;
+  /** Dropped on Done or the trash. */
+  onDropZone: (id: string, zone: DropZone, kind: DragKind) => void;
   onResize: (id: string, minutes: number) => void;
 }
 
@@ -61,6 +67,13 @@ function cellAt(x: number, y: number) {
   for (const el of document.elementsFromPoint(x, y)) {
     const cell = (el as HTMLElement).closest?.('[data-cell]') as HTMLElement | null;
     if (cell) return cell.dataset.cell as string;
+  }
+  return null;
+}
+function zoneAt(x: number, y: number) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const z = (el as HTMLElement).closest?.('[data-drop]') as HTMLElement | null;
+    if (z) return z.dataset.drop as DropZone;
   }
   return null;
 }
@@ -80,7 +93,8 @@ export function minuteAt(col: HTMLElement, clientY: number, grabY: number, lengt
 }
 
 /**
- * Pointer-event drag for backlog rows and calendar blocks, plus bottom-edge resize.
+ * Pointer-event drag for backlog rows and calendar blocks, plus bottom-edge resize. Rows and blocks can also be dropped
+ * on the Done and trash targets ([data-drop]) that rise in the chat bar's place while they're dragged.
  * Mouse and pen start after a few pixels; touch starts after a long press so the page still scrolls.
  */
 export function useDrag(h: DragHandlers) {
@@ -107,6 +121,7 @@ export function useDrag(h: DragHandlers) {
       if (commit) {
         const v = cur.view;
         if (cur.kind === 'resize') { if (v.minutes != null && v.minutes !== cur.minutes) handlers.current.onResize(cur.id, v.minutes); }
+        else if (v.zone) handlers.current.onDropZone(cur.id, v.zone, cur.kind);
         else if (v.cell) handlers.current.onDropCell(cur.id, v.cell, cur.kind);
         else if (v.overBacklog && cur.kind === 'block') handlers.current.onDropBacklog(cur.id);
         else if (v.target) handlers.current.onDrop(cur.id, v.target.day, v.target.min, cur.kind);
@@ -128,9 +143,10 @@ export function useDrag(h: DragHandlers) {
         cur.view.minutes = Math.max(15, Math.min(480, endMin - cur.startMin, 24 * 60 - cur.startMin));
       }
     } else {
-      cur.view.cell = cellAt(x, y);
-      cur.view.overBacklog = !cur.view.cell && cur.kind === 'block' && overBacklogAt(x, y);
-      const col = cur.view.cell || cur.view.overBacklog ? null : columnAt(x, y);
+      cur.view.zone = zoneAt(x, y);
+      cur.view.cell = cur.view.zone ? null : cellAt(x, y);
+      cur.view.overBacklog = !cur.view.zone && !cur.view.cell && cur.kind === 'block' && overBacklogAt(x, y);
+      const col = cur.view.zone || cur.view.cell || cur.view.overBacklog ? null : columnAt(x, y);
       cur.view.target = col ? { day: col.dataset.day as string, min: minuteAt(col, y, cur.grabY, handlers.current.lengthOf(cur.id)) } : null;
     }
     publish();
@@ -185,7 +201,7 @@ export function useDrag(h: DragHandlers) {
       kind, id, pointerId: e.pointerId, touch, sx: e.clientX, sy: e.clientY,
       grabY: opts.grabY ?? 14, startMin: opts.startMin ?? 0, minutes: opts.minutes ?? 30,
       active: false, timer: 0,
-      view: { kind, id, x: e.clientX, y: e.clientY, target: null, cell: null, overBacklog: false, minutes: kind === 'resize' ? (opts.minutes ?? 30) : null },
+      view: { kind, id, x: e.clientX, y: e.clientY, target: null, cell: null, zone: null, overBacklog: false, minutes: kind === 'resize' ? (opts.minutes ?? 30) : null },
     };
     p.current = cur;
     if (touch) cur.timer = window.setTimeout(activate, 320);

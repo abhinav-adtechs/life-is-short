@@ -363,6 +363,13 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
       const [label, p] = cell.split('|');
       moveToCell(id, { label, priority: Number(p) as Priority });
     },
+    // Rows tick off with their check-and-strike; a block just goes.
+    onDropZone: (id, zone, kind) => {
+      const t = store.get(id);
+      if (!t) return;
+      if (zone === 'done') done(id, kind === 'row');
+      else undoable(`Deleted · ${shortTitle(t.title, 34)}`, store.remove([id]));
+    },
     onResize: (id, minutes) => {
       const t = store.get(id);
       if (!t || t.start == null) return;

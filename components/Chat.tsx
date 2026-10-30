@@ -19,6 +19,7 @@ import { LENGTHS, lenLabel } from './Editor';
 import { LabelPicker } from './Labels';
 import { ArrowUpIcon, ChatIcon, HistoryIcon, MicIcon, StopIcon, XIcon } from './icons';
 import { Toast } from './Toast';
+import { DropTray } from './Tray';
 
 /* ---------- state ---------- */
 
@@ -560,7 +561,7 @@ function History() {
  * laptop; when there's a conversation it grows upward into a panel in the same card. On a phone it rises into a sheet.
  */
 export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean }) {
-  const { chat, toastState, dismissToast, split } = usePlanner();
+  const { chat, toastState, dismissToast, split, drag } = usePlanner();
   const [tall, setTall] = useState(false);
   const { input } = chat;
   const open = chat.open;
@@ -581,6 +582,7 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
     chat.send(chat.draft);
   };
   const waiting = !open && (chat.busy || !!chat.plan?.changes.length);
+  const dropping = !!drag.view && drag.view.kind !== 'resize';
   const count = chat.plan?.changes.filter(c => !c.skip).length ?? 0;
   const width = split.calW + split.matrixW + 38;
   const placeholder = open && chat.plan ? (phone ? 'Change the plan, or add more' : 'Change something in the plan, or add more') : phone ? 'Dump a task, or ask…' : 'Dump a task, or ask for a change';
@@ -588,7 +590,7 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
   return (
     <>
       {phone && open && <div className="scrim chat-scrim" onClick={chat.close} />}
-      <div className={'dock' + (phone ? ' ph' : '') + (open ? ' open' : '')} style={phone ? undefined : { width: width >= 1100 ? 600 : width - 80 }} inert={inert}>
+      <div className={'dock' + (phone ? ' ph' : '') + (open ? ' open' : '') + (dropping ? ' dropping' : '')} style={phone ? undefined : { width: width >= 1100 ? 600 : width - 80 }} inert={inert}>
         {waiting && (
           <button type="button" className="waiting" onClick={chat.show}>
             <span className="nowdot" aria-hidden="true" />{chat.busy ? 'Working on your plan…' : `Your plan is waiting · ${count} change${count === 1 ? '' : 's'}`}<b>Review</b>
@@ -642,6 +644,7 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
             )}
           </form>
         </div>
+        {dropping && <DropTray />}
       </div>
     </>
   );
