@@ -21,6 +21,18 @@ const fields = {
   deadline: { type: 'boolean' },
   notes: { type: 'string' },
   label: { ...nullable('string'), description: 'label id' },
+  repeat: {
+    anyOf: [{
+      type: 'object',
+      properties: {
+        freq: { type: 'string', enum: ['day', 'week', 'month'] },
+        every: { type: 'integer', minimum: 1, maximum: 52 },
+        days: { type: 'array', items: { type: 'string', enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] } },
+        monthday: { ...nullable('integer'), description: '1-31' },
+      },
+      required: ['freq', 'every', 'days', 'monthday'],
+    }, { type: 'null' }],
+  },
 };
 
 /** Shape of {add, update, reply} that buildPrompt asks for. */
@@ -29,13 +41,13 @@ export const RESPONSE_SCHEMA = {
   properties: {
     add: {
       type: 'array',
-      items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes', 'label'] },
+      items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes', 'label', 'repeat'] },
     },
     update: {
       type: 'array',
       items: {
         type: 'object',
-        properties: { ref: { type: 'string' }, ...fields, done: { type: 'boolean' }, unschedule: { type: 'boolean' } },
+        properties: { ref: { type: 'string' }, ...fields, done: { type: 'boolean' }, unschedule: { type: 'boolean' }, stop_repeat: { type: 'boolean' } },
         required: ['ref'],
       },
     },

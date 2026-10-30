@@ -3,6 +3,7 @@ import { PRI, newId as defaultNewId } from './model';
 import { pickLabel, type Label } from './labels';
 import { cleanItem, placeItem, type WorkHours } from './place';
 import { localParse } from './parse';
+import { describeRepeat, placeFirst, sameRule, toRule, type Repeat, type Rule } from './repeat';
 import type { PromptTask } from './prompt';
 import { byBacklog } from './select';
 import { dueLabel, fmtWhen } from './format';
@@ -15,21 +16,30 @@ export interface AiResult { add: unknown[]; update: unknown[]; reply?: string }
 
 const hhmm = (ms: number) => `${ymd(ms)} ${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
 
-/** The open tasks the model gets to see, with short refs (T1, T2…) so it can update instead of duplicating. */
-export function promptContext(tasks: Task[], labelOf: (t: Task) => string | null = t => t.label ?? null) {
+/**
+ * The open tasks the model gets to see, with short refs (T1, T2…) so it can update instead of duplicating.
+ * A repeating one says how it repeats, so the model can change that or stop it.
+ */
+export function promptContext(tasks: Task[], labelOf: (t: Task) => string | null = t => t.label ?? null, repeatOf: (t: Task) => Repeat | null = () => null) {
   const open = tasks.filter(t => t.status === 'open')
     .sort((a, b) => ((a.start ?? 9e15) - (b.start ?? 9e15)) || byBacklog(a, b)).slice(0, 120);
   const refs = new Map(open.map((t, i) => ['T' + (i + 1), t.id]));
-  const ctx: PromptTask[] = open.map((t, i) => ({
-    ref: 'T' + (i + 1), title: t.title, priority: t.priority,
-    start: t.start != null ? hhmm(t.start) : null, due: t.due, label: labelOf(t),
-  }));
+  const ctx: PromptTask[] = open.map((t, i) => {
+    const r = repeatOf(t);
+    return {
+      ref: 'T' + (i + 1), title: t.title, priority: t.priority,
+      start: t.start != null ? hhmm(t.start) : null, due: t.due, label: labelOf(t),
+      ...(r ? { repeats: describeRepeat(r) } : {}),
+    };
+  });
   return { refs, ctx };
 }
 
 export interface CaptureOutcome {
   /** Tasks to write (new or changed). */
   puts: Task[];
+  /** Tasks that repeat from now on, by id, with their rule; null for one that stops repeating. */
+  repeats: Map<string, Rule | null>;
   /** Previous state of every touched id: the task, or null if it was new. Restoring these is Undo. */
   before: Map<string, Task | null>;
   added: Task[];
@@ -55,6 +65,8 @@ export function applyCapture(args: {
   labels?: Label[];
   /** The model's answer replaces a draft, so an empty answer means drop everything rather than fall back to keywords. */
   revise?: boolean;
+  /** How a task repeats, for one of a repeat's: only those can stop repeating. */
+  ruleOf?: (id: string) => Rule | null;
 }): CaptureOutcome {
   const now = args.now ?? Date.now();
   const makeId = args.newId ?? defaultNewId;
@@ -74,6 +86,7 @@ export function applyCapture(args: {
   const byId = new Map(args.tasks.map(t => [t.id, t]));
   const before = new Map<string, Task | null>();
   const puts = new Map<string, Task>();
+  const repeats = new Map<string, Rule | null>();
   const current = () => args.tasks.map(t => puts.get(t.id) || t).concat([...puts.values()].filter(t => !byId.has(t.id)));
   let updated = 0, ticked = 0;
 
@@ -105,7 +118,11 @@ export function applyCapture(args: {
       else if (pl.due) patch.due = pl.due;
     }
     if (u.done === true) { patch.status = 'done'; patch.doneAt = now; }
-    if (!Object.keys(patch).length) continue;
+    // A pulled Google item keeps Google's id, so it can't become a repeat's.
+    const rule = cur.externalId ? null : toRule(u.repeat), had = args.ruleOf?.(tid) ?? null;
+    if (rule && !sameRule(rule, had)) repeats.set(tid, rule);
+    else if (u.stop_repeat === true && had) repeats.set(tid, null);
+    if (!Object.keys(patch).length && !repeats.has(tid)) continue;
     if (u.done === true) ticked++; else updated++;
     if (!before.has(tid)) before.set(tid, byId.get(tid) || null);
     puts.set(tid, { ...cur, ...patch, updatedAt: now });
@@ -115,7 +132,9 @@ export function applyCapture(args: {
   adds.slice(0, 25).forEach((item, i) => {
     const c: ParsedItem = cleanItem(item, text);
     const id = makeId();
-    const pl = placeItem(c, current(), now, args.hours);
+    // A repeat starts on its first day: on the calendar at its time, else in the backlog, due then.
+    const pl = c.repeat ? placeFirst(c.repeat, c, now) : placeItem(c, current(), now, args.hours);
+    if (c.repeat) repeats.set(id, c.repeat);
     const task: Task = {
       id, title: c.title, raw, notes: c.notes, priority: c.priority, minutes: c.minutes,
       start: pl.start, due: pl.due, status: 'open', created: now, order: now + i, doneAt: null, updatedAt: now,
@@ -127,10 +146,12 @@ export function applyCapture(args: {
   });
 
   return {
-    puts: [...puts.values()], before, added, updated, ticked, via,
+    puts: [...puts.values()], repeats, before, added, updated, ticked, via,
     summary: summarize({ added, updated, ticked, via, now, labels }),
   };
 }
+
+export const NOTHING = 'Nothing to add from that';
 
 /** "On the calendar · Tomorrow, 11:00 AM", "3 added: 1 on the calendar, 2 in the backlog · 1 ticked off". */
 export function summarize(r: { added: Task[]; updated: number; ticked: number; via?: Via; now?: number; labels?: Label[] }): string {
@@ -150,5 +171,5 @@ export function summarize(r: { added: Task[]; updated: number; ticked: number; v
   if (via === 'no-key') parts.push('sorted by keywords (no AI key)');
   else if (via === 'ai-error') parts.push('sorted by keywords (AI unavailable)');
   else if (via === 'empty') parts.push('sorted by keywords');
-  return parts.join(' · ') || 'Nothing to add from that';
+  return parts.join(' · ') || NOTHING;
 }

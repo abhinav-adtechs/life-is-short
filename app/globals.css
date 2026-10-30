@@ -281,6 +281,8 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .done .rt{color:var(--muted)}
 .row.ghosted:not(.new) .rt{text-decoration:line-through}
 .due{flex:none;font-size:var(--t-12);color:var(--muted);white-space:nowrap}
+.rep-g{flex:none;display:inline-flex;align-items:center;color:var(--muted)}
+.rep-l{display:inline-flex;align-items:center;gap:5px}
 .len{flex:none;width:42px;font-size:var(--t-12);color:var(--muted);text-align:right;white-space:nowrap}
 
 /* Every task in its cell, when the matrix has the room. */
@@ -368,6 +370,11 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .blk.nowblk{z-index:3;background:var(--accent-soft);border-left:3px solid var(--accent)}
 .blk.nowblk .blk-ring,.blk.preview .blk-ring{border-color:var(--accent)}
 .blk.preview{z-index:6;background:var(--accent-soft);border:1.5px dashed var(--accent);pointer-events:none}
+/* A repeating task still to come: faint, and out of the way of picks and drops. */
+.blk.upcoming{z-index:1;background:transparent;border:1px dashed var(--hair2);border-left:3px solid var(--faint);opacity:.7;pointer-events:none}
+.blk.upcoming.tint{background:color-mix(in oklch,var(--c) 7%,transparent);border-left-color:color-mix(in oklch,var(--c) 60%,var(--raised))}
+.blk.upcoming .blk-ring{border-style:dashed}
+.blk-rep{flex:none;display:inline-flex;margin-top:2px;color:var(--muted)}
 .rz{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:ns-resize}
 
 /* Now: an accent line with a dot; in Tide, the rest of today as water under it, rippling at the surface. */
@@ -511,6 +518,10 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .chipb.sel select{padding:0;border:0;outline:none;background:none;font:inherit;color:inherit;appearance:none;cursor:pointer}
 .chipb.sel input[type="date"]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .ed-cal{display:flex;align-items:center;gap:8px;min-height:32px}
+.wdays{display:flex;flex-wrap:wrap;gap:4px}
+.wdays .chipb{width:38px;justify-content:center;padding:0}
+.wdays .chipb[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--raised)}
+.rep-at input[type="time"]{padding:0;border:0;outline:none;background:none;font:inherit;color:inherit}
 .ed-slot{align-self:flex-start;font-size:var(--t-13)}
 .ed-foot{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .ed-foot .dot{display:inline-block;vertical-align:middle}
@@ -570,6 +581,13 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .lcount{font-size:var(--t-13);color:var(--muted);white-space:nowrap}
 .lmove svg{transform:rotate(90deg)}
 .labels .swatches{padding:2px 0 12px 22px}
+
+/* Repeats: what repeats, how, and when it comes next. */
+.reps{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.reps li{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 0;border-bottom:1px solid var(--hair)}
+.rep-b{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:1px}
+.rep-t{font-size:var(--t-14);font-weight:500;text-align:left;color:var(--ink)}
+.reps .note{margin:0}
 
 /* Google accounts. */
 .acct{display:flex;flex-direction:column;gap:12px;padding:12px;border:1px solid var(--hair);border-radius:var(--r-md)}

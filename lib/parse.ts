@@ -1,5 +1,6 @@
 import type { ParsedItem, Priority } from './model';
 import { labelNamed, type Label } from './labels';
+import { takeRepeat } from './repeat';
 import { DAY_MS, addDays, minsOf, pad, startOfDay, ymd } from './time';
 
 const WEEKDAYS: Record<string, number> = { sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, tues: 2, wednesday: 3, wed: 3, thursday: 4, thu: 4, thur: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6 };
@@ -22,18 +23,23 @@ const STRIP: RegExp[] = [
 
 const TAG = /(^|\s)#([\p{L}\p{N}][\p{L}\p{N}_-]*)/gu;
 
-/** Keyword fallback when the AI route can't sort the dump. One item per line or `;`. A #tag naming one of `labels` picks it. */
+/**
+ * Keyword fallback when the AI route can't sort the dump. One item per line or `;`. A #tag naming one of `labels` picks
+ * it. "Every Monday and Thursday", "daily" and the like make it a repeat; a day it names is then the first one.
+ */
 export function localParse(text: string, nowArg?: number | Date, labels: Label[] = []): ParsedItem[] {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
   return String(text).split(/\n+|;\s*/).map(s => s.trim()).filter(Boolean).map(whole => {
     let label: string | null = null;
-    const part = whole.replace(TAG, (m, pre: string, tag: string) => {
+    const tagged = whole.replace(TAG, (m, pre: string, tag: string) => {
       const l = labelNamed(labels, tag);
       if (!l) return m;
       label ??= l.id;
       return pre;
     }).trim() || whole;
+    const rep = takeRepeat(tagged);
+    const part = rep?.rest || tagged;
     const low = part.toLowerCase();
     let priority: Priority = 2;
     if (/\b(?:urgent(?:ly)?|asap|critical|top priority|high priority|p1|immediately)\b|!{2,}/.test(low)) priority = 1;
@@ -79,7 +85,8 @@ export function localParse(text: string, nowArg?: number | Date, labels: Label[]
 
     const deadline = new RegExp(`\\b(?:by|before|due|until)\\s+(?:the\\s+)?(?:eod|end of|today|tonight|tomorrow|tmrw|day after|next|this|${WD}|\\d{1,2}(?:st|nd|rd|th)|${MO})`).test(low) || /\beod\b/.test(low);
     if (deadline && !date) date = today;
-    if (!deadline && time != null && !date) date = time > minsOf(now) ? today : addDays(today, 1);
+    // A repeat's first day comes from its rule.
+    if (!deadline && time != null && !date && !rep) date = time > minsOf(now) ? today : addDays(today, 1);
     if (deadline && date && (date.getTime() - today.getTime()) / DAY_MS <= 1) priority = 1;
 
     let title = part;
@@ -94,6 +101,7 @@ export function localParse(text: string, nowArg?: number | Date, labels: Label[]
       date: date ? ymd(date) : null,
       time: time != null && !deadline ? `${pad(Math.floor(time / 60))}:${pad(time % 60)}` : null,
       deadline, notes: '', label,
+      ...(rep ? { repeat: rep.rule } : {}),
     };
   });
 }

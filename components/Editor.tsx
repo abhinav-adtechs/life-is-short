@@ -7,7 +7,9 @@ import { findSlot } from '@/lib/place';
 import { fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { gcalUrl } from '@/lib/links';
 import { addDays, fromYmd, startOfDay, ymd } from '@/lib/time';
+import { describeRepeat, makeRepeating, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
 import { usePlanner } from './Planner';
+import { RepeatField } from './Repeating';
 
 export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
 export const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
@@ -28,15 +30,21 @@ function dueChoices(now: number) {
   ];
 }
 
-/** Edit one task: everything about it, and where it sits on the calendar. Changes save with Save; nothing else waits on it. */
+/**
+ * Edit one task: everything about it, where it sits on the calendar, and how it repeats. Changes save with Save;
+ * nothing else waits on it. On one of a repeat's tasks, what the task is goes to the ones to come too.
+ */
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, now, toast, undoable, hours, sourceOf, liveTasks, prefs, labelOf, schedule } = usePlanner();
+  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText } = usePlanner();
+  const repeat = repeatOf(t);
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
   const [minutes, setMinutes] = useState(t.minutes);
   const [due, setDue] = useState<string | null>(t.due || null);
   const [notes, setNotes] = useState(t.notes || '');
   const [label, setLabel] = useState<string | null>(t.label ?? null);
+  const [rule, setRule] = useState<Rule | null>(repeat?.rule ?? null);
+  const [time, setTime] = useState(repeat?.time ?? (t.start != null ? timeOf(t.start) : ''));
   const [armedDelete, setArmedDelete] = useState(false);
 
   const values = () => ({
@@ -46,14 +54,30 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
 
   const save = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const before = store.write([{ ...t, ...values() }]);
+    const v = values(), at = time || null, name = shortTitle(v.title, 30);
+    if (rule && !repeat) {
+      // Its id becomes the repeat's, so it's written anew.
+      const m = makeRepeating({ ...t, ...v }, rule, at, Date.now());
+      const unrepeat = applyRepeats([{ kind: 'set', repeat: m.repeat }]);
+      const before = new Map([...store.remove(m.removes), ...store.write([m.task])]);
+      onClose();
+      undoable(`${describeRepeat(m.repeat)} · ${name}`, before, unrepeat);
+      return;
+    }
+    const ops: RepeatOp[] = !repeat ? []
+      : !rule ? [{ kind: 'stop', id: repeat.id }]
+      : sameRule(rule, repeat.rule) && at === repeat.time ? []
+      : [{ kind: 'set', repeat: { ...repeat, title: v.title, notes: v.notes, priority: v.priority, minutes: v.minutes, label: v.label, rule, time: at, updatedAt: Date.now() } }];
+    // The repeat first, so the write below finds it as it now is.
+    const unrepeat = applyRepeats(ops);
+    const before = store.write([{ ...t, ...v }]);
     onClose();
-    undoable(`Saved · ${shortTitle(values().title, 34)}`, before);
+    undoable(ops[0]?.kind === 'stop' ? `Stopped repeating · ${name}` : `Saved · ${name}`, before, ops.length ? unrepeat : undefined);
   };
 
   const nextSlot = () => {
     const v = values();
-    const s = findSlot(liveTasks(), v.minutes, { exclude: t.id, hours });
+    const s = findSlot(busyTasks(), v.minutes, { exclude: t.id, hours });
     if (s == null) { toast('No free slot in the next two weeks.'); return; }
     const before = store.write([{ ...t, ...v, start: s }]);
     onClose();
@@ -77,7 +101,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
     if (!armedDelete) { setArmedDelete(true); return; }
     const before = store.remove([t.id]);
     onClose();
-    undoable(`Deleted · ${shortTitle(t.title, 34)}`, before);
+    undoable(deletedText(t), before);
   };
 
   const pickTime = () => {
@@ -152,6 +176,11 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
             </div>
           </div>
 
+          {!src && (
+            <RepeatField rule={rule} time={time} day={t.start != null ? ymd(t.start) : t.due ?? ymd(now)} repeating={!!repeat}
+              onRule={setRule} onTime={setTime} />
+          )}
+
           <div className="ed-f">
             <span className="flabel">Calendar</span>
             <div className="ed-cal">
@@ -177,7 +206,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
         </div>
       </div>
       <div className="side-f">
-        <button type="button" className="btn text warn" onClick={remove}>{armedDelete ? (wide ? 'Click again to delete' : 'Tap again to delete') : 'Delete'}</button>
+        <button type="button" className="btn text warn" onClick={remove}>{armedDelete ? `${wide ? 'Click' : 'Tap'} again to ${repeat ? 'skip' : 'delete'}` : repeat ? 'Skip this one' : 'Delete'}</button>
         <button type="button" className="btn text" onClick={toggleDone}>{t.status === 'done' ? 'Mark not done' : 'Mark done'}</button>
         <span className="spacer" />
         {wide && <button type="button" className="btn text" onClick={onClose}>Cancel</button>}

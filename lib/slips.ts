@@ -5,19 +5,22 @@ import { DAY_MS, endOf } from './time';
 /**
  * A slot you missed. Reslotting a missed task (or deleting it) moves it off that slot, and the task alone can no
  * longer say it was missed, so the review keeps a note of the slot here. Your own tasks only: a Google event that
- * ended isn't something you missed.
+ * ended isn't something you missed. A repeating task still open when the next one replaces it (lib/repeat.ts) is
+ * noted here too, with its slot, or with its day when it had none.
  */
 export interface Slip {
   id: string;
-  /** The slot it missed. With the id, this names the slip. */
+  /** The slot it missed, or the start of the day it was due. With the id, this names the slip. */
   start: number;
   minutes: number;
   title: string;
   label: string | null;
   priority: Priority;
-  /** When it was moved off the slot or deleted. */
+  /** When it was moved off the slot, deleted or replaced. */
   at: number;
-  how: 'moved' | 'dropped';
+  how: 'moved' | 'dropped' | 'replaced';
+  /** Due that day rather than at a time. */
+  due?: true;
 }
 
 /** One write to a task: what it was and what it is now (null when it didn't exist, or was deleted). */
@@ -63,11 +66,13 @@ export function normalizeSlips(raw: unknown): Slip[] {
       label: typeof o.label === 'string' ? o.label : null,
       priority: (PRIS.has(o.priority as number) ? o.priority : 2) as Priority,
       at: typeof o.at === 'number' && isFinite(o.at) ? o.at : o.start,
-      how: o.how === 'dropped' ? 'dropped' : 'moved',
+      how: o.how === 'dropped' || o.how === 'replaced' ? o.how : 'moved',
+      ...(o.due === true ? { due: true as const } : {}),
     };
     const k = slipKey(s), had = out.get(k);
-    // The same slot slipped twice (Undo, then reslot again) is one slip: keep the first.
-    if (!had || s.at < had.at) out.set(k, s);
+    // The same slot slipped twice (Undo, then reslot again) is one slip: keep the first. Replacing a repeating task
+    // removes it, which reads as deleting it too: the replacement says more.
+    if (!had || s.at < had.at || (s.at === had.at && s.how === 'replaced')) out.set(k, s);
   }
   return [...out.values()].sort((a, b) => b.start - a.start);
 }

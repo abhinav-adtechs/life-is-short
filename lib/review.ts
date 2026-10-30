@@ -118,8 +118,11 @@ export interface Item {
   at: number;
   slot: boolean;
   doneAt: number | null;
-  /** For missed items: still on its slot or past its deadline, moved off the slot (back to the backlog, or to another time), or deleted. */
-  how?: 'open' | 'moved' | 'dropped';
+  /**
+   * For missed items: still on its slot or past its deadline, moved off the slot (back to the backlog, or to another
+   * time), deleted, or, for a repeating task, replaced by the next one.
+   */
+  how?: 'open' | 'moved' | 'dropped' | 'replaced';
 }
 
 /** A commitment that came due, from a task or a slip. */
@@ -212,7 +215,7 @@ function context(input: ReviewInput): Ctx {
     if (seen.has(k) || current.get(s.id) === s.start) continue;
     seen.add(k);
     dues.push({
-      item: { id: s.id, title: s.title, label: lab(s.label), priority: s.priority, minutes: s.minutes, source: 'own', at: s.start, slot: true, doneAt: null, how: s.how },
+      item: { id: s.id, title: s.title, label: lab(s.label), priority: s.priority, minutes: s.minutes, source: 'own', at: s.start, slot: !s.due, doneAt: null, how: s.how },
       outcome: 'missed', day: ymd(s.start),
     });
   }
@@ -430,7 +433,7 @@ export function review(input: ReviewInput, p: Period): Review {
   for (const d of c.dues) {
     const it = d.item;
     if (!inP(p, it.at)) continue;
-    planned += it.how === 'moved' || it.how === 'dropped' ? it.minutes : 0;
+    planned += it.slot && (it.how === 'moved' || it.how === 'dropped' || it.how === 'replaced') ? it.minutes : 0;
     (rows.get(it.label) as LabelRow).outcomes[d.outcome]++;
     priorities[it.priority - 1].outcomes[d.outcome]++;
     if (d.outcome === 'missed') {

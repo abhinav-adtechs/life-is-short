@@ -41,6 +41,9 @@ export const ArrowUpIcon = ({ size = 14 }: P) => (
 export const ArrowIcon = ({ size = 14 }: P) => (
   <svg {...svg(size, 1.6)}><path d="M3 8h10M9 4l4 4-4 4" /></svg>
 );
+export const RepeatIcon = ({ size = 12 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M2.75 7.25V6.5a2.5 2.5 0 012.5-2.5h7.5M10.5 1.75L12.75 4 10.5 6.25M13.25 8.75v.75a2.5 2.5 0 01-2.5 2.5h-7.5M5.5 14.25L3.25 12 5.5 9.75" /></svg>
+);
 export const HistoryIcon = ({ size = 14 }: P) => (
   <svg {...svg(size, 1.5)}><circle cx="8" cy="8" r="6" /><path d="M8 4.75V8l2 1.5" /></svg>
 );

@@ -54,6 +54,13 @@ const slip = (extra: Partial<Slip> = {}): Slip => ({
 });
 
 describe('normalizeSlips', () => {
+  it('keeps a repeating task the next one replaced, by its day, over the deletion that replacing it reads as', () => {
+    const base = { id: 'rg.2026-10-27', start: at(27, 0), minutes: 15, title: 'Order groceries', label: null, priority: 2 as const, at: NOW };
+    const out = normalizeSlips([{ ...base, how: 'dropped' }, { ...base, how: 'replaced', due: true }]);
+    expect(out).toEqual([{ ...base, how: 'replaced', due: true }]);
+    expect(normalizeSlips([{ ...base, how: 'moved', due: 'yes' }])[0].due).toBeUndefined();
+  });
+
   it('keeps one slip per slot, the first one noted', () => {
     const out = normalizeSlips([slip({ at: NOW + 5 }), slip(), slip({ start: at(26, 10) })]);
     expect(out.map(s => [s.start, s.at])).toEqual([[at(27, 10), NOW], [at(26, 10), NOW]]);

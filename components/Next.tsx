@@ -5,7 +5,8 @@ import { PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtTime, fmtWhen } from '@/lib/format';
 import { MIN, endOf, minsOf, startOfDay, ymd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
-import { CalendarIcon, CheckIcon } from './icons';
+import { describeRule } from '@/lib/repeat';
+import { CalendarIcon, CheckIcon, RepeatIcon } from './icons';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -23,7 +24,7 @@ function nextWhen(t: Task, now: number) {
  * your day goes.
  */
 export function NextCard({ phone }: { phone?: boolean }) {
-  const { store, now, prefs, done, schedule, openEditor, labelOf, completing } = usePlanner();
+  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf } = usePlanner();
   const { focus: f, busy, freeUntil } = useLists();
   const cur = f.now;
   const dayStart = startOfDay(now).getTime() + prefs.dayStart * 3600000;
@@ -38,6 +39,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
   }
 
   const label = labelOf(cur);
+  const repeat = repeatOf(cur);
   const due = cur.due ? dueLabel(cur.due, now) : null;
   const finishing = completing.has(cur.id);
   const context = f.live ? `Until ${fmtTime(endOf(cur))}`
@@ -65,6 +67,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
             {cur.priority === 1 && <span className="loz hot">Urgent</span>}
             {label && <span className="dot" style={tint(label.color)} />}
             <span className="ell">{fmtDur(cur.minutes)}</span>
+            {repeat && <span className="rep-g" title={describeRule(repeat.rule)}><RepeatIcon size={12} /><span className="sr">{describeRule(repeat.rule)}</span></span>}
           </div>
           <button type="button" className="btn pri tall" disabled={finishing} onClick={() => done(cur.id, true)}>Done</button>
           <button type="button" className="btn sec tall" onClick={() => schedule(cur.id)}>Schedule</button>
@@ -75,6 +78,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
           <span>{fmtDur(cur.minutes)}</span>
           {label && <span className="lab"><span className="dot" style={tint(label.color)} />{label.name}</span>}
           {due && <span className={due.hot ? 'hot' : undefined}>{due.text}</span>}
+          {repeat && <span className="rep-l"><RepeatIcon size={12} />{describeRule(repeat.rule)}</span>}
           <span className="spacer" />
           <span className="acts">
             <button type="button" className="btn pri sm" disabled={finishing} onClick={() => done(cur.id, true)}><CheckIcon />Done</button>

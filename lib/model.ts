@@ -1,3 +1,5 @@
+import type { Rule } from './repeat';
+
 export type Priority = 1 | 2 | 3;
 export type Status = 'open' | 'done';
 
@@ -41,6 +43,8 @@ export interface ParsedItem {
   notes: string;
   /** A label id, or null. */
   label: string | null;
+  /** Said to happen again and again: the days it lands on (lib/repeat.ts). `date` is the first one. */
+  repeat?: Rule | null;
 }
 
 export const newId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

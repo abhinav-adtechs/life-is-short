@@ -20,11 +20,13 @@ import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
 import type { WorkHours } from '@/lib/place';
-import type { Slip } from '@/lib/slips';
+import type { Change as Write, Slip } from '@/lib/slips';
+import { dueNow, followTask, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
 import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
+import { useRepeats } from './repeats';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
 import type { ToastState } from './Toast';
@@ -109,7 +111,8 @@ export interface PlannerApi {
   section: string | null;
   openSheet: (kind: SheetKind, section?: string) => void;
   closeSheet: () => void;
-  undoable: (msg: string, before: Map<string, Task | null>) => void;
+  /** A toast with Undo, which puts these tasks back (and runs `also`, for changes to repeats). */
+  undoable: (msg: string, before: Map<string, Task | null>, also?: () => void) => void;
   /** Missed slots the task has since left (back to the backlog, moved or deleted), for Analytics and the review. */
   slips: Slip[];
   refreshSlips: () => void;
@@ -118,8 +121,20 @@ export interface PlannerApi {
   sourceOf: (t: Task) => Source | null;
   /** From a calendar you switched off: kept, but not shown, not Now, and not busy time. */
   isOff: (t: Task) => boolean;
-  /** Every task except switched-off events, for slotting. */
+  /** Every task except switched-off events. */
   liveTasks: () => Task[];
+  /** Those and the repeating tasks still to come: what a free slot has to miss. */
+  busyTasks: () => Task[];
+  /** Your repeats (lib/repeat.ts). */
+  repeats: Repeat[];
+  /** The repeat a task is one of, while it still repeats. */
+  repeatOf: (t: Task) => Repeat | null;
+  /** Start, change or stop repeats. Returns what undoes it. */
+  applyRepeats: (ops: RepeatOp[]) => () => void;
+  /** The timed repeating tasks still to come on a day, not made yet: faint on the calendar. */
+  upcomingOn: (d: Date) => Task[];
+  /** "Deleted" for a task, or for one of a repeat's, "Skipped" and when the next one comes. */
+  deletedText: (t: Task) => string;
   /** Whether a scheduled task shows on the calendar (hidden accounts and calendars, done tasks). */
   onCalendar: (t: Task) => boolean;
   /** Block colour from Settings → Calendar → Colour events by, or null for the plain block. */
@@ -156,7 +171,21 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const toast = useCallback((msg: string, undo?: () => void) => setToast({ key: Date.now() + Math.random(), msg, undo }), []);
   const dismissToast = useCallback(() => setToast(null), []);
   const slipLog = useSlips(repo);
-  const store = useTaskStore(repo, msg => toast(msg), slipLog.record);
+  const repeats = useRepeats(repo, toast);
+  const { record: recordSlips, note: noteSlips } = slipLog;
+  const { get: getRepeat, read: readRepeats, change: changeRepeats } = repeats;
+  // What a repeating task is (title, priority, length, label, notes) belongs to its repeat: an edit to its open one,
+  // made anywhere in the planner, goes on to the ones to come.
+  const heard = useCallback((changes: Write[]) => {
+    recordSlips(changes);
+    for (const { after } of changes) {
+      const o = after && occurrenceOf(after.id);
+      const r = o ? getRepeat(o.repeat) : null;
+      if (!after || !r || !followTask(r, after, Date.now())) continue;
+      changeRepeats(l => l.map(x => (x.id === r.id ? followTask(x, after, Date.now()) ?? x : x)));
+    }
+  }, [recordSlips, getRepeat, changeRepeats]);
+  const store = useTaskStore(repo, msg => toast(msg), heard);
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
   const systemDark = useMedia('(prefers-color-scheme: dark)');
@@ -196,11 +225,19 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const labelOf = useCallback((t: Task) => resolveLabel(t, labelIndex, srcOf(t)), [labelIndex, srcOf]);
   const isOff = useCallback((t: Task) => { const src = srcOf(t); return !!src?.calendar && !src.calendar.pull; }, [srcOf]);
   const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
+  const repeatIndex = useMemo(() => new Map(repeats.list.map(r => [r.id, r])), [repeats.list]);
+  const repeatOf = useCallback((t: Task) => { const o = occurrenceOf(t.id); return o ? repeatIndex.get(o.repeat) ?? null : null; }, [repeatIndex]);
+  const busyTasks = useCallback(() => [...liveTasks(), ...upcoming(repeats.list, Date.now())], [liveTasks, repeats.list]);
+  const upcomingDay = useCallback((d: Date) => upcomingOn(repeats.list, ymd(d), now), [repeats.list, now]);
+  const deletedText = useCallback((t: Task) => {
+    const r = repeatOf(t), next = r && nextWhen(r, Date.now());
+    return r ? `Skipped · ${shortTitle(t.title, 30)}${next ? ` · next one ${next}` : ''}` : `Deleted · ${shortTitle(t.title, 34)}`;
+  }, [repeatOf]);
 
   useEffect(() => { setMounted(true); }, []);
 
-  const undoable = useCallback((msg: string, before: Map<string, Task | null>) => {
-    toast(msg, before.size ? () => store.restore(before) : undefined);
+  const undoable = useCallback((msg: string, before: Map<string, Task | null>, also?: () => void) => {
+    toast(msg, before.size || also ? () => { store.restore(before); also?.(); } : undefined);
   }, [store, toast]);
 
   const setPicked = useCallback((id: string | null) => setPickedState(id), []);
@@ -282,11 +319,11 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slot = useCallback((id: string) => {
     const t = store.get(id);
     if (!t) return;
-    const s = findSlot(liveTasks(), t.minutes, { exclude: id, hours });
+    const s = findSlot(busyTasks(), t.minutes, { exclude: id, hours });
     if (s == null) { toast('No free slot in the next two weeks. Pick a time instead.'); setPickedState(id); return; }
     undoable(`Slotted for ${fmtWhen(s)}`, store.patch(id, { start: s }));
     setPickedState(p => (p === id ? null : p));
-  }, [store, liveTasks, toast, undoable, hours]);
+  }, [store, busyTasks, toast, undoable, hours]);
 
   const schedule = useCallback((id: string) => {
     setEditorId(null);
@@ -320,7 +357,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   // A slot that came and went without a tick sends its task back to the backlog, on top of the stack. Checked every
   // minute and on every change, so a task put in the past comes straight back too. No Undo: it would only bounce.
-  const { loaded, tasks: allTasks, all: allNow, write } = store;
+  const { loaded, tasks: allTasks, all: allNow, write, remove } = store;
   useEffect(() => {
     if (!loaded) return;
     const back = backToBacklog(allNow(), now);
@@ -329,8 +366,27 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     toast(back.length === 1 ? `Missed, so back in the backlog: ${shortTitle(back[0].title)}` : `${back.length} missed tasks are back in the backlog`);
   }, [loaded, allTasks, allNow, write, now, toast]);
 
+  // Each day a repeat lands on gets its task, which replaces one still open from before (lib/repeat.ts). The repeats
+  // are read fresh first: another device may have made today's already, and you may have deleted it since.
+  const today = ymd(now);
+  const behind = repeats.list.some(r => r.made < today);
+  const making = useRef(false);
+  useEffect(() => {
+    if (!loaded || !behind || making.current) return;
+    making.current = true;
+    readRepeats().then(fresh => {
+      if (!fresh) return;
+      const due = dueNow(fresh, allNow(), Date.now());
+      noteSlips(due.slips);
+      if (due.puts.length) write(due.puts);
+      if (due.removes.length) remove(due.removes);
+      if (due.made.size) changeRepeats(markMade(due.made));
+    }).finally(() => { making.current = false; });
+  }, [loaded, behind, today, readRepeats, changeRepeats, noteSlips, allNow, write, remove]);
+
   const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
-  const chat = useChat({ store, repo, liveTasks, hours, toast, labels: prefs.labels, labelId });
+  const chatRepeats = useMemo(() => ({ list: repeats.list, repeatOf, apply: repeats.apply }), [repeats.list, repeatOf, repeats.apply]);
+  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, repeats: chatRepeats });
 
   const plan = useMemo<PlanView>(() => {
     const out: PlanView = { ticks: new Set(), moves: new Set(), added: [], proposed: [] };
@@ -368,7 +424,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
       const t = store.get(id);
       if (!t) return;
       if (zone === 'done') done(id, kind === 'row');
-      else undoable(`Deleted · ${shortTitle(t.title, 34)}`, store.remove([id]));
+      else undoable(deletedText(t), store.remove([id]));
     },
     onResize: (id, minutes) => {
       const t = store.get(id);
@@ -591,6 +647,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, plan,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,
+    repeats: repeats.list, repeatOf, applyRepeats: repeats.apply, upcomingOn: upcomingDay, deletedText, busyTasks,
     accounts, sourceOf: srcOf, isOff, liveTasks, onCalendar, colorOf, labelOf, accountColor, pullGoogle, connectGoogle, removeGoogle, changeAccount, changeCalendar, pulling,
     inbox, refreshInbox,
   };
