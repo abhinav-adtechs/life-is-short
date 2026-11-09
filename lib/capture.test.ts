@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCapture, promptContext } from './capture';
-import { focus, backlogList, backToBacklog, missedList } from './select';
+import { BACKLOG_GRACE, focus, backlogList, backToBacklog, missedList } from './select';
 import type { Task } from './model';
 
 const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
@@ -137,6 +137,16 @@ describe('backlog and missed', () => {
     // Priority still comes first; the misses go ahead of the task they tie with.
     expect(list.map(t => t.title)).toEqual(['urgent', 'noon', 'morning', 'waiting']);
     expect(focus([waiting, urgent, later, ...back], NOW).now).toBe(urgent);
+  });
+
+  it('leaves a missed task on its slot for an hour before sending it back', () => {
+    // NOW is 1:30 PM: 12:45 – 1:15 ended 15 minutes ago, 12:00 – 12:30 an hour ago to the minute.
+    const justMissed = task('just missed', { start: at(26, 12, 45) });
+    const hourAgo = task('an hour ago', { start: at(26, 12) });
+    expect(missedList([justMissed, hourAgo], NOW)).toEqual([hourAgo, justMissed]);
+    expect(backToBacklog([justMissed, hourAgo], NOW).map(t => t.title)).toEqual(['an hour ago']);
+    expect(backToBacklog([justMissed], NOW - 1)).toEqual([]);
+    expect(backToBacklog([justMissed], at(26, 13, 15) + BACKLOG_GRACE).map(t => t.title)).toEqual(['just missed']);
   });
 
   it('has nothing to send back when nothing was missed', () => {

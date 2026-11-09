@@ -67,6 +67,8 @@ type SR = {
   onresult: ((ev: { results: ArrayLike<SRResult> }) => void) | null;
   onerror: ((ev: { error: string }) => void) | null;
   onend: (() => void) | null;
+  onaudiostart?: (() => void) | null;
+  onspeechstart?: (() => void) | null;
   start(): void; stop(): void; abort(): void;
 };
 type SRCtor = (new () => SR) & { available?: (o: { langs: string[]; processLocally: boolean }) => Promise<string> };
@@ -87,10 +89,22 @@ export interface Heard { text: string; interim: string }
 export interface Spoken { text: string; doubts: Doubt[] }
 
 /**
+ * Where listening is, for the bar to show: off; `starting` until the mic is open (a permission prompt waits here);
+ * `ready` and listening; `speaking` while words are coming in; `finishing` once stopped, until the last words land.
+ */
+export type VoicePhase = 'off' | 'starting' | 'ready' | 'speaking' | 'finishing';
+/** Why it can't listen: no dictation in this browser, the mic is blocked for the site, or there's no mic. */
+export type NoVoice = 'unsupported' | 'denied' | 'no-mic';
+
+/** Words this long apart are still one stretch of speaking. */
+const QUIET_MS = 900;
+
+/**
  * Dictation that keeps listening until you stop it. Words stream in through `onHeard` as you speak. Browsers end a
  * session after a pause, so a new one starts where it left off. `finishVoice` waits for the last words, then hands
  * over everything through `onFinish`. Where the browser can recognise speech on the device, nothing leaves it.
- * Without speech support, `onUnsupported` runs instead.
+ * Without speech support, or with the mic blocked or missing, `onUnsupported` runs instead, saying which. `phase` says
+ * where it is (VoicePhase), for the bar to show.
  *
  * It listens in `lang` (your Settings → Voice choice, else the device's language), asks for the recogniser's top three
  * guesses, and leans towards `phrases` (your names and words) where the recogniser takes them: Chrome on the device,
@@ -101,7 +115,7 @@ export function useVoice(opts: {
   onFinish: (s: Spoken) => void;
   /** Listening stopped by itself (no connection, or a minute of silence): here's what was said. */
   onCutOff: (s: Spoken) => void;
-  onUnsupported: () => void;
+  onUnsupported: (why: NoVoice) => void;
   /** The language to listen in; null for the device's. */
   lang?: string | null;
   /** The words to listen out for, read as each session starts. */
@@ -113,12 +127,14 @@ export function useVoice(opts: {
     r: SR; said: string; interim: string; doubts: Doubt[]; finishing: boolean; quick: number; at: number; heardAt: number; timer: number;
   };
   const cur = useRef<Session | null>(null);
-  const blocked = useRef(false);
+  /** Why the last try couldn't listen. Only a browser without dictation stays that way; the rest are tried again. */
+  const blocked = useRef<NoVoice | null>(null);
   const local = useRef(false);
   /** The browser refused the phrases, or the language: sessions after go without. */
   const noPhrases = useRef(false);
   const badLang = useRef<string | null>(null);
-  const [listening, setListening] = useState(false);
+  const [phase, setPhase] = useState<VoicePhase>('off');
+  const quiet = useRef(0);
   const [onDevice, setOnDevice] = useState(false);
   const o = useRef(opts);
   o.current = opts;
@@ -141,7 +157,21 @@ export function useVoice(opts: {
     if (cur.current !== s) return;
     cur.current = null;
     clearTimeout(s.timer);
-    setListening(false);
+    clearTimeout(quiet.current);
+    setPhase('off');
+  }, []);
+
+  /** The mic is open, or words are coming in: show it, and settle back to listening once they stop. */
+  const hear = useCallback((sess: Session, speaking: boolean) => {
+    if (cur.current !== sess || sess.finishing) return;
+    blocked.current = null;
+    if (!speaking) { setPhase(p => (p === 'starting' ? 'ready' : p)); return; }
+    setPhase('speaking');
+    clearTimeout(quiet.current);
+    // A session that ended by itself carries on as a new one, so this asks whichever is listening now.
+    quiet.current = window.setTimeout(() => {
+      if (cur.current && !cur.current.finishing) setPhase('ready');
+    }, QUIET_MS);
   }, []);
 
   /** Stop without handing anything over. */
@@ -170,6 +200,8 @@ export function useVoice(opts: {
     }
     // Everything said before this session; each session's results start from empty.
     const before = sess.said, doubtsBefore = sess.doubts;
+    r.onaudiostart = () => hear(sess, false);
+    r.onspeechstart = () => hear(sess, true);
     r.onresult = ev => {
       if (cur.current !== sess) return;
       const { fin, int, doubts } = readResults(ev.results);
@@ -178,6 +210,7 @@ export function useVoice(opts: {
       sess.doubts = [...doubtsBefore, ...doubts].slice(-12);
       sess.quick = 0;
       sess.heardAt = Date.now();
+      hear(sess, true);
       o.current.onHeard({ text: sess.said, interim: sess.interim });
     };
     r.onerror = ev => {
@@ -189,10 +222,13 @@ export function useVoice(opts: {
         o.current.onLangUnsupported?.(r.lang);
         return;
       }
-      if (['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported'].includes(ev.error)) {
-        blocked.current = true;
+      const why: NoVoice | null = ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? 'denied'
+        : ev.error === 'audio-capture' ? 'no-mic'
+        : ev.error === 'language-not-supported' ? 'unsupported' : null;
+      if (why) {
+        blocked.current = why;
         end(sess);
-        o.current.onUnsupported();
+        o.current.onUnsupported(why);
       }
       // Anything else (no speech, a network blip) ends the session; onend decides what next.
     };
@@ -209,25 +245,40 @@ export function useVoice(opts: {
     try { r.start(); } catch { return false; }
     setOnDevice(!!r.processLocally);
     return true;
-  }, [end, langOf]);
+  }, [end, langOf, hear]);
+
+  const open = useCallback((base: string, Ctor: SRCtor) => {
+    if (cur.current) return;
+    const s = { said: base.trim(), interim: '', doubts: [], finishing: false, quick: 0, at: Date.now(), heardAt: Date.now(), timer: 0 } as Omit<Session, 'r'>;
+    cur.current = s as Session;
+    if (!begin(s, Ctor)) { cur.current = null; blocked.current = 'unsupported'; o.current.onUnsupported('unsupported'); return; }
+    setPhase('starting');
+    o.current.onHeard({ text: s.said, interim: '' });
+  }, [begin]);
 
   /** Start listening; `base` is text already typed, which what you say is added to. */
   const startVoice = useCallback((base = '') => {
     if (cur.current) return;
     const Ctor = speechCtor();
-    if (!Ctor || blocked.current) { o.current.onUnsupported(); return; }
-    const s = { said: base.trim(), interim: '', doubts: [], finishing: false, quick: 0, at: Date.now(), heardAt: Date.now(), timer: 0 } as Omit<Session, 'r'>;
-    cur.current = s as Session;
-    if (!begin(s, Ctor)) { cur.current = null; blocked.current = true; o.current.onUnsupported(); return; }
-    setListening(true);
-    o.current.onHeard({ text: s.said, interim: '' });
-  }, [begin]);
+    if (!Ctor || blocked.current === 'unsupported') { o.current.onUnsupported('unsupported'); return; }
+    // Blocked last time: if it still is, say so rather than flash the mic on and off. Allowed since, it just starts.
+    const perms = typeof navigator !== 'undefined' ? navigator.permissions : undefined;
+    if (blocked.current === 'denied' && perms?.query) {
+      perms.query({ name: 'microphone' as PermissionName })
+        .then(st => { if (st.state === 'denied') o.current.onUnsupported('denied'); else open(base, Ctor); })
+        .catch(() => open(base, Ctor));
+      return;
+    }
+    open(base, Ctor);
+  }, [open]);
 
   /** Stop listening and hand over everything said, once the last words are in. */
   const finishVoice = useCallback(() => {
     const s = cur.current;
     if (!s || s.finishing) return;
     s.finishing = true;
+    clearTimeout(quiet.current);
+    setPhase('finishing');
     try { s.r.stop(); } catch { /* ended already */ }
     // Some browsers never fire onend after stop(); don't keep you waiting.
     s.timer = window.setTimeout(() => {
@@ -238,7 +289,15 @@ export function useVoice(opts: {
     }, 1500);
   }, [end]);
 
-  useEffect(() => () => { const s = cur.current; cur.current = null; if (s) { clearTimeout(s.timer); try { s.r.abort(); } catch { /* noop */ } } }, []);
+  useEffect(() => () => {
+    const s = cur.current;
+    cur.current = null;
+    clearTimeout(quiet.current);
+    if (s) { clearTimeout(s.timer); try { s.r.abort(); } catch { /* noop */ } }
+  }, []);
 
-  return { listening, onDevice, startVoice, stopVoice, finishVoice, supported: () => !!speechCtor() && !blocked.current };
+  return {
+    listening: phase !== 'off', phase, onDevice, startVoice, stopVoice, finishVoice,
+    supported: () => !!speechCtor() && !blocked.current,
+  };
 }

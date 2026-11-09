@@ -1,5 +1,5 @@
 import type { Task } from './model';
-import { addDays, endOf, startOfDay, weekStart } from './time';
+import { MIN, addDays, endOf, startOfDay, weekStart } from './time';
 
 /** Backlog order: priority, then due date (sooner first), then `order`. */
 export const byBacklog = (a: Task, b: Task) =>
@@ -13,11 +13,20 @@ export const missedList = (tasks: Task[], now: number) =>
     .sort((a, b) => (a.start as number) - (b.start as number));
 
 /**
- * Missed tasks sent back to the backlog, on top of the stack: ahead of the tasks they tie with on priority and due
- * date, the latest miss first. Empty when nothing was missed.
+ * How long a missed task stays on its slot before going back to the backlog: an hour to tick it off if you did it
+ * and just didn't say so, without it jumping off the calendar the minute its time is up.
+ */
+export const BACKLOG_GRACE = 60 * MIN;
+
+/** When a missed task goes back to the backlog: an hour after its slot ends. */
+export const backAt = (t: Pick<Task, 'start' | 'minutes'>) => endOf(t) + BACKLOG_GRACE;
+
+/**
+ * Missed tasks sent back to the backlog once their hour's up, on top of the stack: ahead of the tasks they tie with
+ * on priority and due date, the latest miss first. Empty when nothing is due back.
  */
 export function backToBacklog(tasks: Task[], now: number): Task[] {
-  const missed = missedList(tasks, now);
+  const missed = missedList(tasks, now).filter(t => backAt(t) <= now);
   if (!missed.length) return [];
   let top = Math.min(...[...backlogList(tasks), ...missed].map(t => t.order || 0));
   return missed.map(t => ({ ...t, start: null, order: --top }));

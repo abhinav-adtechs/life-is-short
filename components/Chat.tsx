@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import { PRI, newId } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
@@ -13,13 +13,13 @@ import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
 import { dayName, describeRule, placeFirst, repeatChoices, sameRule, type Repeat, type RepeatOp, type Rule } from '@/lib/repeat';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
-import { haptic } from '@/lib/native';
+import { haptic, native } from '@/lib/native';
 import { joinWords, wordsOf, type Doubt } from '@/lib/speech';
 import {
   LANGS, applyFixes, hasPhrase, keyOf, learnFrom, lessonOf, mergeLearned, readLearned, speechPhrases, voiceHints,
   type ChatLesson, type Learned, type Lesson, type Span,
 } from '@/lib/voice';
-import { useVoice, type Heard, type Spoken } from './hooks';
+import { useVoice, type Heard, type NoVoice, type Spoken, type VoicePhase } from './hooks';
 import type { VoiceApi } from './voiceProfile';
 import { usePlanner } from './Planner';
 import type { Store } from './store';
@@ -39,13 +39,17 @@ export type ChatMsg =
   | { id: string; role: 'ai'; kind: 'error'; text: string };
 /**
  * What you said. Spoken, `mic` is what the mic typed when the fixes it knows changed it, `doubts` where it wasn't sure,
- * and `heard` what the AI took you to mean, shown in its place.
+ * and `heard` what the AI took you to mean, shown in its place. `live` when it takes the place of the words that
+ * streamed in as you spoke, so it settles there rather than arriving again.
  */
-type YouMsg = { id: string; role: 'you'; text: string; spoken: boolean; mic?: string; doubts?: Doubt[]; heard?: string };
+type YouMsg = { id: string; role: 'you'; text: string; spoken: boolean; mic?: string; doubts?: Doubt[]; heard?: string; live?: boolean };
 type PlanMsg = Extract<ChatMsg, { kind: 'plan' }>;
 
-/** How something was said: out loud, with what the mic typed before any fix and where it wasn't sure, or typed. */
-interface Said { spoken?: boolean; mic?: string; doubts?: Doubt[] }
+/**
+ * How something was said: out loud, with what the mic typed before any fix and where it wasn't sure, or typed. `live`
+ * when it was just showing as you spoke.
+ */
+interface Said { spoken?: boolean; mic?: string; doubts?: Doubt[]; live?: boolean }
 
 /**
  * What a chat has to teach, beyond what the AI suggests now: your corrections, titles you changed (by change), and
@@ -84,6 +88,22 @@ function heardOf(h: string | undefined, text: string): string | null {
 }
 
 const langName = (id: string) => LANGS.find(l => l.id === id)?.name ?? id;
+
+/** A keyboard and pointer, where the box can take the cursor without a keyboard sliding up over everything. */
+const finePointer = () => typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
+
+/** Why the mic can't listen, and what to do about it. */
+function noVoiceText(why: NoVoice): string {
+  if (why === 'denied') {
+    const app = native();
+    if (app) return `Life is short can’t use the mic. Allow Microphone and Speech Recognition for it in ${app.platform === 'macos' ? 'System Settings' : 'Settings'} → Privacy & Security.`;
+    return 'The mic is blocked for this site. Allow it in your browser’s site settings, then try again.';
+  }
+  if (why === 'no-mic') return 'No microphone found. Plug one in, or type it here.';
+  return window.matchMedia('(pointer: coarse)').matches
+    ? 'Tap the mic on your keyboard and talk. It types straight into this box.'
+    : 'This browser can’t take dictation. Type it here instead.';
+}
 
 function readHistory(v: unknown): Past[] {
   if (!Array.isArray(v)) return [];
@@ -207,6 +227,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
       id: youId, role: 'you', text, spoken,
       ...(spoken && by.mic && by.mic.trim() !== text ? { mic: by.mic.trim() } : {}),
       ...(spoken && by.doubts?.length ? { doubts: by.doubts } : {}),
+      ...(spoken && by.live ? { live: true } : {}),
     };
     setMsgs(m => [...m, you, { id: waitId, role: 'ai', kind: 'thinking' }]);
     busyRef.current = true;
@@ -265,30 +286,37 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     phrases: () => speechPhrases(profile, { labels: labels.map(l => l.name), titles: liveTasks().filter(t => t.status === 'open').map(t => t.title) }),
     // The fixes it's sure of are made as you speak.
     onHeard: h => { rawHeard.current = h; setHeard({ text: fix(h.text), interim: fix(h.interim) }); },
-    onFinish: s => { setHeard(null); rawHeard.current = null; if (s.text.trim()) send(fix(s.text), { spoken: true, mic: s.text, doubts: s.doubts }); },
+    // What streamed in as you spoke settles in place as what you said, and the answer starts.
+    onFinish: s => { setHeard(null); rawHeard.current = null; if (s.text.trim()) send(fix(s.text), { spoken: true, mic: s.text, doubts: s.doubts, live: true }); },
     onCutOff: s => {
       setHeard(null);
       rawHeard.current = null;
-      if (!s.text.trim()) return;
+      if (!s.text.trim()) { toast('Stopped listening: I didn’t hear anything.'); return; }
       dictate(s);
+      if (finePointer()) focusInput();
       toast('Stopped listening. What you said is in the box.');
     },
-    onUnsupported: () => {
+    onUnsupported: why => {
       setHeard(null);
       rawHeard.current = null;
-      focusInput();
-      toast(window.matchMedia('(pointer: coarse)').matches
-        ? 'Tap the mic on your keyboard and talk. It types straight into this box.'
-        : 'This browser can’t take dictation. Type it here instead.');
+      haptic('warning');
+      if (why !== 'denied' || finePointer()) focusInput();
+      toast(noVoiceText(why));
     },
     onLangUnsupported: lang => toast(`This browser can’t listen in ${langName(lang)}, so it’s listening in its own language. Change it in Settings → Voice.`),
   });
 
+  /** The mic button and ⌘K: start listening, or stop and send what you said. */
   const mic = useCallback(() => {
-    if (listen.listening) { listen.finishVoice(); return; }
+    if (listen.listening) {
+      if (listen.phase !== 'finishing') haptic('selection');
+      listen.finishVoice();
+      return;
+    }
     setOpen(true);
     setView('thread');
     dictated.current = null;
+    haptic('light');
     listen.startVoice(draft);
   }, [listen, draft]);
 
@@ -298,8 +326,18 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     listen.stopVoice();
     setHeard(null);
     rawHeard.current = null;
-    if (words) toast('Recording discarded', () => dictate(words));
-  }, [listen, toast, dictate]);
+    if (words) toast('Recording discarded', () => { dictate(words); if (finePointer()) focusInput(); });
+  }, [listen, toast, dictate, focusInput]);
+
+  /** Stop listening and keep what you said in the box, to finish by hand. */
+  const keepWords = useCallback(() => {
+    if (!listen.listening) return;
+    const words = micSoFar();
+    listen.stopVoice();
+    setHeard(null);
+    rawHeard.current = null;
+    if (words) dictate(words);
+  }, [listen, dictate]);
 
   const remember = useCallback((list: string[], did: string, undo?: () => void) => {
     if (!list.length) return;
@@ -392,19 +430,13 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
   const skipTeaching = useCallback(() => setTeaching(t => ({ ...t, skip: !t.skip })), [setTeaching]);
 
   const close = useCallback(() => {
-    if (listen.listening) {
-      const words = micSoFar();
-      listen.stopVoice();
-      setHeard(null);
-      rawHeard.current = null;
-      if (words) dictate(words);
-    }
+    keepWords();
     setOpen(false);
     setPast(null);
-  }, [listen, dictate]);
+  }, [keepWords]);
 
-  /** ⌘K: open the chat and put the cursor in the box. */
-  const focus = useCallback(() => { setOpen(true); focusInput(); }, [focusInput]);
+  /** ⇧⌘K: open the chat and put the cursor in the box. Mid-sentence, what you've said so far goes in it. */
+  const focus = useCallback(() => { keepWords(); setOpen(true); focusInput(); }, [keepWords, focusInput]);
   const showHistory = useCallback(() => { setOpen(true); setView('history'); }, []);
 
   const updatePlan = useCallback((fn: (c: Change) => Change) => {
@@ -441,7 +473,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
 
   return {
     open, show: () => { setOpen(true); setView('thread'); }, close, focus, msgs, busy, plan, preview,
-    draft, setDraft, input, heard, listening: listen.listening, onDevice: listen.onDevice,
+    draft, setDraft, input, heard, listening: listen.listening, phase: listen.phase, onDevice: listen.onDevice,
     send, mic, cancelVoice, accept, discard, modify, edit, toggle, history, loadHistory,
     view, setView, showHistory, past, openPast, newChat, undoPast, canUndo,
     fixing, fixSaid, lesson, skipTeaching,
@@ -548,9 +580,13 @@ function Thread({ phone }: { phone?: boolean }) {
           return <PlanCard key={m.id} m={m} live={m === plan} phone={phone} />;
         })}
         {heard && (
-          <div className="you live" aria-live="off">
+          <div className="you live" data-phase={chat.phase} aria-live="off">
             <MicIcon size={13} />
-            <p>{heard.text}{heard.interim && <span> {heard.interim}</span>}{!heard.text && !heard.interim && <span>Listening…</span>}</p>
+            <p>
+              {heard.text}{heard.interim && <span> {heard.interim}</span>}
+              {!heard.text && !heard.interim && <span>{chat.phase === 'starting' ? 'Starting the mic…' : 'Listening…'}</span>}
+              <i className="caret" aria-hidden="true" />
+            </p>
           </div>
         )}
       </div>
@@ -571,7 +607,7 @@ function YouSaid({ m, last }: { m: YouMsg; last: boolean }) {
   const canFix = m.spoken && last && !chat.busy;
   const fixing = chat.fixing === m.id;
   return (
-    <div className={'you' + (fixing ? ' fixing' : '')}>
+    <div className={'you' + (fixing ? ' fixing' : '') + (m.live ? ' was-live' : '')}>
       {m.spoken && <MicIcon size={13} />}
       <div className="you-b">
         <p>{shown}</p>
@@ -810,6 +846,49 @@ function History() {
 
 /* ---------- the bar ---------- */
 
+const noSub = () => () => undefined;
+/** The shortcut as this keyboard writes it: ⌘K on a Mac, iPhone and iPad, Ctrl K elsewhere. */
+function useKeys(): string {
+  return useSyncExternalStore(noSub, () => {
+    const p = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || navigator.userAgent;
+    return /mac|iphone|ipad|ipod/i.test(p) ? '⌘K' : 'Ctrl K';
+  }, () => '⌘K');
+}
+
+/** What the bar says while the mic is on: getting ready, listening, then finishing once you stop. */
+function phaseText(phase: VoicePhase, slow: boolean, onDevice: boolean): string {
+  if (phase === 'starting') return slow ? 'Waiting for the mic. Allow it if asked.' : 'Starting the mic…';
+  if (phase === 'finishing') return 'Finishing…';
+  return onDevice ? 'Listening · on this device' : 'Listening…';
+}
+
+/** The bar while the mic is on: bars that move with you, where it's at, and the ways out. */
+function Listening({ phone, keys }: { phone?: boolean; keys: string }) {
+  const { chat } = usePlanner();
+  const { phase } = chat;
+  // A mic that takes a while to open is usually waiting on a permission prompt.
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (phase !== 'starting') return;
+    const t = setTimeout(() => setSlow(true), 1200);
+    return () => clearTimeout(t);
+  }, [phase]);
+  const text = phaseText(phase, slow, chat.onDevice);
+  return (
+    <div className="listen" data-phase={phase} role="status">
+      <span className="bars" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+      <span key={text} className="listen-t ell">{text}</span>
+      {!phone && phase !== 'finishing' && phase !== 'starting' && (
+        <span className="listen-k" aria-hidden="true"><span className="kbd">{keys}</span>to send</span>
+      )}
+      <button type="button" className="btn text sm" onClick={chat.cancelVoice} aria-keyshortcuts="Escape">
+        Cancel{!phone && <span className="kbd" aria-hidden="true">esc</span>}
+      </button>
+    </div>
+  );
+}
+
 /**
  * The chat bar: one box to dump into, a mic, and the way back to past chats. It floats at the bottom of the
  * laptop; when there's a conversation it grows upward into a panel in the same card. On a phone it rises into a sheet.
@@ -817,6 +896,7 @@ function History() {
 export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean }) {
   const { chat, toastState, dismissToast, split, drag } = usePlanner();
   const [tall, setTall] = useState(false);
+  const keys = useKeys();
   const { input } = chat;
   const open = chat.open;
   const history = open && chat.view === 'history';
@@ -824,7 +904,8 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
   // Grow with what you type, up to five lines.
   useLayoutEffect(() => {
     const el = input.current;
-    if (!el) return;
+    // While the mic is on there's no box, and the bar sits at one line.
+    if (!el) { setTall(false); return; }
     el.style.height = 'auto';
     const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
     el.style.height = `${Math.min(el.scrollHeight, line * 5)}px`;
@@ -867,26 +948,24 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
               {history ? <History /> : <Thread phone={phone} />}
             </div>
           )}
+          {/* On a phone the open chat fills the sheet, so its notes (and their Undo) sit just above the bar. */}
+          {toastState && phone && open && <div className="chat-toast"><Toast key={toastState.key} state={toastState} onDone={dismissToast} /></div>}
           <form className={'chat-bar' + (tall ? ' tall' : '') + (open ? ' ruled' : '')} autoComplete="off" onSubmit={e => { e.preventDefault(); submit(); }}>
-            {chat.listening ? (
-              <div className="listen" role="status">
-                <span className="bars" aria-hidden="true"><i /><i /><i /><i /><i /></span>
-                <span className="ell">Listening{chat.onDevice ? ' · on this device' : '…'}</span>
-                <button type="button" className="btn text sm" onClick={chat.cancelVoice}>Cancel</button>
-              </div>
-            ) : (
+            {chat.listening ? <Listening phone={phone} keys={keys} /> : (
               <>
                 <ChatIcon size={phone ? 18 : 17} />
                 <label className="sr" htmlFor={phone ? 'chat-ph' : 'chat-lp'}>{chat.fixing ? 'Fix what you said' : chat.plan && open ? 'Change the plan' : 'Dump a task, or ask for a change'}</label>
                 <textarea id={phone ? 'chat-ph' : 'chat-lp'} ref={input} rows={1} enterKeyHint="send" placeholder={placeholder} value={chat.draft}
                   onChange={e => { chat.setDraft(e.target.value); if (!open && e.target.value) chat.show(); }}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
-                {!phone && <span className="kbd">{open ? 'esc' : '⌘K'}</span>}
               </>
             )}
-            <button type="button" className={'mic' + (chat.listening ? ' on' : '')} aria-pressed={chat.listening}
-              aria-label={chat.listening ? 'Stop and send' : 'Speak'} title={chat.listening ? 'Stop and send' : 'Speak'} onClick={chat.mic}>
-              {chat.listening ? <StopIcon size={phone ? 16 : 14} /> : <MicIcon size={phone ? 18 : 15} />}
+            {/* One button from start to finish: a pill with its shortcut, then a round stop that pulses as you speak. */}
+            <button type="button" className={'mic' + (chat.listening ? ' on' : '')} data-phase={chat.phase} aria-pressed={chat.listening}
+              aria-keyshortcuts="Meta+K Control+K" aria-label={chat.listening ? 'Stop and send' : 'Speak'}
+              title={`${chat.listening ? 'Stop and send' : 'Speak'}${phone ? '' : ` (${keys})`}`} onClick={chat.mic}>
+              <span className="mic-i" aria-hidden="true"><MicIcon size={phone ? 18 : 15} /><StopIcon size={phone ? 16 : 14} /></span>
+              {!phone && <span className="mic-k" aria-hidden="true">{keys}</span>}
             </button>
             {!chat.listening && chat.draft.trim() && (
               <button type="submit" className="send" aria-label="Send" disabled={chat.busy}><ArrowUpIcon size={phone ? 16 : 14} /></button>

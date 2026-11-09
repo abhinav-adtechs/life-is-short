@@ -1,15 +1,16 @@
 import AppKit
 
-/// The menu bar: the planner's commands with their shortcuts, and the standard Mac menus around them. ⌘K and ⇧⌘K
-/// reach the page first when it has focus (it handles ⌘K itself); the menu catches them everywhere else.
+/// The menu bar: the planner's commands with their shortcuts, and the standard Mac menus around them. ⌘K (speak, again
+/// to send) and ⇧⌘K (type) reach the page first when it has focus (it handles both itself); the menu catches them
+/// everywhere else.
 @MainActor
 enum MainMenu {
     static func build(for app: AppDelegate) -> NSMenu {
         let bar = NSMenu()
         bar.addItem(menu("Life is short", appMenu(app)))
         bar.addItem(menu("File", [
-            item("Dump a Thought", #selector(AppDelegate.dumpThought(_:)), "k", target: app),
-            item("Speak", #selector(AppDelegate.speak(_:)), "k", [.command, .shift], target: app),
+            item("Speak", #selector(AppDelegate.speak(_:)), "k", target: app),
+            item("Dump a Thought", #selector(AppDelegate.dumpThought(_:)), "k", [.command, .shift], target: app),
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
         ]))

@@ -33,7 +33,7 @@ const KEEP_DAYS = 400;
 
 export const slipKey = (s: { id: string; start: number }) => `${s.id}@${s.start}`;
 
-/** Open, on the calendar, and its slot is over: what goes back to the backlog. A Google Calendar event is never missed. */
+/** Open, on the calendar, and its slot is over: what goes back to the backlog, an hour on. A Google Calendar event is never missed. */
 export const isMissed = (t: Task, now: number) => !isEvent(t) && t.status === 'open' && t.start != null && endOf(t) <= now;
 
 /** The slips in a set of writes: a missed task moved to another time or the backlog, or deleted. Ticking it off isn't a slip. */

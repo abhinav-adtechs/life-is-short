@@ -48,7 +48,7 @@ No folders. No filing: the AI even picks the label. No "weekly review". You don'
 
 ### 1 · Dump
 
-Type in the chat bar or tap the mic and **just talk**. Your words stream in as you speak, and it keeps listening until you tap stop.
+Type in the chat bar or tap the mic (or press `⌘K`, `Ctrl K` on Windows) and **just talk**. Your words stream in as you speak, and it keeps listening until you tap stop or press `⌘K` again; `Esc` throws it away with an Undo.
 
 *"Finished the roadmap draft. Call the plumber tomorrow at 9, landing page copy is due Friday, and book a haircut at some point."*
 
@@ -79,7 +79,7 @@ The top of the screen is always the **Next task**: the task on your calendar at 
 
 **Done.** Or **Schedule**: click a time, or take the next free slot. Below it you see what comes **Next**.
 
-Slipped past something? When its slot ends without a tick, it goes **back on top of your backlog**, ready for another go. No guilt, no lost tasks.
+Slipped past something? When its slot ends without a tick, it stays on your calendar for an hour, in case you did it and just haven't ticked it off. Then it goes **back on top of your backlog**, ready for another go. No guilt, no lost tasks.
 
 </td>
 </tr>
@@ -139,7 +139,7 @@ Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the
 - **Drop it on Done or the trash.** While you drag a task, two targets rise where the chat bar sits: **Done** ticks it off, the **trash** deletes it. Both come with Undo.
 - **Drag the edge** of a block to make it longer or shorter.
 - **Click, then click.** Pick a task, then click a time slot, or take the next free one.
-- **The chat bar** (`⌘K`) grows into a panel: the plan comes back as a list of changes to tick on or off before you apply them, and History keeps every past chat with its Undo.
+- **The chat bar** (`⌘K` to speak, `⇧⌘K` to type) grows into a panel: the plan comes back as a list of changes to tick on or off before you apply them, and History keeps every past chat with its Undo.
 - **Analytics, Share and Settings** slide in from the side, so the planner stays in view.
 - **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the matrix, `Esc` closes anything.
 
