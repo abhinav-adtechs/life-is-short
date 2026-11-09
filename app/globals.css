@@ -407,6 +407,16 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .you{align-self:flex-end;display:flex;align-items:flex-start;gap:6px;max-width:84%;padding:8px 12px;border-radius:var(--r-md) var(--r-md) var(--r-xs) var(--r-md);background:var(--soft);line-height:21px;animation:lisIn 200ms var(--ease)}
 .you svg{flex:none;margin-top:4px;color:var(--muted)}
 .you.live span{color:var(--muted)}
+/* What you're saying, as it streams in: a caret where the next word lands, the mic lit while words come. */
+.you.live svg{color:var(--accent);transition:color var(--base) var(--ease)}
+.you.live[data-phase="starting"] svg,.you.live[data-phase="finishing"] svg{color:var(--muted)}
+.caret{display:inline-block;width:2px;height:15px;margin-left:3px;vertical-align:-2px;border-radius:1px;background:var(--accent);animation:caret 1.05s steps(1) infinite;transition:opacity var(--base) var(--ease)}
+.you.live[data-phase="speaking"] .caret{animation:none}
+.you.live[data-phase="finishing"] .caret{animation:none;opacity:0}
+@keyframes caret{50%{opacity:0}}
+/* Once you stop, those words stay put as what you said: no second arrival. */
+.you.was-live{animation:none}
+.thread:has(.you.live){scroll-behavior:smooth}
 .you-b{min-width:0;display:flex;flex-direction:column;gap:3px}
 .you .you-raw{font-size:var(--t-13);line-height:18px;color:var(--muted)}
 .you-f{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:var(--t-12);line-height:16px;color:var(--muted)}
@@ -464,26 +474,67 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .chat-bar.ruled{border-top:1px solid var(--hair)}
 .chat-bar.tall{align-items:flex-end}
 .chat-bar>svg{flex:none;color:var(--muted)}
-.chat-bar.tall>svg,.chat-bar.tall .kbd{margin-bottom:9px}
+.chat-bar>svg,.chat-bar textarea{animation:lisFade 200ms var(--ease)}
+/* Grown past a line, everything on the right lines up with the last one. */
+.chat-bar.tall>svg{margin-bottom:9px}
+.chat-bar.tall>.mic,.chat-bar.tall>.ib{margin-bottom:5px}
+.chat-bar.tall>.send{margin-bottom:3px}
+.chat-bar.tall>.vsep{margin-bottom:9px}
 .chat-bar textarea{flex:1;min-width:0;max-height:110px;margin:0;padding:9px 0;border:0;outline:none;background:none;resize:none;font-size:var(--t-14);line-height:20px;color:var(--ink)}
-.mic{position:relative;flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--hair2);border-radius:var(--r-sm);background:var(--raised);color:var(--muted);transition:background var(--fast),color var(--fast)}
-.mic:hover{background:var(--soft);color:var(--ink)}
-/* Listening: the mic becomes a round stop button in the accent, rippling. */
-.mic.on{width:32px;height:32px;border-color:transparent;border-radius:50%;background:var(--accent);color:var(--on-accent)}
-.mic.on::before,.mic.on::after{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);animation:ripple 1.4s ease-out infinite;pointer-events:none}
-.mic.on::after{animation-delay:.7s}
-@keyframes ripple{from{transform:scale(1);opacity:.75}to{transform:scale(1.75);opacity:0}}
+
+/* The mic: a quiet pill that carries its shortcut. Listening, the same button closes into a round stop in the accent,
+   warming up while the mic opens, pulsing faster while you speak, and turning to a spinner while the last words land. */
+.mic{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;padding:0 8px 0 7px;border:0;border-radius:999px;background:var(--soft);color:var(--muted);
+  transition:background-color var(--base) var(--ease),color var(--base) var(--ease),min-width var(--base) var(--ease),height var(--base) var(--ease),padding var(--base) var(--ease),transform var(--fast) var(--ease)}
+.mic:hover{background:color-mix(in oklch,var(--ink) 7%,var(--soft));color:var(--ink)}
+.mic:active{transform:scale(.94)}
+.mic-i{display:grid;place-items:center}
+.mic-i>svg{grid-area:1/1;transition:opacity var(--fast) var(--ease),transform var(--base) var(--ease)}
+.mic-i>svg+svg{opacity:0;transform:scale(.3) rotate(-45deg)}
+.mic-k{overflow:hidden;max-width:4.5em;margin-left:6px;font:500 11px/16px var(--font-code);letter-spacing:.02em;white-space:nowrap;color:var(--faint);transition:max-width var(--base) var(--ease),margin var(--base) var(--ease),opacity var(--fast) var(--ease),color var(--fast)}
+.mic:hover .mic-k{color:var(--muted)}
+.mic.on{min-width:32px;height:32px;padding:0;background:var(--accent);color:var(--on-accent);animation:micPulse 2.2s ease-out infinite}
+.mic.on:hover{background:color-mix(in oklch,var(--accent) 88%,var(--ink))}
+.mic.on .mic-i>svg:first-child{opacity:0;transform:scale(.3)}
+.mic.on .mic-i>svg+svg{opacity:1;transform:none}
+.mic.on .mic-k{max-width:0;margin-left:0;opacity:0}
+.mic[data-phase="starting"]{background:color-mix(in oklch,var(--accent) 55%,var(--raised));animation:none}
+.mic[data-phase="speaking"]{animation-duration:1.15s}
+.mic[data-phase="finishing"]{animation:none}
+.mic[data-phase="finishing"] .mic-i>svg+svg{transform:scale(.7)}
+.mic[data-phase="finishing"]::after{content:"";position:absolute;inset:3px;border-radius:50%;border:2px solid color-mix(in oklch,var(--on-accent) 30%,transparent);border-top-color:var(--on-accent);animation:lisSpin .7s linear infinite,lisFade 160ms var(--ease);pointer-events:none}
+@keyframes micPulse{0%{box-shadow:0 0 0 0 color-mix(in oklch,var(--accent) 42%,transparent)}100%{box-shadow:0 0 0 7px color-mix(in oklch,var(--accent) 0%,transparent)}}
+@keyframes lisSpin{to{transform:rotate(1turn)}}
 .send{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:var(--ink);color:var(--raised);animation:lisIn 160ms var(--ease)}
 .send:disabled{opacity:.4}
-.listen{flex:1;min-width:0;display:flex;align-items:center;gap:12px;height:38px;font-weight:500}
-.listen .ell{flex:1}
-.bars{flex:none;display:flex;align-items:center;gap:3px;height:18px}
-.bars i{width:3px;height:100%;border-radius:2px;background:var(--accent);transform:scaleY(.55);animation:bar 1.1s ease-in-out infinite}
-.bars i:nth-child(2){animation-delay:-.85s}
-.bars i:nth-child(3){animation-delay:-.4s}
-.bars i:nth-child(4){animation-delay:-.65s}
-.bars i:nth-child(5){animation-delay:-.2s}
+
+/* Listening, the box makes way for where it's at: bars that move with you, what it's doing, and the ways out. */
+.listen{flex:1;min-width:0;display:flex;align-items:center;gap:12px;height:38px;font-weight:500;animation:lisIn 200ms var(--ease)}
+.listen-t{flex:1;animation:lisFade 220ms var(--ease)}
+.listen[data-phase="starting"] .listen-t,.listen[data-phase="finishing"] .listen-t{color:var(--muted)}
+.listen-k{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:var(--t-12);font-weight:400;color:var(--muted);animation:lisFade 220ms var(--ease)}
+.listen .btn .kbd{margin-left:2px;padding:0 5px;font-size:10px;line-height:15px}
+/* Each bar's height is where it's at (barely there while the mic opens, low while it's quiet, full while you speak, flat
+   once you stop), eased between; inside, a beat of its own that pauses when you stop. */
+.bars{flex:none;display:flex;align-items:center;gap:3px;height:20px;--amp:.3}
+.bars i{display:block;width:3px;height:100%;transform:scaleY(var(--amp));transition:transform 360ms var(--ease)}
+.bars i::before{content:"";display:block;height:100%;border-radius:2px;background:var(--accent);animation:bar var(--d,1s) ease-in-out var(--delay,0s) infinite;transition:background-color var(--base) var(--ease)}
+.bars i:nth-child(1){--d:.95s;--delay:-.2s}
+.bars i:nth-child(2){--d:1.15s;--delay:-.85s}
+.bars i:nth-child(3){--d:.8s;--delay:-.4s}
+.bars i:nth-child(4){--d:1.05s;--delay:-.65s}
+.bars i:nth-child(5){--d:.9s;--delay:-.1s}
+.listen[data-phase="starting"] .bars{--amp:.22}
+.listen[data-phase="starting"] .bars i::before{background:var(--faint)}
+.listen[data-phase="ready"] .bars{--amp:.42}
+.listen[data-phase="speaking"] .bars{--amp:1}
+.listen[data-phase="finishing"] .bars{--amp:.16}
+.listen[data-phase="finishing"] .bars i::before{animation-play-state:paused;background:var(--faint)}
 @keyframes bar{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+
+/* On a phone the open chat is a sheet, so a note (and its Undo) floats just above the bar inside it. */
+.chat-toast{position:relative;z-index:2;height:0;display:flex;justify-content:center}
+.chat-toast .toast{position:absolute;bottom:10px;max-width:calc(100% - 24px)}
 
 /* ---------- side panels and sheets (components/Panel.tsx) ---------- */
 
@@ -916,8 +967,10 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .dock.ph{left:12px;right:12px;bottom:max(16px,calc(env(safe-area-inset-bottom,0px) - 4px));transform:none}
 .dock.ph .chat-bar{min-height:58px;gap:6px;padding:6px 6px 6px 14px}
 .dock.ph .chat-bar textarea{font-size:16px;line-height:22px}
-.dock.ph .mic{width:40px;height:40px;border:0;border-radius:50%;background:none;color:var(--ink)}
+.dock.ph .mic{min-width:40px;height:40px;padding:0;background:none;color:var(--ink)}
 .dock.ph .mic.on{background:var(--accent);color:var(--on-accent)}
+.dock.ph .mic[data-phase="starting"]{background:color-mix(in oklch,var(--accent) 55%,var(--raised))}
+.dock.ph .mic[data-phase="finishing"]::after{inset:5px}
 .dock.ph .send{width:40px;height:40px}
 .dock.ph .hist-btn{width:44px;height:40px;border-left:1px solid var(--hair);border-radius:0}
 .dock.ph .tray-t{height:58px}

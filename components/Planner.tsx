@@ -440,17 +440,21 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     },
   });
 
-  /* ---------- keys: ⌘K to the chat; Esc closes the editor or panel, then the pick, then the mic, then the chat ---------- */
+  /* ---------- keys: ⌘K speaks (again to send), ⇧⌘K types; Esc closes the editor or panel, then the pick, then the mic, then the chat ---------- */
 
   const keys = useRef({ editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet });
   keys.current = { editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const k = keys.current;
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      // K by its letter, or by where it sits on a keyboard that doesn't type Latin letters.
+      const isK = e.key.toLowerCase() === 'k' || (e.code === 'KeyK' && !/^[a-z]$/i.test(e.key));
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && isK) {
         e.preventDefault();
-        if (k.editorId || k.hashSheet) return;
-        k.chat.focus();
+        // Held down, the key repeats: one press, one start or stop.
+        if (e.repeat || e.isComposing || k.editorId || k.hashSheet) return;
+        if (e.shiftKey) k.chat.focus();
+        else k.chat.mic();
         return;
       }
       if (e.key !== 'Escape' || e.defaultPrevented) return;
@@ -472,7 +476,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
       if (c.name === 'open') { k.openSheet(c.sheet); return; }
       if (k.editorId) k.closeEditor();
       if (k.hashSheet) k.closeSheet();
-      if (c.name === 'listen') { if (!k.chat.listening) k.chat.mic(); return; }
+      // Speak again (⌘K in the apps' menus) stops and sends, like the mic button.
+      if (c.name === 'listen') { k.chat.mic(); return; }
       // Words from Siri become a plan waiting for review; a half-typed thought keeps them in the box instead.
       if (!c.text) { k.chat.focus(); return; }
       if (k.chat.draft.trim()) { k.chat.setDraft(`${k.chat.draft.trim()} ${c.text}`); k.chat.focus(); return; }

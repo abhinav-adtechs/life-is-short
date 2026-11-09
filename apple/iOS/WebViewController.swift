@@ -89,8 +89,8 @@ final class WebViewController: UIViewController, WebHost {
 
     override var keyCommands: [UIKeyCommand]? {
         [
-            UIKeyCommand(title: "Dump a Thought", action: #selector(dumpThought), input: "k", modifierFlags: .command),
-            UIKeyCommand(title: "Speak", action: #selector(speak), input: "k", modifierFlags: [.command, .shift]),
+            UIKeyCommand(title: "Speak", action: #selector(speak), input: "k", modifierFlags: .command),
+            UIKeyCommand(title: "Dump a Thought", action: #selector(dumpThought), input: "k", modifierFlags: [.command, .shift]),
             UIKeyCommand(title: "Settings", action: #selector(openSettings), input: ",", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(reloadPlanner), input: "r", modifierFlags: .command),
         ]

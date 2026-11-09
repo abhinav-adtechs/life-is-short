@@ -29,8 +29,8 @@ what a browser can't:
   it and the plan is waiting for you. "Talk to Life is short" opens straight onto the mic, and "Review my week in
   Life is short" opens the review. All three work from the Action button and the Shortcuts app too.
 - **Home Screen quick actions.** Press and hold the icon: **Dump a thought** or **Speak**.
-- **A real Mac app.** A menu bar with every command and its shortcut (`⌘K` dump, `⇧⌘K` speak, `⌘,` settings, `⌘R`
-  reload), a title bar in the planner's colours, and a window that remembers its size and stays signed in when you close
+- **A real Mac app.** A menu bar with every command and its shortcut (`⌘K` speak, and again to send; `⇧⌘K`
+  dump; `⌘,` settings; `⌘R` reload), a title bar in the planner's colours, and a window that remembers its size and stays signed in when you close
   it.
 - **Google sign-in through the system sheet.** Google refuses sign-in inside an app's web view, so **Connect Google**
   opens Apple's secure sign-in sheet and drops you back on Settings → Google accounts.
