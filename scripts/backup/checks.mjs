@@ -63,9 +63,11 @@ function checkProject(snap, which, ownerSha, f) {
     if (verified.length !== 1) f.block(`${P}:2fa`, `${verified.length} verified authenticator factors (expected 1)`);
     const unverified = factors.filter(x => x.status !== 'verified').length;
     if (unverified) f.warn(`${P}:2fa`, `${unverified} unfinished authenticator setup(s)`);
+    // Supabase Auth rewrites a factor's updated_at every time you type a code (with last_challenged_at), so,
+    // as for passkeys, only when it was added counts. Moving to a new app, yours or anyone's, adds one.
     const nowMs = Date.parse(snap.at) || Date.now();
-    const recent = factors.filter(x => nowMs - Date.parse(x.updated_at || x.created_at) < 8 * DAY).length;
-    if (recent) f.warn(`${P}:2fa`, `${recent} authenticator factor(s) added or changed in the last 8 days`);
+    const recent = factors.filter(x => nowMs - Date.parse(x.created_at) < 8 * DAY).length;
+    if (recent) f.warn(`${P}:2fa`, `${recent} authenticator factor(s) added in the last 8 days`);
     if (!s.unavailable && s.still_aal1 > 0) f.warn(`${P}:sessions`, `${s.still_aal1} sign-in(s) in 7 days passed the password but not 2FA`);
     if (!s.unavailable) f.info(`${P}:sessions`, `${s.count || 0} sign-ins in 7 days from ${s.distinct_ips || 0} IP(s), ${s.distinct_agents || 0} device(s)`);
     if (!pins.count) f.warn(`${P}:pin`, 'no PIN set yet');
