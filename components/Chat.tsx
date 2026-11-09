@@ -7,14 +7,20 @@ import type { TaskRepo } from '@/lib/repo/types';
 import { applyCapture, promptContext, type Via } from '@/lib/capture';
 import { changesOf, changedFields, commitChanges, draftOf, kindOf, type Change, type ChangeKind } from '@/lib/plan';
 import type { Label } from '@/lib/labels';
-import { buildPrompt } from '@/lib/prompt';
+import { buildPrompt, type PromptVoice } from '@/lib/prompt';
 import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
 import { dayName, describeRule, placeFirst, repeatChoices, sameRule, type Repeat, type RepeatOp, type Rule } from '@/lib/repeat';
 import { atMinutes, fromYmd, pad, startOfDay, ymd } from '@/lib/time';
 import { haptic } from '@/lib/native';
-import { useVoice, type Heard } from './hooks';
+import { joinWords, wordsOf, type Doubt } from '@/lib/speech';
+import {
+  LANGS, applyFixes, hasPhrase, keyOf, learnFrom, lessonOf, mergeLearned, readLearned, speechPhrases, voiceHints,
+  type ChatLesson, type Learned, type Lesson, type Span,
+} from '@/lib/voice';
+import { useVoice, type Heard, type Spoken } from './hooks';
+import type { VoiceApi } from './voiceProfile';
 import { usePlanner } from './Planner';
 import type { Store } from './store';
 import { LENGTHS, lenLabel } from './Editor';
@@ -26,11 +32,27 @@ import { DropTray } from './Tray';
 /* ---------- state ---------- */
 
 export type ChatMsg =
-  | { id: string; role: 'you'; text: string; spoken: boolean }
+  | YouMsg
   | { id: string; role: 'ai'; kind: 'thinking' }
-  | { id: string; role: 'ai'; kind: 'plan'; reply: string; note: string | null; changes: Change[] }
+  /** `learn` is what the AI suggests remembering about how you talk, learned only if you apply the plan. */
+  | { id: string; role: 'ai'; kind: 'plan'; reply: string; note: string | null; changes: Change[]; learn?: Learned }
   | { id: string; role: 'ai'; kind: 'error'; text: string };
+/**
+ * What you said. Spoken, `mic` is what the mic typed when the fixes it knows changed it, `doubts` where it wasn't sure,
+ * and `heard` what the AI took you to mean, shown in its place.
+ */
+type YouMsg = { id: string; role: 'you'; text: string; spoken: boolean; mic?: string; doubts?: Doubt[]; heard?: string };
 type PlanMsg = Extract<ChatMsg, { kind: 'plan' }>;
+
+/** How something was said: out loud, with what the mic typed before any fix and where it wasn't sure, or typed. */
+interface Said { spoken?: boolean; mic?: string; doubts?: Doubt[] }
+
+/**
+ * What a chat has to teach, beyond what the AI suggests now: your corrections, titles you changed (by change), and
+ * what it suggested for turns you fixed and asked again.
+ */
+interface Teaching { corrections: Span[]; retitled: Record<string, Span>; carried: Learned[]; skip: boolean }
+const NO_TEACHING: Teaching = { corrections: [], retitled: {}, carried: [], skip: false };
 
 /** One finished conversation: what you said and what came of it. Kept in your settings, newest first. */
 export interface Past { at: number; said: string[]; did: string }
@@ -40,7 +62,28 @@ const KEEP = 30;
 const DRAFT = 'ds.draft';
 
 const lastPlan = (msgs: ChatMsg[]) => [...msgs].reverse().find((m): m is PlanMsg => m.role === 'ai' && m.kind === 'plan') ?? null;
-const said = (msgs: ChatMsg[]) => msgs.flatMap(m => (m.role === 'you' ? [m.text] : []));
+/** What you said, as the AI understood it. */
+const said = (msgs: ChatMsg[]) => msgs.flatMap(m => (m.role === 'you' ? [m.heard ?? m.text] : []));
+
+/** A chat, for learning from: what the mic typed, what you meant, what the AI suggested, and what you corrected. */
+const lessonFor = (msgs: ChatMsg[], t: Teaching): ChatLesson => ({
+  mic: msgs.flatMap(m => (m.role === 'you' && m.spoken ? [m.mic ?? m.text] : [])),
+  said: said(msgs),
+  model: mergeLearned([...t.carried, ...msgs.flatMap(m => (m.role === 'ai' && m.kind === 'plan' && m.learn ? [m.learn] : []))]),
+  corrections: t.corrections,
+  retitled: Object.values(t.retitled),
+});
+
+/** What the AI took a dictation to mean, when it's a cleaner telling of the same words rather than something else. */
+function heardOf(h: string | undefined, text: string): string | null {
+  const t = h?.replace(/\s+/g, ' ').trim().slice(0, 4000);
+  if (!t || t === text) return null;
+  const words = wordsOf(t), said = new Set(wordsOf(text));
+  if (!words.length) return null;
+  return words.filter(w => said.has(w)).length / words.length >= 0.5 ? t : null;
+}
+
+const langName = (id: string) => LANGS.find(l => l.id === id)?.name ?? id;
 
 function readHistory(v: unknown): Past[] {
   if (!Array.isArray(v)) return [];
@@ -59,12 +102,14 @@ const NOTES: Partial<Record<Via, string>> = {
  * accept it. Say more to change the plan, or edit its cards by hand. Accepting or discarding files the conversation
  * away in your history and starts a fresh one.
  */
-export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, repeats }: {
+export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, repeats, voice }: {
   store: Store; repo: TaskRepo; liveTasks: () => Task[]; busyTasks: () => Task[]; hours: WorkHours; toast: (msg: string, undo?: () => void) => void;
   /** Your labels, and the label a task counts as (a Google event takes its calendar's). */
   labels: Label[]; labelId: (t: Task) => string | null;
   /** Your repeats, the one a task is one of, and how to change them. */
   repeats: { list: Repeat[]; repeatOf: (t: Task) => Repeat | null; apply: (ops: RepeatOp[]) => () => void };
+  /** How you talk (lib/voice.ts): what the mic listens for, what the AI is told, and what each chat teaches. */
+  voice: VoiceApi;
 }) {
   const [open, setOpen] = useState(false);
   const [msgs, setMsgsState] = useState<ChatMsg[]>([]);
@@ -83,20 +128,71 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
   /** Bumped whenever the conversation is cleared, so an answer still on its way lands nowhere. */
   const thread = useRef(0);
   const input = useRef<HTMLTextAreaElement | null>(null);
+  /** What the mic typed, before any fix, while you're speaking. */
+  const rawHeard = useRef<Heard | null>(null);
+  /** Words the mic put in the box: sent from there, they still count as spoken, and what you changed teaches it. */
+  const dictated = useRef<{ mic: string; text: string; doubts: Doubt[] } | null>(null);
+  /** The message you're fixing: sending takes that turn back and asks again. */
+  const [fixing, setFixingState] = useState<string | null>(null);
+  const fixingRef = useRef<string | null>(null);
+  const setFixing = useCallback((id: string | null) => { fixingRef.current = id; setFixingState(id); }, []);
+  const [teaching, setTeachingState] = useState<Teaching>(NO_TEACHING);
+  const teachingRef = useRef(teaching);
+  const setTeaching = useCallback((fn: (t: Teaching) => Teaching) => { teachingRef.current = fn(teachingRef.current); setTeachingState(teachingRef.current); }, []);
+  const correct = useCallback((span: Span) => setTeaching(t => ({ ...t, corrections: [...t.corrections, span] })), [setTeaching]);
+  const profile = voice.profile;
+  const fix = useCallback((text: string) => applyFixes(text, profile.fixes), [profile.fixes]);
 
   const setDraft = useCallback((v: string) => {
     setDraftState(v);
+    if (!v) { dictated.current = null; if (fixingRef.current) setFixing(null); }
     try { if (v) localStorage.setItem(DRAFT, v); else localStorage.removeItem(DRAFT); } catch { /* draft is a nicety */ }
-  }, []);
+  }, [setFixing]);
+  /** Put what the mic heard in the box, to send or fix. */
+  const dictate = useCallback((s: Spoken) => {
+    const text = fix(s.text);
+    setDraft(text);
+    dictated.current = { mic: s.text, text, doubts: s.doubts };
+  }, [fix, setDraft]);
   useEffect(() => { try { const d = localStorage.getItem(DRAFT); if (d) setDraftState(d); } catch { /* none */ } }, []);
 
   const focusInput = useCallback(() => { setTimeout(() => input.current?.focus(), 0); }, []);
 
-  const send = useCallback(async (raw: string, spoken = false) => {
+  const send = useCallback(async (raw: string, by: Said = {}) => {
     const text = raw.trim();
     if (!text) return;
     // One question at a time: words that arrive mid-answer wait in the box.
-    if (busyRef.current) { setDraft(text); return; }
+    if (busyRef.current) {
+      setDraft(text);
+      if (by.spoken) dictated.current = { mic: by.mic ?? text, text, doubts: by.doubts ?? [] };
+      return;
+    }
+    // Fixing what you said: that turn is taken back and asked again. What you changed in it teaches it, and so does
+    // what the AI suggested for it, as far as your fix kept it.
+    const fixId = fixingRef.current;
+    if (fixId) {
+      setFixing(null);
+      const i = msgsRef.current.findIndex(m => m.id === fixId);
+      const old = msgsRef.current[i];
+      if (old?.role === 'you') {
+        const answer = msgsRef.current[i + 1];
+        if (answer?.role === 'ai' && answer.kind === 'plan' && answer.learn) {
+          const kept: Learned = { ...answer.learn, fixes: answer.learn.fixes.filter(f => hasPhrase(text, f.meant)) };
+          setTeaching(t => ({ ...t, carried: [...t.carried, kept] }));
+        }
+        setMsgs(m => m.slice(0, i));
+        if (!by.spoken && old.spoken) {
+          by = { spoken: true, mic: old.mic ?? old.text, doubts: old.doubts };
+          correct({ from: old.heard ?? old.text, to: text });
+        }
+      }
+    }
+    // Words the mic put in the box: still spoken, and whatever you changed teaches it.
+    const d = dictated.current;
+    if (!by.spoken && d) {
+      by = { spoken: true, mic: d.mic, doubts: d.doubts };
+      if (keyOf(text) !== keyOf(d.text)) correct({ from: d.mic, to: text });
+    }
     setOpen(true);
     setView('thread');
     if (past) { setPast(null); setMsgs(() => []); }
@@ -105,11 +201,18 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     const prior = msgsRef.current;
     const plan = lastPlan(prior);
     const earlier = said(prior);
-    const waitId = newId();
-    setMsgs(m => [...m, { id: newId(), role: 'you', text, spoken }, { id: waitId, role: 'ai', kind: 'thinking' }]);
+    const waitId = newId(), youId = newId();
+    const spoken = !!by.spoken;
+    const you: YouMsg = {
+      id: youId, role: 'you', text, spoken,
+      ...(spoken && by.mic && by.mic.trim() !== text ? { mic: by.mic.trim() } : {}),
+      ...(spoken && by.doubts?.length ? { doubts: by.doubts } : {}),
+    };
+    setMsgs(m => [...m, you, { id: waitId, role: 'ai', kind: 'thinking' }]);
     busyRef.current = true;
     setBusy(true);
     let msg: ChatMsg;
+    let heard: string | null = null;
     try {
       const tasks = liveTasks();
       // Slotting goes around the repeating tasks still to come, too.
@@ -119,8 +222,10 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
       const live = plan ? plan.changes.filter(c => !c.skip) : [];
       const refOf = new Map([...refs].map(([ref, id]) => [id, ref]));
       const convo = plan ? { earlier, draft: draftOf(live, refOf) } : undefined;
-      const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo));
+      const v: PromptVoice = { spoken, doubts: you.doubts, learn: profile.learn, ...voiceHints(profile) };
+      const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo, v));
       if (thread.current !== t0) return;
+      heard = spoken && via === 'ai' ? heardOf(result?.heard, text) : null;
       let changes: Change[];
       let how: Via = via;
       if (plan && via !== 'ai') {
@@ -136,48 +241,65 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
       const reply = how === 'ai' && result?.reply ? result.reply
         : changes.length ? (plan ? 'Here’s the plan now.' : 'Here’s what I’ll do.')
         : plan ? 'That leaves nothing in the plan.' : 'I couldn’t find anything to add in that.';
-      msg = { id: waitId, role: 'ai', kind: 'plan', reply, note: NOTES[how] ?? null, changes };
+      const learn = how === 'ai' && result?.learn ? readLearned(result.learn) : null;
+      msg = { id: waitId, role: 'ai', kind: 'plan', reply, note: NOTES[how] ?? null, changes, ...(learn ? { learn } : {}) };
     } catch {
       if (thread.current !== t0) return;
       msg = { id: waitId, role: 'ai', kind: 'error', text: 'Something went wrong there. Try saying it again.' };
     } finally {
       if (thread.current === t0) { busyRef.current = false; setBusy(false); }
     }
-    setMsgs(m => m.map(x => (x.id === waitId ? msg : x)));
-  }, [liveTasks, busyTasks, store, repeats, hours, labels, labelId, setDraft, setMsgs, past]);
+    setMsgs(m => m.map(x => (x.id === waitId ? msg : x.id === youId && heard ? { ...x, heard } : x)));
+  }, [liveTasks, busyTasks, store, repeats, hours, labels, labelId, setDraft, setMsgs, past, profile, correct, setFixing, setTeaching]);
 
-  const voice = useVoice({
-    onHeard: setHeard,
-    onFinish: text => { setHeard(null); if (text.trim()) send(text, true); },
-    onCutOff: text => {
+  /** What the mic has typed so far, before any fix, with where it wasn't sure. */
+  const micSoFar = (): Spoken | null => {
+    const h = rawHeard.current;
+    const text = h ? joinWords(h.text, h.interim) : '';
+    return text ? { text, doubts: [] } : null;
+  };
+
+  const listen = useVoice({
+    lang: profile.lang,
+    // Your words, the ones it mishears, your labels and the names in your tasks.
+    phrases: () => speechPhrases(profile, { labels: labels.map(l => l.name), titles: liveTasks().filter(t => t.status === 'open').map(t => t.title) }),
+    // The fixes it's sure of are made as you speak.
+    onHeard: h => { rawHeard.current = h; setHeard({ text: fix(h.text), interim: fix(h.interim) }); },
+    onFinish: s => { setHeard(null); rawHeard.current = null; if (s.text.trim()) send(fix(s.text), { spoken: true, mic: s.text, doubts: s.doubts }); },
+    onCutOff: s => {
       setHeard(null);
-      if (!text.trim()) return;
-      setDraft(text);
+      rawHeard.current = null;
+      if (!s.text.trim()) return;
+      dictate(s);
       toast('Stopped listening. What you said is in the box.');
     },
     onUnsupported: () => {
       setHeard(null);
+      rawHeard.current = null;
       focusInput();
       toast(window.matchMedia('(pointer: coarse)').matches
         ? 'Tap the mic on your keyboard and talk. It types straight into this box.'
         : 'This browser can’t take dictation. Type it here instead.');
     },
+    onLangUnsupported: lang => toast(`This browser can’t listen in ${langName(lang)}, so it’s listening in its own language. Change it in Settings → Voice.`),
   });
 
   const mic = useCallback(() => {
-    if (voice.listening) { voice.finishVoice(); return; }
+    if (listen.listening) { listen.finishVoice(); return; }
     setOpen(true);
     setView('thread');
-    voice.startVoice(draft);
-  }, [voice, draft]);
+    dictated.current = null;
+    listen.startVoice(draft);
+  }, [listen, draft]);
 
   /** Drop the recording, with Undo putting the words in the box. */
   const cancelVoice = useCallback(() => {
-    const words = [heard?.text, heard?.interim].filter(Boolean).join(' ').trim();
-    voice.stopVoice();
+    const words = micSoFar();
+    listen.stopVoice();
     setHeard(null);
-    if (words) toast('Recording discarded', () => setDraft(words));
-  }, [voice, heard, toast, setDraft]);
+    rawHeard.current = null;
+    if (words) toast('Recording discarded', () => dictate(words));
+  }, [listen, toast, dictate]);
 
   const remember = useCallback((list: string[], did: string, undo?: () => void) => {
     if (!list.length) return;
@@ -190,12 +312,16 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
 
   const reset = useCallback(() => {
     thread.current++;
-    voice.stopVoice();
+    listen.stopVoice();
     setHeard(null);
+    rawHeard.current = null;
+    dictated.current = null;
+    setFixing(null);
+    setTeaching(() => NO_TEACHING);
     setMsgs(() => []);
     busyRef.current = false;
     setBusy(false);
-  }, [voice, setMsgs]);
+  }, [listen, setMsgs, setFixing, setTeaching]);
 
   const accept = useCallback(() => {
     const plan = lastPlan(msgsRef.current);
@@ -209,9 +335,14 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     haptic('success');
     toast(summary, undo);
     remember(said(msgsRef.current), summary, undo);
+    // Each chat you apply teaches it how you talk; Settings → Voice shows what it learned.
+    if (profile.learn && !teachingRef.current.skip) {
+      const lesson = lessonFor(msgsRef.current, teachingRef.current);
+      voice.change(p => learnFrom(p, lesson, Date.now()));
+    }
     reset();
     setOpen(false);
-  }, [store, toast, remember, reset, labels, repeats]);
+  }, [store, toast, remember, reset, labels, repeats, profile.learn, voice]);
 
   const discard = useCallback(() => {
     remember(said(msgsRef.current), 'Discarded');
@@ -242,21 +373,35 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
 
   /** Change the plan by talking: the mic if you spoke it, otherwise the box. */
   const modify = useCallback(() => {
-    const last = [...msgsRef.current].reverse().find((m): m is Extract<ChatMsg, { role: 'you' }> => m.role === 'you');
-    if (last?.spoken && voice.supported() && !voice.listening) { voice.startVoice(draft); return; }
+    const last = [...msgsRef.current].reverse().find((m): m is YouMsg => m.role === 'you');
+    if (last?.spoken && listen.supported() && !listen.listening) { listen.startVoice(draft); return; }
     focusInput();
-  }, [voice, draft, focusInput]);
+  }, [listen, draft, focusInput]);
+
+  /** Fix what you said: it goes in the box, and sending it takes that turn back and asks again. */
+  const fixSaid = useCallback((id: string) => {
+    const m = msgsRef.current.find((x): x is YouMsg => x.id === id && x.role === 'you');
+    if (!m || busyRef.current) return;
+    dictated.current = null;
+    setDraftState(m.heard ?? m.text);
+    setFixing(id);
+    focusInput();
+  }, [setFixing, focusInput]);
+
+  /** Leave out what this chat would teach, or put it back. */
+  const skipTeaching = useCallback(() => setTeaching(t => ({ ...t, skip: !t.skip })), [setTeaching]);
 
   const close = useCallback(() => {
-    if (voice.listening) {
-      const words = [heard?.text, heard?.interim].filter(Boolean).join(' ').trim();
-      voice.stopVoice();
+    if (listen.listening) {
+      const words = micSoFar();
+      listen.stopVoice();
       setHeard(null);
-      if (words) setDraft(words);
+      rawHeard.current = null;
+      if (words) dictate(words);
     }
     setOpen(false);
     setPast(null);
-  }, [voice, heard, setDraft]);
+  }, [listen, dictate]);
 
   /** ⌘K: open the chat and put the cursor in the box. */
   const focus = useCallback(() => { setOpen(true); focusInput(); }, [focusInput]);
@@ -269,9 +414,13 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     });
   }, [setMsgs]);
   /** Change a proposed change; `repeat` (when given) is how a new task repeats, or null for not at all. */
-  const edit = useCallback((id: string, patch: Partial<Task>, repeat?: Rule | null) => updatePlan(c => (
-    c.id === id ? { ...c, after: { ...c.after, ...patch }, ...(repeat !== undefined ? { repeat } : {}) } : c
-  )), [updatePlan]);
+  const edit = useCallback((id: string, patch: Partial<Task>, repeat?: Rule | null) => {
+    // A title you change teaches it: the first one it proposed, against your last.
+    const was = lastPlan(msgsRef.current)?.changes.find(c => c.id === id)?.after.title;
+    const to = patch.title;
+    if (was && to && to !== was) setTeaching(t => ({ ...t, retitled: { ...t.retitled, [id]: { from: t.retitled[id]?.from ?? was, to } } }));
+    updatePlan(c => (c.id === id ? { ...c, after: { ...c.after, ...patch }, ...(repeat !== undefined ? { repeat } : {}) } : c));
+  }, [updatePlan, setTeaching]);
   const toggle = useCallback((id: string) => updatePlan(c => (c.id === id ? { ...c, skip: !c.skip } : c)), [updatePlan]);
 
   const loadHistory = useCallback(() => {
@@ -279,6 +428,10 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
   }, [repo]);
 
   const plan = lastPlan(msgs);
+  /** What applying this chat would teach, for the plan to show. Null when learning is off. */
+  const lesson = useMemo<{ will: Lesson; skip: boolean } | null>(
+    () => (profile.learn ? { will: lessonOf(lessonFor(msgs, teaching)), skip: teaching.skip } : null),
+    [msgs, teaching, profile.learn]);
   /** Tasks as the open plan would leave them, for the calendar to show. */
   const preview = useMemo(() => {
     const m = new Map<string, Task>();
@@ -288,9 +441,10 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
 
   return {
     open, show: () => { setOpen(true); setView('thread'); }, close, focus, msgs, busy, plan, preview,
-    draft, setDraft, input, heard, listening: voice.listening, onDevice: voice.onDevice,
+    draft, setDraft, input, heard, listening: listen.listening, onDevice: listen.onDevice,
     send, mic, cancelVoice, accept, discard, modify, edit, toggle, history, loadHistory,
     view, setView, showHistory, past, openPast, newChat, undoPast, canUndo,
+    fixing, fixSaid, lesson, skipTeaching,
   };
 }
 
@@ -366,6 +520,7 @@ function Thread({ phone }: { phone?: boolean }) {
   const { msgs, heard, plan, past } = chat;
   const live = heard ? `${heard.text} ${heard.interim}` : '';
   const last = msgs.at(-1);
+  const lastYou = [...msgs].reverse().find(m => m.role === 'you')?.id;
   const box = useFollow(`${msgs.length}:${last && 'kind' in last ? last.kind : last?.role}:${live.length}:${past?.at}`);
   const use = (t: string) => { chat.setDraft(t); setTimeout(() => chat.input.current?.focus(), 0); };
   return (
@@ -387,7 +542,7 @@ function Thread({ phone }: { phone?: boolean }) {
           </div>
         ) : null}
         {!past && msgs.map(m => {
-          if (m.role === 'you') return <div key={m.id} className="you">{m.spoken && <MicIcon size={13} />}<p>{m.text}</p></div>;
+          if (m.role === 'you') return <YouSaid key={m.id} m={m} last={m.id === lastYou} />;
           if (m.kind === 'thinking') return <div key={m.id} className="ai"><p className="think" aria-label="Working it out"><i /><i /><i /></p></div>;
           if (m.kind === 'error') return <div key={m.id} className="ai"><p>{m.text}</p></div>;
           return <PlanCard key={m.id} m={m} live={m === plan} phone={phone} />;
@@ -400,6 +555,56 @@ function Thread({ phone }: { phone?: boolean }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * What you said. Spoken, it shows what the AI took you to mean, with what the mic heard a tap away, and the last thing
+ * you said can be fixed: the fix goes in the box, and sending it asks again (and teaches it the words it misheard).
+ */
+function YouSaid({ m, last }: { m: YouMsg; last: boolean }) {
+  const { chat } = usePlanner();
+  const [raw, setRaw] = useState(false);
+  const shown = m.heard ?? m.text;
+  const mic = m.spoken ? m.mic ?? m.text : null;
+  const differs = !!mic && keyOf(mic) !== keyOf(shown);
+  const canFix = m.spoken && last && !chat.busy;
+  const fixing = chat.fixing === m.id;
+  return (
+    <div className={'you' + (fixing ? ' fixing' : '')}>
+      {m.spoken && <MicIcon size={13} />}
+      <div className="you-b">
+        <p>{shown}</p>
+        {raw && differs && <p className="you-raw"><span className="sr">The mic heard: </span>{mic}</p>}
+        {(differs || canFix) && (
+          <span className="you-f">
+            {differs && <button type="button" className="link" aria-expanded={raw} onClick={() => setRaw(r => !r)}>{raw ? 'Hide what the mic heard' : 'What the mic heard'}</button>}
+            {canFix && !fixing && <button type="button" className="link" onClick={() => chat.fixSaid(m.id)}>Fix what I said</button>}
+            {fixing && <span>Fix it in the box, then send</span>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** What applying this chat will teach it, with the way to leave that out. */
+function Teaches() {
+  const { chat } = usePlanner();
+  const l = chat.lesson;
+  if (!l) return null;
+  const { will } = l;
+  const items = [
+    ...will.fixes.map(f => `“${f.from}” is ${f.to}`),
+    ...will.words,
+    ...will.habits,
+  ];
+  if (!items.length) return null;
+  return (
+    <p className="note teaches">
+      {l.skip ? 'It won’t remember anything from this chat. ' : <>Will remember: {items.join(' · ')}. </>}
+      <button type="button" className="link" onClick={chat.skipTeaching}>{l.skip ? 'Remember it' : 'Don’t'}</button>
+    </p>
   );
 }
 
@@ -441,6 +646,7 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
               </div>
             );
           })}
+          <Teaches />
           <div className="plan-f">
             <button type="button" className={'btn pri' + (phone ? ' tall' : ' sm')} disabled={!kept || chat.busy} onClick={chat.accept}>Apply {kept}</button>
             <button type="button" className={'btn ghost' + (phone ? ' tall' : ' sm')} onClick={chat.discard}>Discard</button>
@@ -629,7 +835,8 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
   const dropping = !!drag.view && drag.view.kind !== 'resize';
   const count = chat.plan?.changes.filter(c => !c.skip).length ?? 0;
   const width = split.calW + split.matrixW + 38;
-  const placeholder = open && chat.plan ? (phone ? 'Change the plan, or add more' : 'Change something in the plan, or add more') : phone ? 'Dump a task, or ask…' : 'Dump a task, or ask for a change';
+  const placeholder = chat.fixing ? 'Fix what you said, then send'
+    : open && chat.plan ? (phone ? 'Change the plan, or add more' : 'Change something in the plan, or add more') : phone ? 'Dump a task, or ask…' : 'Dump a task, or ask for a change';
 
   return (
     <>
@@ -666,7 +873,7 @@ export function ChatDock({ phone, inert }: { phone?: boolean; inert?: boolean })
             ) : (
               <>
                 <ChatIcon size={phone ? 18 : 17} />
-                <label className="sr" htmlFor={phone ? 'chat-ph' : 'chat-lp'}>{chat.plan && open ? 'Change the plan' : 'Dump a task, or ask for a change'}</label>
+                <label className="sr" htmlFor={phone ? 'chat-ph' : 'chat-lp'}>{chat.fixing ? 'Fix what you said' : chat.plan && open ? 'Change the plan' : 'Dump a task, or ask for a change'}</label>
                 <textarea id={phone ? 'chat-ph' : 'chat-lp'} ref={input} rows={1} enterKeyHint="send" placeholder={placeholder} value={chat.draft}
                   onChange={e => { chat.setDraft(e.target.value); if (!open && e.target.value) chat.show(); }}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />

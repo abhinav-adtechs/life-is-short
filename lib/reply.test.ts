@@ -9,6 +9,11 @@ describe('parseReply', () => {
     expect(parseReply('{"add":[],"update":[],"reply":"  Moved the  dentist. "}')).toEqual({ add: [], update: [], reply: 'Moved the dentist.' });
     expect(parseReply('{"add":[],"update":[],"reply":7}')).toEqual({ add: [], update: [] });
   });
+  it('keeps what it took a dictation to mean, and what it suggests remembering', () => {
+    expect(parseReply('{"heard":"  Call the  plumber. ","add":[],"update":[],"reply":"","learn":{"words":["Ravi"]}}'))
+      .toEqual({ add: [], update: [], heard: 'Call the plumber.', learn: { words: ['Ravi'] } });
+    expect(parseReply('{"heard":"","add":[],"update":[],"learn":["x"]}')).toEqual({ add: [], update: [] });
+  });
   it('tolerates a code fence and a bare array', () => {
     expect(parseReply('```json\n[{"title":"A"}]\n```')).toEqual({ add: [{ title: 'A' }], update: [] });
   });

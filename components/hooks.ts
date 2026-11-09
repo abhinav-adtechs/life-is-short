@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { joinWords, readResults, type Doubt, type SRResult } from '@/lib/speech';
+import { native } from '@/lib/native';
 
 /** Current time, re-read every 30 seconds and whenever the page comes back into view. */
 export function useNow(): number {
@@ -60,58 +62,80 @@ export const prefersReducedMotion = () => {
   return m === 'reduce' || (m !== 'full' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 };
 
-type SRResult = ArrayLike<{ transcript: string }> & { isFinal: boolean };
 type SR = {
-  lang: string; interimResults: boolean; continuous: boolean; processLocally?: boolean;
+  lang: string; interimResults: boolean; continuous: boolean; maxAlternatives: number; processLocally?: boolean; phrases?: unknown;
   onresult: ((ev: { results: ArrayLike<SRResult> }) => void) | null;
   onerror: ((ev: { error: string }) => void) | null;
   onend: (() => void) | null;
   start(): void; stop(): void; abort(): void;
 };
 type SRCtor = (new () => SR) & { available?: (o: { langs: string[]; processLocally: boolean }) => Promise<string> };
+type PhraseCtor = new (phrase: string, boost?: number) => unknown;
 
 const speechCtor = () => {
   if (typeof window === 'undefined') return undefined;
   const w = window as unknown as { SpeechRecognition?: SRCtor; webkitSpeechRecognition?: SRCtor };
   return w.SpeechRecognition || w.webkitSpeechRecognition;
 };
-const join = (...parts: string[]) => parts.map(p => p.trim()).filter(Boolean).join(' ');
+const deviceLang = () => (typeof navigator !== 'undefined' && navigator.language) || 'en-IN';
+/** How strongly the recogniser leans towards your words (0 to 10). Enough to prefer a name, not to hear one everywhere. */
+const BOOST = 3;
 
 /** What you've said so far: words the recogniser has settled on, and the guess it's still revising. */
 export interface Heard { text: string; interim: string }
+/** Everything said, once listening stops: the words, and where the recogniser wasn't sure. */
+export interface Spoken { text: string; doubts: Doubt[] }
 
 /**
  * Dictation that keeps listening until you stop it. Words stream in through `onHeard` as you speak. Browsers end a
  * session after a pause, so a new one starts where it left off. `finishVoice` waits for the last words, then hands
  * over everything through `onFinish`. Where the browser can recognise speech on the device, nothing leaves it.
  * Without speech support, `onUnsupported` runs instead.
+ *
+ * It listens in `lang` (your Settings → Voice choice, else the device's language), asks for the recogniser's top three
+ * guesses, and leans towards `phrases` (your names and words) where the recogniser takes them: Chrome on the device,
+ * and the apps' native recogniser.
  */
 export function useVoice(opts: {
   onHeard: (h: Heard) => void;
-  onFinish: (text: string) => void;
+  onFinish: (s: Spoken) => void;
   /** Listening stopped by itself (no connection, or a minute of silence): here's what was said. */
-  onCutOff: (text: string) => void;
+  onCutOff: (s: Spoken) => void;
   onUnsupported: () => void;
+  /** The language to listen in; null for the device's. */
+  lang?: string | null;
+  /** The words to listen out for, read as each session starts. */
+  phrases?: () => string[];
+  /** The browser can't listen in `lang`; it listens in the device's language instead. */
+  onLangUnsupported?: (lang: string) => void;
 }) {
-  type Session = { r: SR; said: string; interim: string; finishing: boolean; quick: number; at: number; heardAt: number; timer: number };
+  type Session = {
+    r: SR; said: string; interim: string; doubts: Doubt[]; finishing: boolean; quick: number; at: number; heardAt: number; timer: number;
+  };
   const cur = useRef<Session | null>(null);
   const blocked = useRef(false);
   const local = useRef(false);
+  /** The browser refused the phrases, or the language: sessions after go without. */
+  const noPhrases = useRef(false);
+  const badLang = useRef<string | null>(null);
   const [listening, setListening] = useState(false);
   const [onDevice, setOnDevice] = useState(false);
   const o = useRef(opts);
   o.current = opts;
+  const want = opts.lang || null;
+  const langOf = useCallback(() => (o.current.lang && o.current.lang !== badLang.current ? o.current.lang : deviceLang()), []);
 
   // On-device recognition (Chrome) when its language pack is already installed. Never downloads one unasked.
   useEffect(() => {
     const Ctor = speechCtor();
+    local.current = false;
     if (!Ctor?.available) return;
     let alive = true;
-    Ctor.available({ langs: [navigator.language || 'en-IN'], processLocally: true })
+    Ctor.available({ langs: [langOf()], processLocally: true })
       .then(s => { if (alive) local.current = s === 'available'; })
       .catch(() => { /* cloud recognition, then */ });
     return () => { alive = false; };
-  }, []);
+  }, [want, langOf]);
 
   const end = useCallback((s: Session) => {
     if (cur.current !== s) return;
@@ -133,28 +157,38 @@ export function useVoice(opts: {
     try { r = new Ctor(); } catch { return false; }
     const sess = s as Session;
     sess.r = r;
-    r.lang = navigator.language || 'en-IN';
+    r.lang = langOf();
     r.interimResults = true;
     r.continuous = true;
+    r.maxAlternatives = 3;
     if (local.current && 'processLocally' in r) r.processLocally = true;
+    // Your words, where the recogniser takes them: Chrome only on the device, the apps always.
+    const Phrase = (window as unknown as { SpeechRecognitionPhrase?: PhraseCtor }).SpeechRecognitionPhrase;
+    const phrases = !noPhrases.current && Phrase && 'phrases' in r && (r.processLocally || native()) ? o.current.phrases?.() ?? [] : [];
+    if (phrases.length && Phrase) {
+      try { r.phrases = phrases.map(p => new Phrase(p, BOOST)); } catch { noPhrases.current = true; }
+    }
     // Everything said before this session; each session's results start from empty.
-    const before = sess.said;
+    const before = sess.said, doubtsBefore = sess.doubts;
     r.onresult = ev => {
       if (cur.current !== sess) return;
-      let fin = '', int = '';
-      // Some browsers start each result with a space and some don't; join them with exactly one.
-      for (let i = 0; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) fin = join(fin, ev.results[i][0].transcript);
-        else int = join(int, ev.results[i][0].transcript);
-      }
-      sess.said = join(before, fin);
+      const { fin, int, doubts } = readResults(ev.results);
+      sess.said = joinWords(before, fin);
       sess.interim = int;
+      sess.doubts = [...doubtsBefore, ...doubts].slice(-12);
       sess.quick = 0;
       sess.heardAt = Date.now();
       o.current.onHeard({ text: sess.said, interim: sess.interim });
     };
     r.onerror = ev => {
       if (cur.current !== sess) return;
+      // Without them, or in the device's language: onend starts the next session that way.
+      if (ev.error === 'phrases-not-supported') { noPhrases.current = true; return; }
+      if (ev.error === 'language-not-supported' && r.lang !== deviceLang()) {
+        badLang.current = r.lang;
+        o.current.onLangUnsupported?.(r.lang);
+        return;
+      }
       if (['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported'].includes(ev.error)) {
         blocked.current = true;
         end(sess);
@@ -164,26 +198,26 @@ export function useVoice(opts: {
     };
     r.onend = () => {
       if (cur.current !== sess) return;
-      const text = join(sess.said, sess.interim);
-      if (sess.finishing) { end(sess); o.current.onFinish(text); return; }
+      const text = joinWords(sess.said, sess.interim);
+      if (sess.finishing) { end(sess); o.current.onFinish({ text, doubts: sess.doubts }); return; }
       // Ended by itself: listen on, unless it keeps ending straight away or nobody has spoken for a minute.
       const quick = Date.now() - sess.at < 1500 ? sess.quick + 1 : 0;
       const next: Session = { ...sess, said: text, interim: '', quick, at: Date.now() };
       cur.current = next;
-      if (quick >= 3 || Date.now() - sess.heardAt > 60000 || !begin(next, Ctor)) { end(next); o.current.onCutOff(text); }
+      if (quick >= 3 || Date.now() - sess.heardAt > 60000 || !begin(next, Ctor)) { end(next); o.current.onCutOff({ text, doubts: next.doubts }); }
     };
     try { r.start(); } catch { return false; }
     setOnDevice(!!r.processLocally);
     return true;
-  }, [end]);
+  }, [end, langOf]);
 
   /** Start listening; `base` is text already typed, which what you say is added to. */
   const startVoice = useCallback((base = '') => {
     if (cur.current) return;
     const Ctor = speechCtor();
     if (!Ctor || blocked.current) { o.current.onUnsupported(); return; }
-    const s = { said: base.trim(), interim: '', finishing: false, quick: 0, at: Date.now(), heardAt: Date.now(), timer: 0 } as Session;
-    cur.current = s;
+    const s = { said: base.trim(), interim: '', doubts: [], finishing: false, quick: 0, at: Date.now(), heardAt: Date.now(), timer: 0 } as Omit<Session, 'r'>;
+    cur.current = s as Session;
     if (!begin(s, Ctor)) { cur.current = null; blocked.current = true; o.current.onUnsupported(); return; }
     setListening(true);
     o.current.onHeard({ text: s.said, interim: '' });
@@ -200,7 +234,7 @@ export function useVoice(opts: {
       if (cur.current !== s) return;
       end(s);
       try { s.r.abort(); } catch { /* gone */ }
-      o.current.onFinish(join(s.said, s.interim));
+      o.current.onFinish({ text: joinWords(s.said, s.interim), doubts: s.doubts });
     }, 1500);
   }, [end]);
 

@@ -35,10 +35,16 @@ const fields = {
   },
 };
 
-/** Shape of {add, update, reply} that buildPrompt asks for. */
+const strings = { type: 'array', items: { type: 'string' } };
+
+/**
+ * Shape of the {heard, add, update, reply, learn} that buildPrompt asks for. `heard` comes first, so a dictation is
+ * read right before the tasks are pulled out of it; `learn` last, once the rest is settled.
+ */
 export const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
+    heard: { type: 'string', description: 'What they said as they meant it, for a dictation; "" when typed' },
     add: {
       type: 'array',
       items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes', 'label', 'repeat'] },
@@ -52,6 +58,14 @@ export const RESPONSE_SCHEMA = {
       },
     },
     reply: { type: 'string' },
+    learn: {
+      type: 'object',
+      properties: {
+        words: strings,
+        fixes: { type: 'array', items: { type: 'object', properties: { heard: { type: 'string' }, meant: { type: 'string' } }, required: ['heard', 'meant'] } },
+        habits: strings,
+      },
+    },
   },
   required: ['add', 'update', 'reply'],
 };

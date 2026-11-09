@@ -12,7 +12,8 @@ import { pad, ymd } from './time';
 /** Why the keyword parser was used instead of the model. */
 export type Via = 'ai' | 'no-key' | 'ai-error' | 'empty';
 
-export interface AiResult { add: unknown[]; update: unknown[]; reply?: string }
+/** The model's answer. `heard` is what it took a dictation to mean; `learn` is checked by lib/voice.ts before use. */
+export interface AiResult { add: unknown[]; update: unknown[]; reply?: string; heard?: string; learn?: unknown }
 
 const hhmm = (ms: number) => `${ymd(ms)} ${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
 
