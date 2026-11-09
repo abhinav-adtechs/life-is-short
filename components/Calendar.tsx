@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Task } from '@/lib/model';
-import { hourRange, isEvent, layoutDay, tasksOn, visibleRange } from '@/lib/select';
-import { fmtDur, fmtHour, fmtRange } from '@/lib/format';
+import { backAt, hourRange, isEvent, layoutDay, tasksOn, visibleRange } from '@/lib/select';
+import { fmtDur, fmtHour, fmtRange, fmtTime } from '@/lib/format';
 import { DAYS, splitFor, type Days } from '@/lib/layout';
 import { VIEW_LABELS, VIEW_FOR_DAYS, rangeTitle, stepDay, viewDays } from '@/lib/calview';
 import { DOW, DOWL, MIN, MON, addDays, atMinutes, endOf, isWeekend, minsOf, startOfDay, weekStart, ymd } from '@/lib/time';
@@ -49,7 +49,7 @@ function useItems() {
       if (plan.ticks.has(t.id)) cls.push('ticking');
       if (drag.view?.kind === 'block' && drag.view.id === t.id) cls.push('lifted');
       return {
-        key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? 'Missed · back to the backlog' : fmtRange(t.start as number, t.minutes),
+        key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? `Missed · back to the backlog at ${fmtTime(backAt(t))}` : fmtRange(t.start as number, t.minutes),
         cls, color, task: t, live: true, repeats: !!repeatOf(t),
       };
     });
