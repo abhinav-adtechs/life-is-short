@@ -303,6 +303,19 @@ describe('breach checks on real snapshots', () => {
       await primary.exec('delete from auth.webauthn_credentials; delete from private.face_ids');
     }
   });
+  it('take an authenticator that was used as used, not new, and warn about one added this week', async () => {
+    const run = async () => evaluate({ primary: await snap(primary), backup: await snap(backup), ownerSha: OWNER_SHA }).findings.filter(f => f.level !== 'info');
+    try {
+      // Supabase Auth rewrites updated_at (with last_challenged_at) every time a code is typed.
+      await primary.exec(`update auth.mfa_factors set updated_at = now()`);
+      expect(await run()).toEqual([]);
+      // Moving to a new app adds a factor.
+      await primary.exec(`update auth.mfa_factors set created_at = now() - interval '2 days'`);
+      expect(await run()).toEqual([{ level: 'warn', check: 'primary:2fa', detail: '1 authenticator factor(s) added in the last 8 days' }]);
+    } finally {
+      await primary.exec(`update auth.mfa_factors set created_at = now() - interval '30 days', updated_at = now() - interval '30 days'`);
+    }
+  });
   it('don’t take a passkey sign-in (Face ID’s too) for a password that skipped 2FA', async () => {
     const [face, half] = ['bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002'];
     await primary.exec(`insert into auth.sessions (id, user_id, aal) values ('${face}', '${P_OWNER}', 'aal1'), ('${half}', '${P_OWNER}', 'aal1');
