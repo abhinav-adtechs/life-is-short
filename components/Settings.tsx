@@ -13,6 +13,7 @@ import { Choice, Opt, radio, radioKeys } from './Controls';
 import { GoogleSection } from './GoogleSection';
 import { LabelsSection } from './Labels';
 import { RepeatsSection } from './Repeating';
+import { VoiceSection } from './VoiceSection';
 import { AccountSection } from './AccountSection';
 
 const SECTIONS = [
@@ -20,6 +21,7 @@ const SECTIONS = [
   { id: 'calendar', name: 'Calendar' },
   { id: 'labels', name: 'Labels' },
   { id: 'repeats', name: 'Repeats' },
+  { id: 'voice', name: 'Voice' },
   { id: 'google', name: 'Calendars' },
   { id: 'tasks', name: 'Tasks' },
   { id: 'account', name: 'Account', needsSupabase: true },
@@ -52,6 +54,7 @@ export function Settings() {
       <CalendarPrefs />
       <LabelsSection />
       <RepeatsSection />
+      <VoiceSection />
       <GoogleSection />
       <TasksSection />
       {hasSupabase() && <AccountSection />}

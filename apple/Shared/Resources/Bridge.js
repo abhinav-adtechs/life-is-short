@@ -74,8 +74,30 @@
   };
 
   /* SpeechRecognition with the app's recogniser behind it, on the device when the language allows. It speaks the same
-     events as the browser's, so components/hooks.ts (useVoice) runs unchanged. */
+     events as the browser's, so components/hooks.ts (useVoice) runs unchanged. Its `phrases` (your names and words, as
+     SpeechRecognitionPhrase or plain strings) become the recogniser's contextual strings. */
   if (config.speech) {
+    /** The phrases' words, for the app: up to 100, each up to 100 characters. */
+    const phraseList = (list) => {
+      const out = [];
+      for (const p of Array.from(list || [])) {
+        const text = typeof p === 'string' ? p : p && typeof p.phrase === 'string' ? p.phrase : '';
+        const t = text.trim().slice(0, 100);
+        if (t && out.length < 100) out.push(t);
+      }
+      return out;
+    };
+
+    if (typeof window.SpeechRecognitionPhrase !== 'function') {
+      class SpeechRecognitionPhrase {
+        constructor(phrase, boost) {
+          this.phrase = String(phrase);
+          this.boost = boost === undefined ? 1 : Number(boost);
+        }
+      }
+      define(window, 'SpeechRecognitionPhrase', SpeechRecognitionPhrase);
+    }
+
     class NativeSpeechRecognition extends EventTarget {
       constructor() {
         super();
@@ -84,6 +106,7 @@
         this.interimResults = false;
         this.maxAlternatives = 1;
         this.processLocally = false;
+        this.phrases = [];
         this.onstart = null; this.onaudiostart = null; this.onresult = null; this.onerror = null; this.onend = null;
         this._id = null;
       }
@@ -93,7 +116,10 @@
         const id = String(++lastId);
         this._id = id;
         sessions.set(id, this);
-        post('speech.start', { id, lang: this.lang, interim: !!this.interimResults, onDevice: !!this.processLocally }).catch(() => {
+        const phrases = phraseList(this.phrases);
+        post('speech.start', {
+          id, lang: this.lang, interim: !!this.interimResults, onDevice: !!this.processLocally, phrases: phrases.length ? phrases : undefined,
+        }).catch(() => {
           if (this._id !== id) return;
           this._event({ event: 'error', error: 'service-not-allowed' });
           this._event({ event: 'end' });

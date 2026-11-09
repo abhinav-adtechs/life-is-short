@@ -5,6 +5,7 @@ import Speech
 
 /// Dictation for the page's SpeechRecognition (Bridge.js): Apple's recogniser on the microphone, on the device when the
 /// language allows, its words streamed back as SpeechRecognition results. One session at a time, like the browser.
+/// The page's phrases (your names and words) become the request's contextual strings, so it leans towards them.
 @MainActor
 final class SpeechBridge {
     /// Sends a speech event to the page: `start`, `result` (with segments), `error` or `end`.
@@ -53,24 +54,24 @@ final class SpeechBridge {
         return r.isAvailable ? "available" : "unavailable"
     }
 
-    func start(id: String, lang: String?, interim: Bool, onDevice: Bool) {
+    func start(id: String, lang: String?, interim: Bool, onDevice: Bool, phrases: [String] = []) {
         if let old = session { end(old, error: nil) }
         if let waiting = pending { pending = nil; emit(waiting, ["event": "end"]) }
         guard isActive else { return fail(id, "aborted") }
         guard Self.recognizer(for: lang) != nil else { return fail(id, "language-not-supported") }
         pending = id
         Self.requestPermissions { granted in
-            Task { @MainActor in self.permissions(granted, id: id, lang: lang, interim: interim, onDevice: onDevice) }
+            Task { @MainActor in self.permissions(granted, id: id, lang: lang, interim: interim, onDevice: onDevice, phrases: phrases) }
         }
     }
 
     /// The answer to the microphone and speech prompts, for the start waiting on them.
-    private func permissions(_ granted: Bool, id: String, lang: String?, interim: Bool, onDevice: Bool) {
+    private func permissions(_ granted: Bool, id: String, lang: String?, interim: Bool, onDevice: Bool, phrases: [String]) {
         guard pending == id else { return }
         pending = nil
         guard granted else { return fail(id, "not-allowed") }
         guard isActive, let recognizer = Self.recognizer(for: lang) else { return fail(id, "aborted") }
-        begin(id: id, recognizer: recognizer, interim: interim, onDevice: onDevice)
+        begin(id: id, recognizer: recognizer, interim: interim, onDevice: onDevice, phrases: phrases)
     }
 
     /// Stop listening, and hand over the last words once the recogniser has them.
@@ -99,11 +100,12 @@ final class SpeechBridge {
 
     // MARK: - Listening
 
-    private func begin(id: String, recognizer: SFSpeechRecognizer, interim: Bool, onDevice: Bool) {
+    private func begin(id: String, recognizer: SFSpeechRecognizer, interim: Bool, onDevice: Bool, phrases: [String]) {
         let s = Session(id: id, interim: interim, recognizer: recognizer)
         s.request.shouldReportPartialResults = true
         s.request.taskHint = .dictation
         s.request.addsPunctuation = true
+        if !phrases.isEmpty { s.request.contextualStrings = phrases }
         if onDevice && recognizer.supportsOnDeviceRecognition { s.request.requiresOnDeviceRecognition = true }
         #if os(iOS)
         do {

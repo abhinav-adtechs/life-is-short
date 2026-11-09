@@ -277,8 +277,8 @@ final class WebController: NSObject {
             reply(true, nil)
         case .speechAvailability(let lang, let onDevice):
             reply(speech.availability(lang: lang, onDevice: onDevice), nil)
-        case .speechStart(let id, let lang, let interim, let onDevice):
-            speech.start(id: id, lang: lang, interim: interim, onDevice: onDevice)
+        case .speechStart(let id, let lang, let interim, let onDevice, let phrases):
+            speech.start(id: id, lang: lang, interim: interim, onDevice: onDevice, phrases: phrases)
             reply(true, nil)
         case .speechStop(let id):
             speech.stop(id: id)

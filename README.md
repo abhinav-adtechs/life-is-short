@@ -56,6 +56,8 @@ The AI reads it like a good assistant would. It pulls out every task, gives each
 
 **Nothing lands until you say so.** When you stop talking you get the full transcript and the plan, one row per change: *add*, *move*, *tick off*. On a laptop the plan shows on the calendar too, dashed, right where it would go. Tap a change to edit it, untick one you don't want, or just keep talking ("make the haircut Thursday afternoon") and the plan updates. **Apply** and it's done, with Undo; the chat clears for next time and lands in your history.
 
+**It learns how you talk.** The AI knows you spoke, so it reads past misheard words, fillers and "at 3, no, 4" and shows what it took you to mean (what the mic heard is a tap away). Mic got a word wrong? **Fix what I said** and it asks again. Every chat you apply teaches it: your names and places, what the mic mishears ("plum bar" is *plumber*), and how you put things ("kal" means tomorrow). The mic listens out for your words from then on, and a mishearing it's sure of is fixed while you're still talking. Pick the mic's language (English (India), say) and see or change everything it learned in **Settings → Voice**.
+
 </td>
 <td width="33%" valign="top">
 

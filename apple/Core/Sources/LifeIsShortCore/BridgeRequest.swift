@@ -26,7 +26,8 @@ public enum BridgeRequest: Equatable {
     case share(title: String?, text: String?, url: URL?)
     case openExternal(URL)
     case speechAvailability(lang: String?, onDevice: Bool)
-    case speechStart(id: String, lang: String?, interim: Bool, onDevice: Bool)
+    /// `phrases` are your names and words, for the recogniser to listen out for.
+    case speechStart(id: String, lang: String?, interim: Bool, onDevice: Bool, phrases: [String] = [])
     case speechStop(id: String)
     case speechAbort(id: String)
     /// From the setup page: use this server.
@@ -71,7 +72,8 @@ public enum BridgeRequest: Equatable {
             return .speechAvailability(lang: fields.text("lang", max: 35), onDevice: fields.flag("onDevice"))
         case "speech.start":
             guard let id = fields.id() else { return nil }
-            return .speechStart(id: id, lang: fields.text("lang", max: 35), interim: fields.flag("interim"), onDevice: fields.flag("onDevice"))
+            return .speechStart(id: id, lang: fields.text("lang", max: 35), interim: fields.flag("interim"), onDevice: fields.flag("onDevice"),
+                                phrases: fields.phrases())
         case "speech.stop":
             guard let id = fields.id() else { return nil }
             return .speechStop(id: id)
@@ -115,6 +117,15 @@ public enum BridgeRequest: Equatable {
 
         func url(_ key: String) -> URL? {
             text(key, max: 4096).flatMap { URL(string: $0) }
+        }
+
+        /// Words for the recogniser: strings only, trimmed, up to 100 of up to 100 characters each.
+        func phrases() -> [String] {
+            guard let list = message["phrases"] as? [Any] else { return [] }
+            let words = list
+                .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && $0.count <= 100 }
+            return Array(words.prefix(100))
         }
 
         func id() -> String? {

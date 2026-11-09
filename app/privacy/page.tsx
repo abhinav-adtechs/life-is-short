@@ -58,15 +58,23 @@ export default function PrivacyPage() {
       <h2>AI sorting</h2>
       <p>
         When you dump something, what you typed or said in that conversation and the plan drafted so far, plus the
-        titles of your open items (including ones pulled from Google), is sent to Google&rsquo;s Gemini API so it can
-        sort the new items and avoid duplicates. Nothing else is sent. The app uses the Gemini API&rsquo;s free tier,
+        titles of your open items (including ones pulled from Google) and your voice settings (below), is sent to
+        Google&rsquo;s Gemini API so it can sort the new items and avoid duplicates. Nothing else is sent. The app uses the Gemini API&rsquo;s free tier,
         under whose terms Google may use what it receives to improve its products. Without an AI key, the app sorts by
         keywords in your browser instead and sends nothing.
       </p>
       <p>
         Speaking uses your browser&rsquo;s own speech recognition. Where the browser can recognise speech on your
         device, the audio stays there; otherwise the browser sends it to its maker&rsquo;s speech service (Google for
-        Chrome, Apple for Safari) to be transcribed. The app itself never receives or stores audio.
+        Chrome, Apple for Safari) to be transcribed. The app itself never receives or stores audio. So it hears you
+        better, the recogniser is given your names and words, and those of your labels and tasks.
+      </p>
+      <p>
+        Your voice settings (the mic&rsquo;s language, your notes on how you talk, and the names, words, mishearings
+        and habits it has learned from chats you applied) are kept with your settings, so every device hears you the
+        same way. They go to the Gemini API with each dump, along with the recogniser&rsquo;s other guesses at what
+        you said, to help it read you right. You can change or remove any of them, or turn learning off, in Settings
+        &rarr; Voice.
       </p>
 
       <h2>Sharing</h2>

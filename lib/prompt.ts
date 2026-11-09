@@ -1,4 +1,6 @@
 import type { Label } from './labels';
+import type { Doubt } from './speech';
+import type { VoiceHints } from './voice';
 import { DOWL, addDays, pad, startOfDay, ymd } from './time';
 
 /** An open task as the model sees it. `start` is "YYYY-MM-DD HH:MM" local, or null when in the backlog. */
@@ -20,7 +22,45 @@ export interface PromptDraft {
   draft: { add: unknown[]; update: unknown[] };
 }
 
+/** How they said it, and what's known about how they talk (lib/voice.ts). */
+export interface PromptVoice extends Partial<VoiceHints> {
+  /** Said out loud and typed by speech recognition, rather than typed. */
+  spoken: boolean;
+  /** Where the recogniser wasn't sure, its other guesses. */
+  doubts?: Doubt[];
+  /** Ask what's worth remembering about how they talk. */
+  learn?: boolean;
+}
+
 const quote = (s: string, max = 20000) => ['"""', String(s).slice(0, max), '"""'];
+const q = (s: string) => JSON.stringify(s);
+
+/** What's known about how they talk, for reading them right. */
+function hintLines(v: PromptVoice | undefined): string[] {
+  if (!v || !(v.notes || v.habits?.length || v.words?.length || v.fixes?.length)) return [];
+  return [
+    'How they talk, to read them right. Never make a task out of this part:',
+    ...(v.notes ? ['- In their own words:', ...quote(v.notes, 1000)] : []),
+    ...(v.habits?.length ? v.habits.map(h => `- ${h}`) : []),
+    ...(v.words?.length ? [`- Names and words they use, spelled their way: ${v.words.join('; ')}.`] : []),
+    ...(v.fixes?.length ? [`- Speech recognition has misheard them before: ${v.fixes.map(f => `${q(f.heard)} for ${q(f.meant)}`).join('; ')}.`] : []),
+    '',
+  ];
+}
+
+/** Reading a dictation for what they meant. */
+function spokenLines(v: PromptVoice | undefined): string[] {
+  if (!v?.spoken) return [];
+  const doubts = (v.doubts ?? []).filter(d => d.or.length).slice(0, 10);
+  return [
+    'They said this out loud and speech recognition typed it, so read it for what they meant:',
+    '- Expect misheard words. A word that makes no sense is often one that sounds like it: a name or term above, one in their open tasks, or an everyday word. Go with the reading that makes sense for them.',
+    '- Ignore fillers ("um", "okay so", "like") and false starts. When they correct themselves ("at 3, no, 4", "actually make that Friday"), the last one wins.',
+    '- There may be little or no punctuation, so work out where one task ends and the next begins.',
+    ...(doubts.length ? ['Where the recogniser wasn\'t sure, it also heard:', ...doubts.map(d => `- ${q(d.said)}, or ${d.or.map(q).join(' or ')}`)] : []),
+    '',
+  ];
+}
 
 /**
  * The prompt sent to the AI route. It answers {add: [...], update: [...], reply} so a dump can add tasks and change existing ones.
@@ -28,6 +68,7 @@ const quote = (s: string, max = 20000) => ['"""', String(s).slice(0, max), '"""'
  */
 export function buildPrompt(
   text: string, nowArg?: number | Date, open: PromptTask[] = [], hours = { start: 9 * 60, end: 21 * 60 }, labels: Label[] = [], convo?: PromptDraft,
+  voice?: PromptVoice,
 ): string {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
@@ -43,6 +84,7 @@ export function buildPrompt(
     `Dates for the next 14 days: ${days.join(', ')}.`,
     labels.length ? `They sort tasks into these labels (id = name): ${labelList}.` : 'They have no labels.',
     '',
+    ...hintLines(voice),
     'Their open tasks right now (ref | priority | task | scheduled | due | label), and how it repeats for a repeating one:',
     list,
     '',
@@ -57,6 +99,7 @@ export function buildPrompt(
     'What they just said:',
     ...quote(text),
     '',
+    ...spokenLines(voice),
     ...(convo ? [
       'They are changing the draft. Reply with the complete revised draft in the same format, not only what changed:',
       '- Keep every item they did not mention exactly as it is: same title, priority, minutes, date, time, deadline, notes, label, repeat and ref.',
@@ -71,7 +114,10 @@ export function buildPrompt(
     '- Something they do again and again ("every Monday and Thursday", "daily", "each weekday", "every other week", "on the 1st of every month") is one task with a "repeat", not one task per day. The planner makes each one on its day.',
     '- Ignore chatter that is not a task.',
     '',
-    'Reply with only a JSON object: {"add": [...], "update": [...], "reply": string}',
+    `Reply with only a JSON object: {"heard": string, "add": [...], "update": [...], "reply": string${voice?.learn ? ', "learn": {...}' : ''}}`,
+    voice?.spoken
+      ? '"heard": first, what they said as they meant it: misheard words fixed, fillers and false starts dropped, punctuated, otherwise in their own words. Then plan from that.'
+      : '"heard": "" (they typed it).',
     'Each "add" item:',
     '{"title": string under 80 characters,',
     ' "priority": 1 if urgent, flagged as important, blocking someone, or due today or tomorrow; 3 if someday, maybe or nice-to-have; otherwise 2,',
@@ -88,6 +134,13 @@ export function buildPrompt(
     'Each "update" item: {"ref": "T3"} plus only the fields that change, from the same fields above, and optionally "done": true to tick it off or "unschedule": true to move it back to the backlog.',
     'In an update, "repeat" makes the task repeat or changes how it repeats, and "stop_repeat": true stops a repeating one (this one stays). Moving one of a repeat\'s tasks moves only that one.',
     '"reply": one short, friendly sentence back to them in plain words about what you propose or changed, such as "Two new tasks, and I\'ll tick off the roadmap." Name tasks by title, never by ref. If something was unclear, say what you assumed.',
+    ...(voice?.learn ? [
+      '"learn": what is worth remembering about how this person talks, for next time. Usually empty lists. {"words": names of people and places, projects, products or jargon they used, spelled right, never everyday words;'
+        + (voice.spoken
+          ? ' "fixes": [{"heard": the words speech recognition typed, exactly as above, "meant": what they said}] for each misheard word or name you corrected;'
+          : ' "fixes": [];')
+        + ' "habits": at most one short note on how they phrase things that would help read them next time and is not already known above, such as \'Says "kal" for tomorrow\' or \'"EOD" means 6 PM\', else []}',
+    ] : []),
     'Never invent a day or time they did not give. A time with no day means today if that time is still ahead, otherwise tomorrow; for a repeat, leave the date null.',
     'A repeat, for "order groceries every Monday and Thursday": {"title":"Order groceries","priority":2,"minutes":15,"date":null,"time":null,"deadline":false,"notes":"","label":null,"repeat":{"freq":"week","every":1,"days":["mon","thu"],"monthday":null}}',
     `Example: {"add":[{"title":"Call the bank about the card","priority":1,"minutes":30,"date":"${ymd(addDays(today, 1))}","time":"11:00","deadline":false,"notes":"Ask about the blocked international transaction"}],"update":[{"ref":"T2","done":true}],"reply":"The bank call goes on tomorrow at 11, and one task is ticked off."}`,

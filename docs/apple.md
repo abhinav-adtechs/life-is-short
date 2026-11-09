@@ -22,7 +22,9 @@ tablet and the Mac the moment Vercel deploys it. No app update needed. The apps 
 what a browser can't:
 
 - **Dictation on the device.** The mic uses Apple's speech recogniser, on the device when the language allows. Your
-  words stream into the chat bar as you talk, the same as in the browser.
+  words stream into the chat bar as you talk, the same as in the browser. It listens in the language picked in
+  Settings → Voice, and your names and words (Settings → Voice, your labels, the names in your tasks) go to it as
+  contextual strings, so it leans towards them.
 - **Siri, Shortcuts and Spotlight.** "Dump a thought in Life is short" opens the chat bar. Say the thought along with
   it and the plan is waiting for you. "Talk to Life is short" opens straight onto the mic, and "Review my week in
   Life is short" opens the review. All three work from the Action button and the Shortcuts app too.
@@ -124,7 +126,8 @@ text), `listen`, `open` (`settings`, `analytics`, `review`, `share`). They wait 
 `ready`, so a quick action that launches the app lands once you've unlocked it.
 
 Native dictation stands in for the browser's `SpeechRecognition`, so `useVoice` in `components/hooks.ts` runs
-unchanged. The app answers only the planner's own origin and its bundled pages, only in the main frame. Any other origin
+unchanged. Its `phrases` (as `SpeechRecognitionPhrase`, which the bridge defines, or plain strings) reach the app in
+`speech.start` and become the request's `contextualStrings`: up to 100, each up to 100 characters. The app answers only the planner's own origin and its bundled pages, only in the main frame. Any other origin
 gets nothing, and the page can't navigate anywhere else inside the app.
 
 **Links the apps understand:** `lifeisshort://dump?text=…`, `lifeisshort://listen`, `lifeisshort://settings`,

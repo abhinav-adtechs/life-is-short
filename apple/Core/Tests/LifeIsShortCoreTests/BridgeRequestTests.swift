@@ -39,6 +39,11 @@ final class BridgeRequestTests: XCTestCase {
         XCTAssertEqual(BridgeRequest.parse(["type": "speech.stop", "id": "3"]), .speechStop(id: "3"))
         XCTAssertEqual(BridgeRequest.parse(["type": "speech.abort", "id": "3"]), .speechAbort(id: "3"))
         XCTAssertEqual(BridgeRequest.parse(["type": "speech.available", "lang": "en-US", "onDevice": true] as [String: Any]), .speechAvailability(lang: "en-US", onDevice: true))
+        let words: [Any] = ["Raveena", " Koramangala ", "", 7, String(repeating: "x", count: 101)]
+        XCTAssertEqual(BridgeRequest.parse(["type": "speech.start", "id": "5", "phrases": words] as [String: Any]),
+                       .speechStart(id: "5", lang: nil, interim: false, onDevice: false, phrases: ["Raveena", "Koramangala"]))
+        XCTAssertEqual(BridgeRequest.parse(["type": "speech.start", "id": "6", "phrases": "Raveena"] as [String: Any]),
+                       .speechStart(id: "6", lang: nil, interim: false, onDevice: false))
         XCTAssertNil(BridgeRequest.parse(["type": "speech.start"]))
         XCTAssertNil(BridgeRequest.parse(["type": "speech.stop", "id": ""]))
         XCTAssertNil(BridgeRequest.parse(["type": "speech.stop", "id": String(repeating: "x", count: 65)]))

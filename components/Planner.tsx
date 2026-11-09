@@ -28,6 +28,7 @@ import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
+import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
 import type { ToastState } from './Toast';
@@ -103,6 +104,8 @@ export interface PlannerApi {
   /** Change a backlog task's label and priority, as dropping it on a matrix cell does. */
   moveToCell: (id: string, cell: Filter) => void;
   chat: Chat;
+  /** How you talk: the mic's language, your words, what it mishears (lib/voice.ts). */
+  voice: VoiceApi;
   plan: PlanView;
   openEditor: (id: string) => void;
   editorId: string | null;
@@ -173,6 +176,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const dismissToast = useCallback(() => setToast(null), []);
   const slipLog = useSlips(repo);
   const repeats = useRepeats(repo, toast);
+  const voice = useVoiceProfile(repo, toast);
   const { record: recordSlips, note: noteSlips } = slipLog;
   const { get: getRepeat, read: readRepeats, change: changeRepeats } = repeats;
   // What a repeating task is (title, priority, length, label, notes) belongs to its repeat: an edit to its open one,
@@ -388,7 +392,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
   const chatRepeats = useMemo(() => ({ list: repeats.list, repeatOf, apply: repeats.apply }), [repeats.list, repeatOf, repeats.apply]);
-  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, repeats: chatRepeats });
+  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, repeats: chatRepeats, voice });
 
   const plan = useMemo<PlanView>(() => {
     const out: PlanView = { ticks: new Set(), moves: new Set(), added: [], proposed: [] };
@@ -664,7 +668,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
-    toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, plan,
+    toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,
     repeats: repeats.list, repeatOf, applyRepeats: repeats.apply, upcomingOn: upcomingDay, deletedText, busyTasks,

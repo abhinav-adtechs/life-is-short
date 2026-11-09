@@ -179,6 +179,16 @@ describe('Bridge.js', () => {
     expect(posted.at(-1)).toMatchObject({ type: 'speech.start', id: '2' });
   });
 
+  it('hands your words to the app’s recogniser as phrases', () => {
+    const { win, posted } = loadBridge({ speech: true });
+    const r = new win.webkitSpeechRecognition();
+    r.lang = 'en-IN';
+    r.phrases = [new win.SpeechRecognitionPhrase('Raveena', 3), ' Koramangala ', '', 7, { phrase: 'x'.repeat(150) }];
+    r.start();
+    expect(posted.at(-1)).toEqual({ type: 'speech.start', id: '1', lang: 'en-IN', interim: false, onDevice: false, phrases: ['Raveena', 'Koramangala', 'x'.repeat(100)] });
+    expect(new win.SpeechRecognitionPhrase('Q3').boost).toBe(1);
+  });
+
   it('reports a refusal from the app as an error, then the end', async () => {
     const { win } = loadBridge({ speech: true }, m => (m.type === 'speech.start' ? Promise.reject(new Error('no')) : true));
     const r = new win.webkitSpeechRecognition();
