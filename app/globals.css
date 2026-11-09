@@ -367,8 +367,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .blk.lifted{opacity:.4}
 .blk.proposed{z-index:3;background:var(--raised);border:1.5px dashed var(--ink);cursor:default}
 .blk.proposed .blk-ring{border-color:var(--ink)}
-.blk.nowblk{z-index:3;background:var(--accent-soft);border-left:3px solid var(--accent)}
-.blk.nowblk .blk-ring,.blk.preview .blk-ring{border-color:var(--accent)}
+.blk.preview .blk-ring{border-color:var(--accent)}
 .blk.preview{z-index:6;background:var(--accent-soft);border:1.5px dashed var(--accent);pointer-events:none}
 /* A repeating task still to come: faint, and out of the way of picks and drops. */
 .blk.upcoming{z-index:1;background:transparent;border:1px dashed var(--hair2);border-left:3px solid var(--faint);opacity:.7;pointer-events:none}

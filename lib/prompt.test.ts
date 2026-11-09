@@ -38,3 +38,16 @@ describe('buildPrompt and how they talk', () => {
     expect(p).toContain('"fixes": [];');
   });
 });
+
+describe('buildPrompt and when things happen', () => {
+  it('keeps a task with no day or time in the backlog, however urgent', () => {
+    const p = buildPrompt('add a task, but not to the calendar', NOW);
+    expect(p).not.toContain('clearly implied');
+    expect(p).toContain('"date": "YYYY-MM-DD" only if they say a day');
+    expect(p).toContain('How urgent, important or quick it is never sets a day');
+    expect(p).toContain('With neither, "date" and "time" are null and it waits in their backlog');
+    // The worked example shows one that waits in the backlog, next to one with a day and time.
+    expect(p).toContain('{"title":"Book a haircut","priority":2,"minutes":15,"date":null,"time":null,"deadline":false,"notes":""}');
+    expect(p).toContain('"date":"2026-11-10","time":"11:00"');
+  });
+});

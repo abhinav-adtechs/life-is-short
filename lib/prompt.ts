@@ -122,7 +122,7 @@ export function buildPrompt(
     '{"title": string under 80 characters,',
     ' "priority": 1 if urgent, flagged as important, blocking someone, or due today or tomorrow; 3 if someday, maybe or nice-to-have; otherwise 2,',
     ' "minutes": realistic length as a multiple of 15 from 15 to 240 (quick message 15, call 30, meeting 60, focused work 90+),',
-    ' "date": "YYYY-MM-DD" only if a day is stated or clearly implied, else null,',
+    ' "date": "YYYY-MM-DD" only if they say a day, in any words ("today", "tonight", "tomorrow", "Friday", "the 12th"), else null. How urgent, important or quick it is never sets a day,',
     ' "time": "HH:MM" in 24-hour time only if a clock time or part of day is stated (morning 10:00, afternoon 15:00, evening 18:30, tonight 21:00), else null,',
     ' "deadline": true when the day is a due date ("by Friday", "before the 30th") rather than when to do it, else false,',
     ' "notes": extra detail worth keeping, else "",',
@@ -141,8 +141,8 @@ export function buildPrompt(
           : ' "fixes": [];')
         + ' "habits": at most one short note on how they phrase things that would help read them next time and is not already known above, such as \'Says "kal" for tomorrow\' or \'"EOD" means 6 PM\', else []}',
     ] : []),
-    'Never invent a day or time they did not give. A time with no day means today if that time is still ahead, otherwise tomorrow; for a repeat, leave the date null.',
+    'Never invent a day or time they did not give. With neither, "date" and "time" are null and it waits in their backlog, where they schedule it themselves. A time with no day means today if that time is still ahead, otherwise tomorrow; for a repeat, leave the date null.',
     'A repeat, for "order groceries every Monday and Thursday": {"title":"Order groceries","priority":2,"minutes":15,"date":null,"time":null,"deadline":false,"notes":"","label":null,"repeat":{"freq":"week","every":1,"days":["mon","thu"],"monthday":null}}',
-    `Example: {"add":[{"title":"Call the bank about the card","priority":1,"minutes":30,"date":"${ymd(addDays(today, 1))}","time":"11:00","deadline":false,"notes":"Ask about the blocked international transaction"}],"update":[{"ref":"T2","done":true}],"reply":"The bank call goes on tomorrow at 11, and one task is ticked off."}`,
+    `Example, for "call the bank tomorrow at 11 about the blocked international transaction on my card, book a haircut, and I finished the deck":{"add":[{"title":"Call the bank about the card","priority":1,"minutes":30,"date":"${ymd(addDays(today, 1))}","time":"11:00","deadline":false,"notes":"Ask about the blocked international transaction"},{"title":"Book a haircut","priority":2,"minutes":15,"date":null,"time":null,"deadline":false,"notes":""}],"update":[{"ref":"T2","done":true}],"reply":"The bank call goes on tomorrow at 11, the haircut waits in your backlog, and the deck is ticked off."}`,
   ].join('\n');
 }

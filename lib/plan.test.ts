@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCapture, promptContext } from './capture';
-import { changesOf, commitChanges, draftOf, kindOf, type Change } from './plan';
+import { changesOf, commitChanges, draftOf, kindOf, shownIn, type Change } from './plan';
 import type { Task } from './model';
 
 const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
@@ -32,6 +32,31 @@ describe('changesOf and kindOf', () => {
     expect(changes.map(c => [c.after.title, kindOf(c)])).toEqual([
       ['Book a haircut', 'add'], ['Dentist', 'move'], ['Passport photos', 'done'], ['Call mum', 'edit'],
     ]);
+  });
+});
+
+describe('shownIn', () => {
+  it('says a plan of backlog tasks shows in the matrix only, never on the calendar', () => {
+    const { changes } = plan([], { add: [{ title: 'Add a task, not to the calendar', minutes: 30, date: null, time: null }], update: [] });
+    expect(changes[0].after.start).toBeNull();
+    expect(shownIn(changes)).toBe('matrix');
+  });
+
+  it('puts what has a time on the calendar, and leaves out skipped changes and plain edits', () => {
+    const photos = task('Passport photos');
+    const dentist = task('Dentist', { start: at(28, 9) });
+    const { changes } = plan([photos, dentist], {
+      add: [{ title: 'Call the plumber', minutes: 30, date: '2026-10-27', time: '09:00' }, { title: 'Book a haircut', minutes: 30 }],
+      update: [{ ref: 'T1', done: true }, { ref: 'T2', priority: 1 }],
+    });
+    expect(changes.map(c => [c.after.title, kindOf(c)])).toEqual([
+      ['Call the plumber', 'add'], ['Book a haircut', 'add'], ['Dentist', 'done'], ['Passport photos', 'edit'],
+    ]);
+    expect(shownIn(changes)).toBe('both');
+    const skip = (...titles: string[]) => changes.map(c => (titles.includes(c.after.title) ? { ...c, skip: true } : c));
+    expect(shownIn(skip('Book a haircut'))).toBe('calendar');
+    expect(shownIn(skip('Call the plumber', 'Dentist'))).toBe('matrix');
+    expect(shownIn(skip('Call the plumber', 'Dentist', 'Book a haircut'))).toBeNull();
   });
 });
 

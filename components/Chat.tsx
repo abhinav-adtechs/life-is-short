@@ -5,7 +5,7 @@ import type { Priority, Task } from '@/lib/model';
 import { PRI, newId } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
 import { applyCapture, promptContext, type Via } from '@/lib/capture';
-import { changesOf, changedFields, commitChanges, draftOf, kindOf, type Change, type ChangeKind } from '@/lib/plan';
+import { changesOf, changedFields, commitChanges, draftOf, kindOf, shownIn, type Change, type ChangeKind } from '@/lib/plan';
 import type { Label } from '@/lib/labels';
 import { buildPrompt, type PromptVoice } from '@/lib/prompt';
 import { sortDump } from '@/lib/api';
@@ -644,11 +644,15 @@ function Teaches() {
   );
 }
 
-/** The plan: one row per change, ticked to keep. Apply writes the ticked ones; until then they're dashed on the calendar and in the matrix. */
+const SHOWN_IN = { calendar: 'on the calendar', matrix: 'in the matrix', both: 'on the calendar and in the matrix' } as const;
+
+/** The plan: one row per change, ticked to keep. Apply writes the ticked ones; until then they're dashed where they'd land. */
 function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boolean }) {
   const { chat, now, prefs } = usePlanner();
   const [editing, setEditing] = useState<string | null>(null);
   const kept = m.changes.filter(c => !c.skip).length;
+  const where = shownIn(m.changes);
+  const shown = where ? `Dashed ${SHOWN_IN[where]} until you apply.` : 'Nothing changes until you apply.';
   if (!live) {
     return (
       <div className="ai old">
@@ -686,13 +690,13 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
           <div className="plan-f">
             <button type="button" className={'btn pri' + (phone ? ' tall' : ' sm')} disabled={!kept || chat.busy} onClick={chat.accept}>Apply {kept}</button>
             <button type="button" className={'btn ghost' + (phone ? ' tall' : ' sm')} onClick={chat.discard}>Discard</button>
-            {!phone && <span className="note plan-n">Dashed on the calendar and in the matrix until you apply.</span>}
+            {!phone && <span className="note plan-n">{shown}</span>}
           </div>
         </div>
       ) : (
         <div className="acts"><button type="button" className="btn ghost sm" onClick={chat.discard}>Start over</button></div>
       )}
-      {phone && m.changes.length > 0 && <p className="note">Shown dashed in the matrix and calendar until you apply.</p>}
+      {phone && m.changes.length > 0 && <p className="note">{shown}</p>}
     </>
   );
 }
