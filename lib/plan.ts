@@ -35,6 +35,22 @@ export function kindOf(c: Pick<Change, 'before' | 'after'>): ChangeKind {
   return changedFields(c.before, c.after).includes('start') ? 'move' : 'edit';
 }
 
+/**
+ * Where a plan shows, dashed, until you apply it: on the calendar, a new task with a time, a move and a tick-off of a
+ * scheduled task; in the matrix, a new backlog task and a tick-off of one. Other edits show in neither.
+ */
+export function shownIn(changes: Pick<Change, 'before' | 'after' | 'skip'>[]): 'calendar' | 'matrix' | 'both' | null {
+  let cal = false, matrix = false;
+  for (const c of changes) {
+    if (c.skip) continue;
+    const k = kindOf(c);
+    if (k === 'move') cal = true;
+    else if (k === 'add') { if (c.after.start != null) cal = true; else matrix = true; }
+    else if (k === 'done') { if (c.before?.start != null) cal = true; else matrix = true; }
+  }
+  return cal && matrix ? 'both' : cal ? 'calendar' : matrix ? 'matrix' : null;
+}
+
 /** Just the fields an edit changes, to lay over whatever the task is by the time you accept. */
 export function patchOf(c: Pick<Change, 'before' | 'after'>): Partial<Task> {
   if (!c.before) return c.after;

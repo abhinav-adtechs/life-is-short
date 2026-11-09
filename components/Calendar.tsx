@@ -14,28 +14,29 @@ const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as
 /** Room under the laptop's grid for the chat bar floating over it. */
 const CHAT_CLEARANCE = 74;
 
-/** Something on a day column: a task or event, a proposed change, the backlog task you're on, or where a pick would land. */
+/** Something on a day column: a task or event with a time, a proposed change, or where a pick would land. */
 interface Item {
   key: string;
   start: number;
   minutes: number;
   title: string;
   meta: string;
-  /** Block styles: task, event, done, missed, proposed, upcoming (a repeat's still to come), nowblk, preview, faded (moved by the plan), ticking. */
+  /** Block styles: task, event, done, missed, proposed, upcoming (a repeat's still to come), preview, faded (moved by the plan), ticking. */
   cls: string[];
   color?: string | null;
+  /** The real task or event, which opens, drags and resizes; proposals and previews have none. */
   task?: Task;
-  /** Real tasks and events open, drag and resize; proposals and previews don't. */
-  live?: boolean;
   /** One of a repeat's: marked with the repeat glyph. */
   repeats?: boolean;
 }
 
-/** Everything a day column shows, before laying it out in lanes. */
+/**
+ * Everything a day column shows, before laying it out in lanes. Only what has a time: a backlog task stays off the
+ * calendar, even the one you're on, until you schedule it.
+ */
 function useItems() {
-  const { tasks, now, onCalendar, colorOf, plan, picked, drag, lists, repeatOf, upcomingOn } = usePlanner();
+  const { tasks, now, onCalendar, colorOf, plan, drag, repeatOf, upcomingOn } = usePlanner();
   const sched = tasks.filter(t => t.start != null && onCalendar(t));
-  const nowTask = lists.focus.now && lists.focus.now.start == null && picked !== lists.focus.now.id && drag.view?.id !== lists.focus.now.id ? lists.focus.now : null;
   return (d: Date): Item[] => {
     const out: Item[] = tasksOn(sched, d).map(t => {
       const ev = isEvent(t);
@@ -50,7 +51,7 @@ function useItems() {
       if (drag.view?.kind === 'block' && drag.view.id === t.id) cls.push('lifted');
       return {
         key: t.id, start: t.start as number, minutes: t.minutes, title: t.title, meta: missed ? 'Missed · back to the backlog' : fmtRange(t.start as number, t.minutes),
-        cls, color, task: t, live: true, repeats: !!repeatOf(t),
+        cls, color, task: t, repeats: !!repeatOf(t),
       };
     });
     for (const t of upcomingOn(d)) {
@@ -59,9 +60,6 @@ function useItems() {
     }
     for (const t of tasksOn(plan.proposed, d)) {
       out.push({ key: `plan:${t.id}`, start: t.start as number, minutes: t.minutes, title: t.title, meta: `Proposed · ${fmtRange(t.start as number, t.minutes)}`, cls: ['task', 'proposed'] });
-    }
-    if (nowTask && ymd(d) === ymd(now)) {
-      out.push({ key: `now:${nowTask.id}`, start: now, minutes: nowTask.minutes, title: nowTask.title, meta: `Now · ${fmtDur(nowTask.minutes)}`, cls: ['task', 'nowblk'], task: nowTask });
     }
     return out;
   };
@@ -92,17 +90,6 @@ function Block({ it, top, height, lane, lanes, phone }: { it: Item; top: number;
     </>
   );
   if (!t) return <div className={cls} style={style} role="img" aria-label={`${it.title}, ${it.meta}`} title={it.cls.includes('upcoming') ? `${it.title} · repeats, and comes on its day` : undefined}>{body}</div>;
-  // The backlog task you're on, shown at now: open it, or drag it to a time.
-  if (!it.live) {
-    return (
-      <div className={cls} style={style} role="button" tabIndex={0} aria-label={`Now: ${it.title}. Press Enter to edit.`}
-        onPointerDown={e => { if (!picked) drag.begin(e, 'row', t.id); }}
-        onClick={e => { if (picked || drag.ignoreClick()) return; e.stopPropagation(); openEditor(t.id); }}
-        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); openEditor(t.id); } }}>
-        {body}
-      </div>
-    );
-  }
   const canResize = t.status === 'open' && !it.cls.includes('done');
   return (
     <div className={cls} style={style} data-block={t.id} role="button" tabIndex={0}
