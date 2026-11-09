@@ -79,7 +79,7 @@ The top of the screen is always the **Next task**: the task on your calendar at 
 
 **Done.** Or **Schedule**: click a time, or take the next free slot. Below it you see what comes **Next**.
 
-Slipped past something? When its slot ends without a tick, it goes **back on top of your backlog**, ready for another go. No guilt, no lost tasks.
+Slipped past something? When its slot ends without a tick, it stays on your calendar for an hour, in case you did it and just haven't ticked it off. Then it goes **back on top of your backlog**, ready for another go. No guilt, no lost tasks.
 
 </td>
 </tr>

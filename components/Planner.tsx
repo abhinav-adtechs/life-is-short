@@ -361,8 +361,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${name} · ${PRI[cell.priority]}`, store.patch(id, patch));
   }, [store, labelOf, prefs.labels, undoable]);
 
-  // A slot that came and went without a tick sends its task back to the backlog, on top of the stack. Checked every
-  // minute and on every change, so a task put in the past comes straight back too. No Undo: it would only bounce.
+  // A slot that came and went without a tick sends its task back to the backlog, on top of the stack, an hour after it
+  // ended (BACKLOG_GRACE), so there's time to tick it off first. Checked every minute and on every change, so a task
+  // put well in the past comes straight back too. No Undo: it would only bounce.
   const { loaded, tasks: allTasks, all: allNow, write, remove } = store;
   useEffect(() => {
     if (!loaded) return;
