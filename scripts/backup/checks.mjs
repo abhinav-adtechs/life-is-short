@@ -22,6 +22,11 @@ const SHARE_FUNCTIONS = new Set([
   'share_list', 'share_create', 'share_update', 'share_revoke', 'share_delete', 'share_decide', 'share_inbox', 'share_preview',
   ...VIEWER_FUNCTIONS,
 ]);
+/** Connectors (migration 0009): the server's, which refuse anyone without MCP_SERVER_KEY, and yours. Allowed, not required. */
+const CONNECTION_FUNCTIONS = new Set([
+  'mcp_ping', 'mcp_redeem', 'mcp_refresh', 'mcp_access', 'mcp_revoke_token', 'mcp_list', 'mcp_put', 'mcp_remove', 'mcp_setting', 'mcp_set_setting',
+]);
+const CONNECTOR_FUNCTIONS = new Set(['mcp_authorize', 'mcp_connections', 'mcp_disconnect', ...CONNECTION_FUNCTIONS]);
 
 /** Expected policies per table, by project. The `qual` must mention these to count. */
 function expectedPolicies(which) {
@@ -107,7 +112,7 @@ function checkProject(snap, which, ownerSha, f) {
   for (const p of have) if (!want.some(w => w.table === p.table && w.name === p.name)) f.block(`${P}:policies`, `unexpected policy "${p.name}" on ${p.table}`);
 
   if ((snap.public_grants || []).length) f.block(`${P}:grants`, `signed-out visitors have ${snap.public_grants.length} privilege(s) on public tables`);
-  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n) && !SHARE_FUNCTIONS.has(n) && !FACE_ID_FUNCTIONS.has(n));
+  const extraFns = (snap.public_functions || []).filter(n => !PUBLIC_FUNCTIONS.has(n) && !SHARE_FUNCTIONS.has(n) && !FACE_ID_FUNCTIONS.has(n) && !CONNECTOR_FUNCTIONS.has(n));
   if (extraFns.length) f.warn(`${P}:functions`, `${extraFns.length} unexpected function(s) in the public schema`);
   for (const n of PUBLIC_FUNCTIONS) if (!(snap.public_functions || []).includes(n)) f.block(`${P}:functions`, `the ${n} function is missing`);
 
@@ -124,8 +129,8 @@ function checkProject(snap, which, ownerSha, f) {
   const rt = (snap.realtime_tables || []).filter(t => t !== 'public.tasks');
   if (rt.length) f.warn(`${P}:realtime`, `${rt.length} extra table(s) broadcast over realtime`);
 
-  // Signed-out visitors may only call the viewer's sharing functions, and those only answer the app's server.
-  const anonFns = (snap.anon_functions || []).filter(n => !VIEWER_FUNCTIONS.has(n));
+  // Signed-out visitors may only call the viewer's sharing functions and a connection's, and those only answer the app's server.
+  const anonFns = (snap.anon_functions || []).filter(n => !VIEWER_FUNCTIONS.has(n) && !CONNECTION_FUNCTIONS.has(n));
   if (anonFns.length) f.block(`${P}:functions`, `signed-out visitors can call ${anonFns.length} function(s) they shouldn't`);
 
   const sh = snap.sharing;
@@ -136,6 +141,21 @@ function checkProject(snap, which, ownerSha, f) {
     if (sh.wrong_codes_7d >= 10) f.warn(`${P}:sharing`, `${sh.wrong_codes_7d} wrong viewer code(s) in 7 days`);
     const nowMs = Date.parse(snap.at) || Date.now();
     if (sh.key_updated_at && nowMs - Date.parse(sh.key_updated_at) < 8 * DAY) f.warn(`${P}:sharing`, 'the sharing server key was set or changed in the last 8 days');
+  }
+
+  // A connection to Claude reads and changes your tasks without the PIN or a code: like a passkey, one you didn't add is a way in.
+  const cn = snap.connectors;
+  const conns = Array.isArray(cn?.connections) ? cn.connections : [];
+  if (cn && which === 'backup') {
+    if (cn.key_set || conns.length) f.warn(`${P}:connectors`, 'connectors were set up on the backup, which has no app');
+  } else if (cn) {
+    const nowMs = Date.parse(snap.at) || Date.now();
+    const live = conns.filter(x => x.live);
+    const added = conns.filter(x => nowMs - Date.parse(x.created_at) < 8 * DAY).length;
+    const used = live.filter(x => x.last_used_at && nowMs - Date.parse(x.last_used_at) < 7 * DAY).length;
+    if (added) f.warn(`${P}:connectors`, `${added} connection(s) to Claude added in the last 8 days`);
+    if (live.length) f.info(`${P}:connectors`, `${live.length} live connection(s) to Claude, ${used} used in 7 days`);
+    if (cn.key_updated_at && nowMs - Date.parse(cn.key_updated_at) < 8 * DAY) f.warn(`${P}:connectors`, 'the connector server key was set or changed in the last 8 days');
   }
   return owner;
 }
@@ -167,6 +187,8 @@ export function evaluate({ primary, backup, ownerSha, force = false, lost = 0 })
   }
   const ps = primary.sharing?.functions_sha256, bs = backup.sharing?.functions_sha256;
   if (ps && bs && ps !== bs) f.block('both:sharing', 'the sharing functions differ between primary and backup');
+  const pc = primary.connectors?.functions_sha256, bc = backup.connectors?.functions_sha256;
+  if (pc && bc && pc !== bc) f.block('both:connectors', 'the connector functions differ between primary and backup');
   for (const name of ['own tasks', 'unlocked']) {
     const a = (primary.policies || []).find(p => p.table === 'tasks' && p.name === name);
     const b = (backup.policies || []).find(p => p.table === 'tasks' && p.name === name);
