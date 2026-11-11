@@ -1059,3 +1059,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .legal a{color:var(--ink);text-decoration-color:var(--hair2);text-underline-offset:3px;overflow-wrap:anywhere}
 .legal-home{display:inline-flex;margin:0 0 40px;border-radius:var(--r-sm);text-decoration:none}
 @media (max-width:720px){.legal{margin:10px;padding:28px 22px 44px}}
+
+/* ---------- connecting Claude (components/Connect.tsx) ---------- */
+
+.consent-list{display:flex;flex-direction:column;gap:4px;padding-left:20px;color:var(--ink)}

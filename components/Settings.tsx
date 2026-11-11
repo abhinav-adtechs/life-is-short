@@ -15,6 +15,7 @@ import { LabelsSection } from './Labels';
 import { RepeatsSection } from './Repeating';
 import { VoiceSection } from './VoiceSection';
 import { AccountSection } from './AccountSection';
+import { ClaudeSection } from './ClaudeSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
@@ -24,6 +25,7 @@ const SECTIONS = [
   { id: 'voice', name: 'Voice' },
   { id: 'google', name: 'Calendars' },
   { id: 'tasks', name: 'Tasks' },
+  { id: 'claude', name: 'Claude', needsSupabase: true },
   { id: 'account', name: 'Account', needsSupabase: true },
 ];
 
@@ -57,6 +59,7 @@ export function Settings() {
       <VoiceSection />
       <GoogleSection />
       <TasksSection />
+      {hasSupabase() && <ClaudeSection />}
       {hasSupabase() && <AccountSection />}
     </div>
   );
