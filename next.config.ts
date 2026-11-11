@@ -16,8 +16,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: '/:path*', headers: security },
-      // Personal data: never cache API responses anywhere.
+      // Personal data: never cache API responses anywhere. The same for the MCP server and its OAuth endpoints.
       { source: '/api/:path*', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
+      { source: '/mcp', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
+      { source: '/oauth/:path*', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
     ];
   },
 };

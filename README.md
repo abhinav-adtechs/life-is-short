@@ -7,7 +7,7 @@
 Say what's on your mind. **Life is short** turns it into tasks, puts them on your calendar,<br>
 and shows you the one thing to do **right now**.
 
-[How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
+[How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Claude](#connect-claude) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
 
 <br>
 
@@ -200,6 +200,73 @@ Let someone see your planner without handing it over. **Settings → Sharing**: 
 - **No account, no password:** they open the link and sign in with a code sent to that email. The link on its own isn't enough.
 - **They can suggest, you decide:** a task for your backlog or a time on your calendar. A small badge tells you, and nothing lands until you approve it.
 - **You always know your exposure:** who can see what, until when, which devices are signed in, and a log of every sign-in, view and wrong code. **See what they see** shows you exactly that, and **Stop sharing** signs them out on the spot.
+
+<br>
+
+## Connect Claude
+
+Ask Claude about your day, or have it sort your list, and the changes land in the planner while you watch. Life is short has its own **MCP server** at `/mcp`, so Claude (claude.ai, the desktop app and Claude Code) can use it as a **custom connector**.
+
+**In claude.ai:** Settings → Connectors → **Add custom connector**, and paste
+
+```
+https://<your-domain>/mcp
+```
+
+Claude sends you to your planner to sign in (the PIN and a code, Face ID or a passkey, exactly as on any day) and asks whether to allow it. Press **Allow** and you're back in Claude. Settings → **Claude** in the planner shows the same address with a Copy button, lists every connection and when it was last used, and disconnects one on the spot.
+
+| tool | what it does |
+|---|---|
+| `list_tasks` | Open, done or all; by project, due date, time on the calendar or words in the title and notes. Ranked like the backlog, paged with a cursor. *Read-only.* |
+| `get_task` | One task with its notes, what you said when you added it, and its repeat. *Read-only.* |
+| `create_task` | Title, description, due date, priority, project, status, and a time on the calendar or not. |
+| `update_task` | Any of those by id; only what you pass changes. `null` takes it off the calendar or clears a field. |
+| `complete_task`, `reopen_task` | Tick it off, or open it again. |
+| `delete_task` | Gone for good. *Marked destructive*, so Claude asks first. |
+
+Every tool has a JSON schema for its input and output and answers with compact JSON: ids, titles, status, priority, project, due date, scheduled time and when it last changed, in your time zone. A **project** is a label (Work, Personal…). A change to a repeating task carries on to the ones to come, a missed slot Claude moves still counts in your review, and Google items stay Google's: Claude can tick them off or re-prioritise them, not rename, move or delete them.
+
+**Locked down like the rest.** It's OAuth 2.1 as the [MCP authorization spec](https://modelcontextprotocol.io/specification) asks (discovery, dynamic client registration, PKCE, tokens bound to `/mcp`), with your own sign-in as the consent screen. The database holds only hashes of the tokens, and its connector functions answer only this app's server. An access token lasts an hour, a refresh token 30 days and is replaced each time it's used, and a token that turns up twice ends the connection. Claude never sees your Google account, chat history, shares or anything about signing in. More in [`docs/security.md`](docs/security.md#connecting-claude).
+
+### Run it
+
+It's part of the app, so it runs wherever the app runs. It needs Supabase (tasks kept only in a browser can't be reached from a server) and a server key:
+
+1. Run `supabase/migrations/0009_connectors.sql` in the Supabase SQL editor (on the backup too).
+2. Make a key, and give the database its sha256:
+
+   ```sh
+   openssl rand -base64 33                      # this is MCP_SERVER_KEY
+   printf %s '<the key>' | shasum -a 256       # then: select private.set_mcp_key_hash('<the 64 hex characters>');
+   ```
+
+3. Set `MCP_SERVER_KEY` (and in production `APP_URL=https://<your-domain>`) where the app runs, then `npm run dev` or `npm run build && npm start`. `/mcp` answers `401` with a pointer to its sign-in until a client has a token. Setup details are in [`docs/setup.md`](docs/setup.md#8-connect-claude-optional).
+
+### Put it online
+
+Claude connects from Anthropic's servers, so `/mcp` has to be reachable over **HTTPS** at a public address. The URL to paste is always `https://<that address>/mcp`.
+
+- **Vercel** (how the app is set up to run): add `MCP_SERVER_KEY` and `APP_URL` to the project's environment variables and redeploy. Done.
+- **Fly.io, Railway or Render:** deploy it as a Node app: build with `npm ci && npm run build`, start with `npm start` (it listens on `$PORT`), and set `MCP_SERVER_KEY`, `APP_URL` and the Supabase variables. Each gives you an HTTPS address, or put your own domain on it. The two `NEXT_PUBLIC_` values are baked in when it's built:
+  - **Railway, Render:** a new web service from this repo with those build and start commands; set every variable before the first build.
+  - **Fly.io:** `fly launch` writes a Dockerfile for the app. Set the server's secrets with `fly secrets set MCP_SERVER_KEY=… APP_URL=https://<app>.fly.dev`, declare `ARG NEXT_PUBLIC_SUPABASE_URL` and `ARG NEXT_PUBLIC_SUPABASE_ANON_KEY` before the build step in that Dockerfile, and deploy with `fly deploy --build-arg NEXT_PUBLIC_SUPABASE_URL=… --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=…`.
+- **A Cloudflare Tunnel** to a copy on your own machine: `npm run build && npm start`, then
+
+  ```sh
+  cloudflared tunnel --url http://localhost:3000
+  ```
+
+  prints an `https://<random>.trycloudflare.com` address to try it with; set `APP_URL` to it and restart. For an address that stays put, make a named tunnel to your own domain (`cloudflared tunnel create`, then route a hostname to `http://localhost:3000`).
+
+Whichever you pick, the redirect back to Claude is limited to `claude.ai` and `claude.com` (and `localhost` for testing). Another client, say a self-hosted one, needs its host in `MCP_REDIRECT_HOSTS`.
+
+### Try it with the MCP Inspector
+
+```sh
+npx @modelcontextprotocol/inspector --cli https://<your-domain>/mcp --transport http --method tools/list
+```
+
+It registers itself, opens your browser to sign in and allow it, and lists the tools; `--method tools/call --tool-name list_tasks` calls one. Leave out `--cli` for the web UI.
 
 <br>
 

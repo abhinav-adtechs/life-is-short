@@ -433,7 +433,8 @@ describe('the weekly check', () => {
     const p = await snap();
     expect(p.sharing).toMatchObject({ key_set: true });
     expect(p.sharing.active).toBeGreaterThan(5);
-    expect(p.anon_functions).toEqual(['share_code', 'share_ping', 'share_request', 'share_sign_in', 'share_sign_out', 'share_view']);
+    // Connectors' server functions (0009) are callable signed-out too; scripts/db/connectors.test.mjs checks those.
+    expect(p.anon_functions.filter(n => !n.startsWith('mcp_'))).toEqual(['share_code', 'share_ping', 'share_request', 'share_sign_in', 'share_sign_out', 'share_view']);
     const backup = { ...p, sharing: { ...p.sharing, key_set: false, shares: 0 } };
     const r = evaluate({ primary: p, backup, ownerSha: '' });
     expect(r.findings.filter(f => f.check === 'primary:sharing' && f.level === 'info')).toHaveLength(1);

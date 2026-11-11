@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { TaskRepo } from '@/lib/repo/types';
 import { localRepo } from '@/lib/repo/local';
 import { supabaseRepo } from '@/lib/repo/supabase';
@@ -26,8 +26,9 @@ type State =
  * After that, every 24 hours: the PIN and an authenticator code (or Face ID, on an iPhone or iPad), never the password.
  * Or a passkey, any time, which stands in for all of it.
  * The database enforces the same rule (supabase/migrations/0004, 0007 and 0008), so this is the friendly front of it.
+ * Past the gate it shows the planner, or `children` for another page behind the same sign-in (connecting Claude).
  */
-export default function App() {
+export default function App({ children }: { children?: (you: { email: string | null; userId: string | null }) => ReactNode } = {}) {
   const [state, setState] = useState<State>({ phase: 'boot' });
   const repoRef = useRef<{ userId: string; repo: TaskRepo } | null>(null);
   const lockTimer = useRef(0);
@@ -108,6 +109,6 @@ export default function App() {
         <button type="button" className="btn pri" onClick={check}>Try again</button>
       </Shell>
     );
-    default: return <Planner key={state.userId ?? 'local'} repo={state.repo} email={state.email} />;
+    default: return children ? children({ email: state.email, userId: state.userId }) : <Planner key={state.userId ?? 'local'} repo={state.repo} email={state.email} />;
   }
 }
