@@ -20,8 +20,8 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0008` in order, then `supabase/roles/primary_backup_reader.sql`.
-   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it; `0007` lets a passkey sign-in in, and `0008` lets Face ID stand in for the code after the PIN; the backup job compares both rules between the two).
+2. SQL editor: run `supabase/migrations/0001` to `0009` in order, then `supabase/roles/primary_backup_reader.sql`.
+   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it; `0007` lets a passkey sign-in in, and `0008` lets Face ID stand in for the code after the PIN; the backup job compares both rules between the two; `0009` adds connecting Claude, and the backup job compares its functions too).
 3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
 4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
 5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
@@ -93,6 +93,7 @@ Import the GitHub repo. Under Settings → Environment Variables, add:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client from step 4 |
 | `SHARE_SERVER_KEY`, plus `SHARE_SMTP_USER` and `SHARE_SMTP_PASS` (Gmail) or `RESEND_API_KEY` and `SHARE_EMAIL_FROM` (Resend) | Sharing, from step 5 (optional) |
 | `GOOGLE_SITE_VERIFICATION` | Search Console's HTML-tag token, only while proving you own the site for Google (optional) |
+| `MCP_SERVER_KEY` and `APP_URL` (your site's address, e.g. `https://lifeisshort.example.com`), plus `MCP_REDIRECT_HOSTS` only for a client other than Claude | Connecting Claude, from step 8 (optional) |
 | `APPLE_TEAM_ID`, and `LIS_BUNDLE_ID` if you changed it | Lets the iPhone, iPad and Mac apps use this site's passkeys ([apple.md → Passkeys in the apps](apple.md#passkeys-in-the-apps), optional) |
 
 Redeploy after adding them; the `NEXT_PUBLIC_` values are baked in at build time.
@@ -113,6 +114,25 @@ A passkey signs you in on a new device, and unlocks the planner each day, with y
 
 Settings → Account lists your passkeys, with when each was added and last used, and renames or removes them. It also moves your authenticator to a new app, changes the PIN and the password, and signs you out here or everywhere. Passkeys inside the iPhone, iPad and Mac apps need a little more: [apple.md → Passkeys in the apps](apple.md#passkeys-in-the-apps).
 
+### 8. Connect Claude (optional)
+
+Lets Claude read and change your tasks as a custom connector: an MCP server at `/mcp` (Streamable HTTP), with its own OAuth 2.1 sign-in that is your planner's sign-in. How it's locked down is in [`security.md`](security.md#connecting-claude).
+
+1. Run `supabase/migrations/0009_connectors.sql` in the SQL editor, on the primary and on the backup.
+2. Make a server key and keep it for Vercel (step 6). It's a different key from sharing's:
+
+   ```sh
+   openssl rand -base64 33
+   ```
+
+3. Give the database its sha256, never the key itself. On your machine `printf %s '<the key>' | shasum -a 256`, then in the SQL editor: `select private.set_mcp_key_hash('<the 64 hex characters>');`
+4. In Vercel add `MCP_SERVER_KEY` and `APP_URL` (the address you open the planner at, with `https://` and no path). `APP_URL` keeps the OAuth issuer the same whichever address a request comes in on. Redeploy.
+5. Open Settings → Claude and copy the address (`https://<your-domain>/mcp`). In claude.ai: Settings → Connectors → **Add custom connector**, paste it, then **Connect**. Sign in when the planner asks and press **Allow**.
+
+To run it somewhere other than Vercel (Fly.io, Railway, Render or a Cloudflare Tunnel to your own machine), see the [README](../README.md#put-it-online). The redirect after Allow may only go to `claude.ai`, `claude.com` or a loopback address (`localhost`, `127.0.0.1`), so a phishing page can't get a code; add other hosts, comma-separated, in `MCP_REDIRECT_HOSTS` (`*` allows any HTTPS host). To change the key, repeat steps 2 to 4: Claude has to register and connect again, since its client registration is signed with the old key.
+
+Locally, put the same two variables in `.env.local` and open `http://localhost:3000/mcp`; http is allowed only on `localhost`. To try it without Claude, use the MCP Inspector: `npx @modelcontextprotocol/inspector --cli http://localhost:3000/mcp --transport http --method tools/list`.
+
 ## Settings reference
 
 Open **Settings** from the header on a laptop or the `•••` menu on a phone. It slides in as a side panel (a sheet on a phone), also reachable at `/app#settings`, or `/app#settings/calendar` and so on, and changes apply as you make them. **Analytics** (`/app#analytics`) and **Share** (`/app#share`) open the same way.
@@ -122,6 +142,7 @@ Open **Settings** from the header on a laptop or the `•••` menu on a phone
 - **Labels**: the parts of your life your tasks sort into (Work, Personal and Helping others to start). Rename, recolour, reorder, add up to 12 or remove them. The AI picks a label for each thing you dump, a `#tag` that names one picks it without the AI, and the task editor changes it. The backlog is a matrix of label by priority: click or tap a cell to filter the list to it.
 - **Google accounts**: connect, pull, colour, show or hide each account; give it a default label (and a calendar inside it another), so its events show in that label's colour. **Your tasks** (import).
 - **Account**: every way in, in one place: passkeys (add, rename, remove, and when each was last used; on an iPhone or iPad a passkey is also Face ID after your PIN), moving your authenticator to a new app (it can't be removed, so there's always a second step), the PIN, the password, and signing out on this device or everywhere.
+- **Claude**: the address to paste into Claude's connector settings, every connection you've allowed (what it is, where it sends you back to, when it was made and last used), and Disconnect, which ends its access at once. Only with Supabase.
 - **Sharing**: who can see your planner, what they see (backlog; calendar today, upcoming or all; titles or busy only; items from Google; whether they can suggest tasks) and until when; their signed-in devices, last visit, an activity log of every sign-in, view, wrong code and suggestion; their suggestions to approve or decline; "See what they see"; and Stop sharing, which signs them out at once. A badge on the planner shows suggestions waiting.
 
 The theme, accent, ambient light and the laptop split stay on each device. Everything else is saved to your account and follows you to your other devices; the most recent change wins. The look is cached in the browser and applied before first paint, so there's no flash of the default theme.
@@ -141,9 +162,10 @@ The theme, accent, ambient light and the laptop split stay on each device. Every
 - Passkeys: `supabase/migrations/0007` (a passkey sign-in in the sign-in rule, and in the weekly check), `lib/passkey.ts` (the WebAuthn ceremonies through Supabase, always asking the device to check it's you), `components/Auth.tsx` (sign in, and the unlock screen's ways in, from `unlockWays` in `lib/pin.ts`) and `components/AccountSection.tsx` (Settings → Account). `app/.well-known/apple-app-site-association` links the Apple apps to the site.
 - Face ID after the PIN: `supabase/migrations/0008` (`face_id_unlock` and the 2FA rule that accepts it) and `lib/faceid.ts` (spotting an iPhone or iPad, and the passkey sign-in on the side that vouches for this device's session).
 - Sharing: `supabase/migrations/0005` (the share tables and functions), `app/api/share/*` (the viewer's sign-in, view and suggestions), `app/shared` and `components/SharedPlanner.tsx` (the viewer's page), `components/SharingSection.tsx` (Settings → Sharing) and `lib/share.ts`.
+- Connecting Claude: `supabase/migrations/0009` (connections, codes and tokens as hashes, and the functions a connection uses, which answer only this server), `lib/server/mcp/` (the OAuth endpoints, the bearer check, the database calls as a `TaskRepo`, and the tools on the official MCP TypeScript SDK), `lib/mcp/tools.ts` (what each tool does, with the planner's own rules for repeats and missed slots), `app/mcp` (the endpoint), `app/oauth/*` and `app/.well-known/oauth-*` (OAuth 2.1 with PKCE, RFC 7591 registration, RFC 8414 and RFC 9728 discovery), `components/Connect.tsx` (the consent screen, behind the planner's sign-in) and `components/ClaudeSection.tsx` (Settings → Claude).
 - The iPhone, iPad and Mac apps: `apple/` (native shells around `/app`, [`apple.md`](apple.md)) and `lib/native.ts`, the page's side of their bridge: Siri, quick actions and the Mac menu bar reach `components/Planner.tsx` as commands, and Google's callback page hands sign-ins started in an app back to it. In a browser it does nothing.
 
-Every API route requires a signed-in Supabase user who passed 2FA (a code, or Face ID), or signed in with a passkey, in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead.
+Every API route requires a signed-in Supabase user who passed 2FA (a code, or Face ID), or signed in with a passkey, in the last 24 hours, except the viewer's sharing routes (`/api/share/code`, `verify`, `view`, `suggest`, `sign-out`), which answer a viewer's emailed code or session instead, and `/mcp` and `/oauth/*`, which answer a connection's OAuth tokens (allowing one takes the same signed-in session).
 
 ## Keeping keys and tasks out of this public repo
 

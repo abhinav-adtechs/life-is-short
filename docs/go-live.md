@@ -72,6 +72,10 @@ Then Actions → **Backup sync** → Run workflow, and confirm it's green.
 
 Only if you want to share view-only links. Follow [setup.md → Sharing](setup.md#5-sharing-optional-view-only-links): make `SHARE_SERVER_KEY`, put its sha256 in the database with `private.set_share_key_hash`, and add `SHARE_SERVER_KEY` to Vercel. Then add email for the codes: a Gmail app password (`SHARE_SMTP_USER`, `SHARE_SMTP_PASS`), or Resend on a domain you own (`RESEND_API_KEY`, `SHARE_EMAIL_FROM`). Settings → Sharing says if anything is missing.
 
+## 7b. Connect Claude *(optional)*
+
+Only if you want Claude to read and change your tasks. Follow [setup.md → Connect Claude](setup.md#8-connect-claude-optional): run `supabase/migrations/0009` on both databases, make `MCP_SERVER_KEY`, put its sha256 in the database with `private.set_mcp_key_hash`, and add `MCP_SERVER_KEY` and `APP_URL` to Vercel. After your first sign-in, Settings → Claude has the address to paste into claude.ai → Settings → Connectors.
+
 ## 8. First sign-in
 
 Open `/app` → email + password → scan the QR code with an authenticator app → enter the code → choose a PIN. From then on you sign in with the PIN and an authenticator code, once a day.
@@ -94,4 +98,5 @@ Face ID, Touch ID or Windows Hello instead of the PIN and code, and on an iPhone
 - In another browser, sign in with the password only: no tasks load.
 - The task you add on your phone shows on the laptop within a few seconds.
 - Actions → Weekly security check → Run workflow: green.
+- If you connect Claude: in claude.ai ask "what's on my list today?" and check it answers from your tasks; Settings → Claude lists the connection as just used. Disconnect it there, and Claude asks you to connect again.
 - If you share: open a share link in a private window, sign in with the emailed code, and check you see only what you picked. Stop sharing, reload: it asks for the code again.
