@@ -298,7 +298,7 @@ export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<Ta
   const source = sourceOf(cur);
   const owned = GOOGLE_OWNED.filter(k => v[k] !== undefined);
   if (source && owned.length) {
-    throw new TaskError(`"${cur.title}" comes from ${source === 'google_calendar' ? 'Google Calendar' : 'Google Tasks'}, so its ${owned.join(', ')} follow Google and would be put back on the next pull. You can change its priority, project, description or status here.`, 'read_only');
+    throw new TaskError(`"${cur.title}" comes from ${source === 'google_calendar' ? 'Google Calendar' : 'Google Tasks'}, so its ${owned.join(', ')} ${owned.length === 1 ? 'follows' : 'follow'} Google and would be put back on the next pull. You can change its priority, project, description or status here.`, 'read_only');
   }
   const now = clock(c);
   const next: Task = { ...cur };

@@ -153,6 +153,7 @@ describe('update_task', () => {
   it('leaves what Google owns to Google', async () => {
     const m = memRepo([task('ev', { externalId: 'gcal:me:e1', title: 'Standup', start: NOW + H })], { prefs: LABELS });
     await expect(updateTask(ctx(m), 'ev', { title: 'x', scheduled: null })).rejects.toThrow(/title, scheduled follow Google/);
+    await expect(updateTask(ctx(m), 'ev', { title: 'x' })).rejects.toThrow(/its title follows Google/);
     expect(await updateTask(ctx(m), 'ev', { priority: 'urgent', project: 'Work' })).toMatchObject({ priority: 'urgent', project: 'Work' });
   });
 
