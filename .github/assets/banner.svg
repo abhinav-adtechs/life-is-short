@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="Life is short. — Do the one thing that matters right now.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070a12"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="160" cy="40" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2A541" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#F2A541" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="1180" cy="360" r="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4E98E8" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#4E98E8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#F2A541"/>
+    </linearGradient>
+    <linearGradient id="motif" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F2A541"/>
+      <stop offset="1" stop-color="#4E98E8"/>
+    </linearGradient>
+    <linearGradient id="weeks" x1="874" y1="70" x2="1186" y2="286" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4E98E8"/>
+      <stop offset="1" stop-color="#F2A541"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.045"/>
+    </pattern>
+    <clipPath id="card"><rect width="1280" height="360" rx="28"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1280" height="360" fill="url(#bg)"/>
+    <rect width="1280" height="360" fill="url(#grid)"/>
+    <rect width="1280" height="360" fill="url(#glowA)">
+      <animate attributeName="opacity" values="0.75;1;0.75" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <rect width="1280" height="360" fill="url(#glowB)"/>
+
+    <!-- MOTIF: a life in weeks. Filled dots are weeks gone, the glowing one is now, the rest are still to come. -->
+    <g id="motif-group">
+      <g fill="url(#weeks)" fill-opacity="0.75"><circle cx="874" cy="70" r="5"/><circle cx="898" cy="70" r="5"/><circle cx="922" cy="70" r="5"/><circle cx="946" cy="70" r="5"/><circle cx="970" cy="70" r="5"/><circle cx="994" cy="70" r="5"/><circle cx="1018" cy="70" r="5"/><circle cx="1042" cy="70" r="5"/><circle cx="1066" cy="70" r="5"/><circle cx="1090" cy="70" r="5"/><circle cx="1114" cy="70" r="5"/><circle cx="1138" cy="70" r="5"/><circle cx="1162" cy="70" r="5"/><circle cx="1186" cy="70" r="5"/><circle cx="874" cy="94" r="5"/><circle cx="898" cy="94" r="5"/><circle cx="922" cy="94" r="5"/><circle cx="946" cy="94" r="5"/><circle cx="970" cy="94" r="5"/><circle cx="994" cy="94" r="5"/><circle cx="1018" cy="94" r="5"/><circle cx="1042" cy="94" r="5"/><circle cx="1066" cy="94" r="5"/><circle cx="1090" cy="94" r="5"/><circle cx="1114" cy="94" r="5"/><circle cx="1138" cy="94" r="5"/><circle cx="1162" cy="94" r="5"/><circle cx="1186" cy="94" r="5"/><circle cx="874" cy="118" r="5"/><circle cx="898" cy="118" r="5"/><circle cx="922" cy="118" r="5"/><circle cx="946" cy="118" r="5"/><circle cx="970" cy="118" r="5"/><circle cx="994" cy="118" r="5"/><circle cx="1018" cy="118" r="5"/><circle cx="1042" cy="118" r="5"/><circle cx="1066" cy="118" r="5"/><circle cx="1090" cy="118" r="5"/><circle cx="1114" cy="118" r="5"/><circle cx="1138" cy="118" r="5"/><circle cx="1162" cy="118" r="5"/><circle cx="1186" cy="118" r="5"/><circle cx="874" cy="142" r="5"/><circle cx="898" cy="142" r="5"/><circle cx="922" cy="142" r="5"/><circle cx="946" cy="142" r="5"/><circle cx="970" cy="142" r="5"/><circle cx="994" cy="142" r="5"/><circle cx="1018" cy="142" r="5"/><circle cx="1042" cy="142" r="5"/><circle cx="1066" cy="142" r="5"/><circle cx="1090" cy="142" r="5"/><circle cx="1114" cy="142" r="5"/><circle cx="1138" cy="142" r="5"/><circle cx="1162" cy="142" r="5"/><circle cx="1186" cy="142" r="5"/><circle cx="874" cy="166" r="5"/><circle cx="898" cy="166" r="5"/><circle cx="922" cy="166" r="5"/><circle cx="946" cy="166" r="5"/><circle cx="970" cy="166" r="5"/></g>
+      <g fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.5"><circle cx="1018" cy="166" r="4.5"/><circle cx="1042" cy="166" r="4.5"/><circle cx="1066" cy="166" r="4.5"/><circle cx="1090" cy="166" r="4.5"/><circle cx="1114" cy="166" r="4.5"/><circle cx="1138" cy="166" r="4.5"/><circle cx="1162" cy="166" r="4.5"/><circle cx="1186" cy="166" r="4.5"/><circle cx="874" cy="190" r="4.5"/><circle cx="898" cy="190" r="4.5"/><circle cx="922" cy="190" r="4.5"/><circle cx="946" cy="190" r="4.5"/><circle cx="970" cy="190" r="4.5"/><circle cx="994" cy="190" r="4.5"/><circle cx="1018" cy="190" r="4.5"/><circle cx="1042" cy="190" r="4.5"/><circle cx="1066" cy="190" r="4.5"/><circle cx="1090" cy="190" r="4.5"/><circle cx="1114" cy="190" r="4.5"/><circle cx="1138" cy="190" r="4.5"/><circle cx="1162" cy="190" r="4.5"/><circle cx="1186" cy="190" r="4.5"/><circle cx="874" cy="214" r="4.5"/><circle cx="898" cy="214" r="4.5"/><circle cx="922" cy="214" r="4.5"/><circle cx="946" cy="214" r="4.5"/><circle cx="970" cy="214" r="4.5"/><circle cx="994" cy="214" r="4.5"/><circle cx="1018" cy="214" r="4.5"/><circle cx="1042" cy="214" r="4.5"/><circle cx="1066" cy="214" r="4.5"/><circle cx="1090" cy="214" r="4.5"/><circle cx="1114" cy="214" r="4.5"/><circle cx="1138" cy="214" r="4.5"/><circle cx="1162" cy="214" r="4.5"/><circle cx="1186" cy="214" r="4.5"/><circle cx="874" cy="238" r="4.5"/><circle cx="898" cy="238" r="4.5"/><circle cx="922" cy="238" r="4.5"/><circle cx="946" cy="238" r="4.5"/><circle cx="970" cy="238" r="4.5"/><circle cx="994" cy="238" r="4.5"/><circle cx="1018" cy="238" r="4.5"/><circle cx="1042" cy="238" r="4.5"/><circle cx="1066" cy="238" r="4.5"/><circle cx="1090" cy="238" r="4.5"/><circle cx="1114" cy="238" r="4.5"/><circle cx="1138" cy="238" r="4.5"/><circle cx="1162" cy="238" r="4.5"/><circle cx="1186" cy="238" r="4.5"/><circle cx="874" cy="262" r="4.5"/><circle cx="898" cy="262" r="4.5"/><circle cx="922" cy="262" r="4.5"/><circle cx="946" cy="262" r="4.5"/><circle cx="970" cy="262" r="4.5"/><circle cx="994" cy="262" r="4.5"/><circle cx="1018" cy="262" r="4.5"/><circle cx="1042" cy="262" r="4.5"/><circle cx="1066" cy="262" r="4.5"/><circle cx="1090" cy="262" r="4.5"/><circle cx="1114" cy="262" r="4.5"/><circle cx="1138" cy="262" r="4.5"/><circle cx="1162" cy="262" r="4.5"/><circle cx="1186" cy="262" r="4.5"/><circle cx="874" cy="286" r="4.5"/><circle cx="898" cy="286" r="4.5"/><circle cx="922" cy="286" r="4.5"/><circle cx="946" cy="286" r="4.5"/><circle cx="970" cy="286" r="4.5"/><circle cx="994" cy="286" r="4.5"/><circle cx="1018" cy="286" r="4.5"/><circle cx="1042" cy="286" r="4.5"/><circle cx="1066" cy="286" r="4.5"/><circle cx="1090" cy="286" r="4.5"/><circle cx="1114" cy="286" r="4.5"/><circle cx="1138" cy="286" r="4.5"/><circle cx="1162" cy="286" r="4.5"/><circle cx="1186" cy="286" r="4.5"/></g>
+      <circle cx="994" cy="166" r="14" fill="#F2A541" fill-opacity="0.18">
+        <animate attributeName="r" values="11;17;11" dur="3.6s" repeatCount="indefinite"/>
+        <animate attributeName="fill-opacity" values="0.28;0.06;0.28" dur="3.6s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="994" cy="166" r="7" fill="#F2A541"/>
+      <text x="869" y="314" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#94a3b8" letter-spacing="1">about 4,000 weeks · this one is now</text>
+    </g>
+  </g>
+
+  <text x="80" y="168" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="80" font-weight="800" letter-spacing="-2" fill="url(#title)">Life is short.</text>
+  <text x="84" y="220" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="27" font-weight="500" fill="#cbd5e1">Do the one thing that matters right now.</text>
+
+  <!-- CHIPS: one <g> per chip; width = chars*10.85 + 32; 14px gap between chips -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#e2e8f0">
+    <g transform="translate(84 256)">
+      <rect width="108" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="16" y="25">dump it</text>
+    </g>
+    <g transform="translate(206 256)">
+      <rect width="108" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="16" y="25">slot it</text>
+    </g>
+    <g transform="translate(328 256)">
+      <rect width="86" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="16" y="25">do it</text>
+    </g>
+    <g transform="translate(428 256)">
+      <rect width="216" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="16" y="25">web · iOS · macOS</text>
+    </g>
+  </g>
+
+  <rect x="0.5" y="0.5" width="1279" height="359" rx="28" fill="none" stroke="#ffffff" stroke-opacity="0.1"/>
+</svg>
