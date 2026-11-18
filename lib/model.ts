@@ -24,6 +24,8 @@ export interface Task {
   externalId?: string | null;
   /** Label id from Settings → Labels. A Google event without one takes its calendar's. */
   label?: string | null;
+  /** The goal it moves (lib/goals.ts), or null for off-goal work. */
+  goal?: string | null;
   /** Epoch ms of the last local write; newer wins when sync events cross. */
   updatedAt?: number;
 }
@@ -43,6 +45,8 @@ export interface ParsedItem {
   notes: string;
   /** A label id, or null. */
   label: string | null;
+  /** A goal id, or null for off-goal. */
+  goal?: string | null;
   /** Said to happen again and again: the days it lands on (lib/repeat.ts). `date` is the first one. */
   repeat?: Rule | null;
 }

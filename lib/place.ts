@@ -61,6 +61,8 @@ export function cleanItem(it: unknown, raw: string): ParsedItem {
     deadline: o.deadline === true,
     // Checked against your labels when the task is made.
     label: typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, 40) : null,
+    // Checked against your goals when the task is made.
+    ...(typeof o.goal === 'string' && o.goal.trim() ? { goal: o.goal.trim().slice(0, 80) } : {}),
     ...(rule ? { repeat: rule } : {}),
   };
 }

@@ -12,11 +12,31 @@ import { LaptopCalendar } from './Calendar';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
 import { Ambient } from './Ambient';
-import { AnalyticsIcon, SettingsIcon, ShareIcon } from './icons';
+import { AnalyticsIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
+import { useGoalWeek } from './Goals';
+import { fmtDur } from '@/lib/format';
 
 const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
-/** How today and the week are going, and what's waiting. Below 1240px, just today. */
+/** How much of this week's time went to your goals. Opens Goals. */
+export function OnGoals() {
+  const { activeGoals, openSheet, goalsLoaded } = usePlanner();
+  const g = useGoalWeek();
+  if (!goalsLoaded) return null;
+  if (!activeGoals.length) {
+    return <button type="button" className="metric mlink" onClick={() => openSheet('goals')}><TargetIcon size={13} /><span>No goals yet</span><b>Set them</b></button>;
+  }
+  const on = activeGoals.reduce((n, x) => n + (g.week.get(x.id)?.spent ?? 0), 0);
+  const share = g.share ?? 0;
+  return (
+    <button type="button" className="metric mlink" onClick={() => openSheet('goals')} title={`${fmtDur(on)} on goals this week`}>
+      <span>On goals</span><b className="num">{g.share == null ? '–' : `${Math.round(share * 100)}%`}</b>
+      <span className="bar ongoal"><i style={{ width: `${Math.round(share * 100)}%` }} /></span>
+    </button>
+  );
+}
+
+/** How today and the week are going, and how much of it went to your goals. Below 1240px, today and goals. */
 function Metrics() {
   const { tasks, now, prefs, split } = usePlanner();
   const m = progress(tasks, now, prefs.weekStart);
@@ -24,6 +44,7 @@ function Metrics() {
   return (
     <div className="metrics" aria-label="Progress">
       <div className="metric"><span>Today</span><b className="num">{m.today.done} of {m.today.total} done</b><span className="bar"><i style={{ width: pct(m.today.done, m.today.total) }} /></span></div>
+      <OnGoals />
       {wide && (
         <>
           <div className="metric"><span>This week</span><b className="num">{m.week.done} of {m.week.total}</b><span className="bar"><i style={{ width: pct(m.week.done, m.week.total) }} /></span></div>
@@ -46,6 +67,7 @@ function Header() {
         <span className="clock num">{clockLine(now)}</span>
         <span className="vsep" aria-hidden="true" />
         <div className="lp-tools">
+          <button type="button" className="btn ghost sm" aria-pressed={sheet === 'goals'} onClick={() => openSheet('goals')}><TargetIcon />Goals</button>
           <button type="button" className="btn ghost sm" aria-pressed={sheet === 'analytics'} onClick={() => openSheet('analytics')}><AnalyticsIcon />Analytics</button>
           {hasSupabase() && (
             <button type="button" className="btn ghost sm" aria-pressed={sheet === 'share'} onClick={() => openSheet('share')}>
@@ -60,7 +82,7 @@ function Header() {
 }
 
 /**
- * The laptop planner: the task you're on and the priority matrix on the left, the calendar on the right, the chat bar
+ * The laptop planner: the task you're on and the goal matrix on the left, the calendar on the right, the chat bar
  * floating over both. The divider between them sets how many days the calendar shows.
  */
 export function Laptop() {

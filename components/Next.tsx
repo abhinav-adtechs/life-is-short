@@ -6,7 +6,7 @@ import { dueLabel, fmtDur, fmtTime, fmtWhen } from '@/lib/format';
 import { MIN, endOf, minsOf, startOfDay, ymd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { describeRule } from '@/lib/repeat';
-import { CalendarIcon, CheckIcon, RepeatIcon } from './icons';
+import { CalendarIcon, CheckIcon, RepeatIcon, TargetIcon } from './icons';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -24,7 +24,7 @@ function nextWhen(t: Task, now: number) {
  * your day goes.
  */
 export function NextCard({ phone }: { phone?: boolean }) {
-  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf } = usePlanner();
+  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf, goalOf, activeGoals } = usePlanner();
   const { focus: f, busy, freeUntil } = useLists();
   const cur = f.now;
   const dayStart = startOfDay(now).getTime() + prefs.dayStart * 3600000;
@@ -39,6 +39,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
   }
 
   const label = labelOf(cur);
+  const goal = goalOf(cur);
   const repeat = repeatOf(cur);
   const due = cur.due ? dueLabel(cur.due, now) : null;
   const finishing = completing.has(cur.id);
@@ -61,6 +62,13 @@ export function NextCard({ phone }: { phone?: boolean }) {
       <h1 className="next-t" key={cur.id}>
         <button type="button" title="Edit" onClick={() => openEditor(cur.id)}><span className={'strike' + (finishing ? ' on' : '')}>{cur.title}</span></button>
       </h1>
+      {goal ? (
+        <p className="next-goal" style={tint(label?.color)} key={`g:${cur.id}`}>
+          <TargetIcon size={13} /><span className="muted">Moves</span><span className="ell">{goal.title}</span>
+        </p>
+      ) : activeGoals.length > 0 && (
+        <p className="next-goal off" key={`g:${cur.id}`}><span className="dot none" />Off-goal</p>
+      )}
       {phone ? (
         <div className="next-m">
           <div className="next-facts">
@@ -76,7 +84,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
         <div className="next-m">
           {cur.priority === 1 ? <span className="loz hot">Urgent</span> : <span>{PRI[cur.priority]}</span>}
           <span>{fmtDur(cur.minutes)}</span>
-          {label && <span className="lab"><span className="dot" style={tint(label.color)} />{label.name}</span>}
+          {label && !goal && <span className="lab"><span className="dot" style={tint(label.color)} />{label.name}</span>}
           {due && <span className={due.hot ? 'hot' : undefined}>{due.text}</span>}
           {repeat && <span className="rep-l"><RepeatIcon size={12} />{describeRule(repeat.rule)}</span>}
           <span className="spacer" />

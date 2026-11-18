@@ -1,7 +1,8 @@
 import { newId, type Priority, type Task } from '../model';
 import type { TaskRepo } from '../repo/types';
-import { byBacklog, isEvent } from '../select';
+import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
+import { GOALS_KEY, activeGoals, goalRanker, normalizeGoals, pickGoal, type Goal } from '../goals';
 import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
@@ -28,6 +29,8 @@ export interface TaskSummary {
   priority: PriorityName;
   /** The task's label (Work, Personal…), the app's take on a project. */
   project: string | null;
+  /** The goal it moves, by title, or null for off-goal work. */
+  goal: string | null;
   due: string | null;
   scheduled: string | null;
   minutes: number;
@@ -67,18 +70,28 @@ async function labelsOf(c: Ctx): Promise<Label[]> {
   return normalizeLabels(prefs && typeof prefs === 'object' ? prefs.labels : undefined);
 }
 
+/** Your goals. A database from before supabase/migrations/0010 doesn't hand them out: then there are none. */
+async function goalsOf(c: Ctx): Promise<Goal[]> {
+  try {
+    return normalizeGoals(await c.repo.getSetting(GOALS_KEY));
+  } catch (e) {
+    if (e instanceof Error && /not available/.test(e.message)) return [];
+    throw e;
+  }
+}
+
 async function load(c: Ctx) {
-  const [tasks, labels] = await Promise.all([c.repo.list(), labelsOf(c)]);
-  return { tasks, labels, byLabel: new Map(labels.map(l => [l.id, l])) };
+  const [tasks, labels, goals] = await Promise.all([c.repo.list(), labelsOf(c), goalsOf(c)]);
+  return { tasks, labels, byLabel: new Map(labels.map(l => [l.id, l])), goals, byGoal: new Map(goals.map(g => [g.id, g])) };
 }
 
 const sourceOf = (t: Task): TaskSummary['source'] =>
   isEvent(t) ? 'google_calendar' : t.externalId?.startsWith('gtask:') ? 'google_tasks' : undefined;
 
-export function summary(t: Task, labels: Map<string, Label>, tz: string): TaskSummary {
+export function summary(t: Task, labels: Map<string, Label>, tz: string, goals: Map<string, Goal> = new Map()): TaskSummary {
   const out: TaskSummary = {
     id: t.id, title: t.title, status: t.status, priority: PRI_NAME[t.priority] ?? 'important',
-    project: (t.label && labels.get(t.label)?.name) || null, due: t.due, scheduled: t.start == null ? null : isoIn(t.start, tz),
+    project: (t.label && labels.get(t.label)?.name) || null, goal: (t.goal && goals.get(t.goal)?.title) || null, due: t.due, scheduled: t.start == null ? null : isoIn(t.start, tz),
     minutes: t.minutes, updated: isoIn(t.updatedAt || t.created, tz),
   };
   const source = sourceOf(t);
@@ -87,9 +100,9 @@ export function summary(t: Task, labels: Map<string, Label>, tz: string): TaskSu
   return out;
 }
 
-async function detail(c: Ctx, t: Task, labels: Map<string, Label>): Promise<TaskDetail> {
+async function detail(c: Ctx, t: Task, labels: Map<string, Label>, goals?: Map<string, Goal>): Promise<TaskDetail> {
   const out: TaskDetail = {
-    ...summary(t, labels, c.tz), notes: t.notes || '', created: isoIn(t.created, c.tz), done_at: t.doneAt == null ? null : isoIn(t.doneAt, c.tz),
+    ...summary(t, labels, c.tz, goals), notes: t.notes || '', created: isoIn(t.created, c.tz), done_at: t.doneAt == null ? null : isoIn(t.doneAt, c.tz),
   };
   if (t.raw && t.raw !== t.title) out.original_text = t.raw;
   const o = occurrenceOf(t.id);
@@ -109,6 +122,21 @@ function labelFor(labels: Label[], v: string | null): string | null {
   if (!id) throw new TaskError(`There's no project called "${v}". Projects are the labels in Settings → Labels: ${names(labels)}.`, 'invalid');
   return id;
 }
+
+/** A goal's title (or a key word of it) or id → an active goal. Null or "none" is off-goal; unknown ones say which exist. */
+function goalFor(goals: Goal[], v: string | null): Goal | null {
+  if (v == null || !v.trim() || v.trim().toLowerCase() === 'none') return null;
+  const id = pickGoal(goals, v);
+  if (!id) {
+    const live = activeGoals(goals).map(g => `"${g.title}"`).join(', ') || 'none set up';
+    throw new TaskError(`There's no goal called "${v}". The user's goals (set in the app's Goals panel): ${live}.`, 'invalid');
+  }
+  return goals.find(g => g.id === id) ?? null;
+}
+
+/** What a task becomes on a goal: the goal, and the goal's section as its project unless one was given. */
+const onGoal = (g: Goal | null, projectGiven: boolean): Partial<Task> =>
+  g ? { goal: g.id, ...(g.section && !projectGiven ? { label: g.section } : {}) } : { goal: null };
 
 function dayOrThrow(v: string, what: string): string {
   const d = validDay(v.trim());
@@ -180,6 +208,7 @@ async function followRepeats(c: Ctx, puts: Task[], now: number) {
 export interface ListInput {
   status?: Status | 'any';
   project?: string;
+  goal?: string;
   due_after?: string;
   due_before?: string;
   scheduled_after?: string;
@@ -205,17 +234,24 @@ function decodeCursor(v: string): number {
   return +m[1];
 }
 
-/** Open first, in the backlog's order (priority, then due date); done ones newest first. */
-const byListOrder = (a: Task, b: Task) =>
-  a.status !== b.status ? (a.status === 'open' ? -1 : 1)
-    : a.status === 'done' ? (b.doneAt || 0) - (a.doneAt || 0) || a.id.localeCompare(b.id)
-      : byBacklog(a, b) || (a.start ?? Infinity) - (b.start ?? Infinity) || a.id.localeCompare(b.id);
+/** Open first, in the backlog's order (priority, goal work before off-goal, due date); done ones newest first. */
+const byListOrder = (goals: Goal[]) => {
+  const byBacklog = byBacklogWith(goalRanker(goals));
+  return (a: Task, b: Task) =>
+    a.status !== b.status ? (a.status === 'open' ? -1 : 1)
+      : a.status === 'done' ? (b.doneAt || 0) - (a.doneAt || 0) || a.id.localeCompare(b.id)
+        : byBacklog(a, b) || (a.start ?? Infinity) - (b.start ?? Infinity) || a.id.localeCompare(b.id);
+};
 const byStart = (a: Task, b: Task) => (a.start as number) - (b.start as number) || a.id.localeCompare(b.id);
 
 export async function listTasks(c: Ctx, f: ListInput): Promise<ListOutput> {
-  const { tasks, labels, byLabel } = await load(c);
+  const { tasks, labels, byLabel, goals, byGoal } = await load(c);
   const status = f.status ?? 'open';
   const label = f.project === undefined ? undefined : f.project.trim().toLowerCase() === 'none' ? null : labelFor(labels, f.project);
+  // A task on a goal that's achieved or dropped counts as off-goal, as in the app.
+  const live = new Set(activeGoals(goals).map(g => g.id));
+  const goal = f.goal === undefined ? undefined : goalFor(goals, f.goal)?.id ?? null;
+  const goalOf = (t: Task) => (t.goal && live.has(t.goal) ? t.goal : null);
   const dueAfter = f.due_after ? dayOrThrow(f.due_after, 'due_after') : null;
   const dueBefore = f.due_before ? dayOrThrow(f.due_before, 'due_before') : null;
   const from = f.scheduled_after ? rangeEdge(f.scheduled_after, c.tz, 'from') : null;
@@ -227,26 +263,27 @@ export async function listTasks(c: Ctx, f: ListInput): Promise<ListOutput> {
     (status === 'any' || t.status === status)
     && (f.include_events || !isEvent(t))
     && (label === undefined || (t.label ?? null) === label)
+    && (goal === undefined || goalOf(t) === goal)
     && (!dueAfter || (t.due != null && t.due >= dueAfter))
     && (!dueBefore || (t.due != null && t.due <= dueBefore))
     && (!timed || (t.start != null && (from == null || t.start >= from) && (to == null || t.start < to)))
     && words.every(w => `${t.title}\n${t.notes}`.toLowerCase().includes(w)),
-  ).sort(timed ? byStart : byListOrder);
+  ).sort(timed ? byStart : byListOrder(goals));
 
   const limit = Math.max(1, Math.min(100, Math.floor(f.limit ?? 25)));
   const offset = f.cursor ? decodeCursor(f.cursor) : 0;
   const page = hits.slice(offset, offset + limit);
   const now = clock(c);
   return {
-    tasks: page.map(t => summary(t, byLabel, c.tz)), total: hits.length,
+    tasks: page.map(t => summary(t, byLabel, c.tz, byGoal)), total: hits.length,
     next_cursor: offset + limit < hits.length ? encodeCursor(offset + limit) : null,
     today: dayIn(now, c.tz), timezone: c.tz,
   };
 }
 
 export async function getTask(c: Ctx, id: string): Promise<TaskDetail> {
-  const { tasks, byLabel } = await load(c);
-  return detail(c, find(tasks, id), byLabel);
+  const { tasks, byLabel, byGoal } = await load(c);
+  return detail(c, find(tasks, id), byLabel, byGoal);
 }
 
 export interface CreateInput {
@@ -255,13 +292,14 @@ export interface CreateInput {
   due?: string | null;
   priority?: PriorityName;
   project?: string | null;
+  goal?: string | null;
   status?: Status;
   scheduled?: string | null;
   minutes?: number;
 }
 
 export async function createTask(c: Ctx, v: CreateInput): Promise<TaskDetail> {
-  const { labels, byLabel } = await load(c);
+  const { labels, byLabel, goals, byGoal } = await load(c);
   const title = v.title.replace(/\s+/g, ' ').trim();
   if (!title) throw new TaskError('A task needs a title.', 'invalid');
   const now = clock(c);
@@ -273,9 +311,10 @@ export async function createTask(c: Ctx, v: CreateInput): Promise<TaskDetail> {
     due: v.due ? dayOrThrow(v.due, 'due') : null,
     status: done ? 'done' : 'open', created: now, order: now, doneAt: done ? now : null,
     label: labelFor(labels, v.project ?? null), updatedAt: now,
+    ...onGoal(goalFor(goals, v.goal ?? null), v.project != null),
   };
   const [saved] = await write(c, [{ before: null, after: task }]);
-  return detail(c, saved, byLabel);
+  return detail(c, saved, byLabel, byGoal);
 }
 
 export interface UpdateInput {
@@ -284,6 +323,7 @@ export interface UpdateInput {
   due?: string | null;
   priority?: PriorityName;
   project?: string | null;
+  goal?: string | null;
   status?: Status;
   scheduled?: string | null;
   minutes?: number;
@@ -293,7 +333,7 @@ export interface UpdateInput {
 const GOOGLE_OWNED = ['title', 'due', 'scheduled', 'minutes'] as const;
 
 export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<TaskDetail & { changed: boolean }> {
-  const { tasks, labels, byLabel } = await load(c);
+  const { tasks, labels, byLabel, goals, byGoal } = await load(c);
   const cur = find(tasks, id);
   const source = sourceOf(cur);
   const owned = GOOGLE_OWNED.filter(k => v[k] !== undefined);
@@ -310,6 +350,7 @@ export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<Ta
   if (v.description !== undefined) next.notes = v.description.trim();
   if (v.priority !== undefined) next.priority = PRI[v.priority];
   if (v.project !== undefined) next.label = labelFor(labels, v.project);
+  if (v.goal !== undefined) Object.assign(next, onGoal(goalFor(goals, v.goal), v.project !== undefined));
   if (v.due !== undefined) next.due = v.due ? dayOrThrow(v.due, 'due') : null;
   if (v.scheduled !== undefined) next.start = v.scheduled ? whenOrThrow(v.scheduled, c.tz, 'scheduled') : null;
   if (v.minutes !== undefined) next.minutes = v.minutes;
@@ -317,10 +358,10 @@ export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<Ta
     next.status = v.status;
     next.doneAt = v.status === 'done' ? now : null;
   }
-  const keys = ['title', 'notes', 'priority', 'label', 'due', 'start', 'minutes', 'status', 'doneAt'] as const;
-  if (keys.every(k => (next[k] ?? null) === (cur[k] ?? null))) return { ...(await detail(c, cur, byLabel)), changed: false };
+  const keys = ['title', 'notes', 'priority', 'label', 'goal', 'due', 'start', 'minutes', 'status', 'doneAt'] as const;
+  if (keys.every(k => (next[k] ?? null) === (cur[k] ?? null))) return { ...(await detail(c, cur, byLabel, byGoal)), changed: false };
   const [saved] = await write(c, [{ before: cur, after: next }]);
-  return { ...(await detail(c, saved, byLabel)), changed: true };
+  return { ...(await detail(c, saved, byLabel, byGoal)), changed: true };
 }
 
 export const completeTask = (c: Ctx, id: string) => updateTask(c, id, { status: 'done' });
@@ -335,4 +376,39 @@ export async function deleteTask(c: Ctx, id: string): Promise<{ deleted: { id: s
   }
   await write(c, [{ before: cur, after: null }]);
   return { deleted: { id: cur.id, title: cur.title } };
+}
+
+/* ---------- goals ---------- */
+
+export interface GoalSummary {
+  id: string;
+  title: string;
+  /** The section (label) it sits in, by name. */
+  section: string | null;
+  status: Goal['status'];
+  /** Rank among the active goals, 1 first; null for achieved and dropped ones. */
+  rank: number | null;
+  /** YYYY-MM-DD to get it done by, or null. */
+  by: string | null;
+  /** What has to be true for it to count as done. */
+  done_when: { text: string; done: boolean }[];
+  open_tasks: number;
+  done_tasks: number;
+}
+
+/** The user's goals, most important first; with include_closed, the achieved and dropped ones after them. */
+export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): Promise<{ goals: GoalSummary[]; off_goal_open_tasks: number }> {
+  const { tasks, byLabel, goals } = await load(c);
+  const live = activeGoals(goals);
+  const mine = tasks.filter(t => !isEvent(t));
+  const count = (id: string, status: Status) => mine.filter(t => t.goal === id && t.status === status).length;
+  const shown = f.include_closed ? [...live, ...goals.filter(g => g.status !== 'active')] : live;
+  return {
+    goals: shown.map(g => ({
+      id: g.id, title: g.title, section: (g.section && byLabel.get(g.section)?.name) || null, status: g.status,
+      rank: g.status === 'active' ? live.indexOf(g) + 1 : null, by: g.by,
+      done_when: g.results.map(r => ({ text: r.text, done: r.done })), open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
+    })),
+    off_goal_open_tasks: mine.filter(t => t.status === 'open' && !(t.goal && live.some(g => g.id === t.goal))).length,
+  };
 }

@@ -10,8 +10,8 @@ import { CustomColour, radio, radioKeys } from './Controls';
 
 const tint = (color: string) => ({ '--c': color } as React.CSSProperties);
 
-/** One of your labels, or none, as a row of chips. */
-export function LabelPicker({ value, onChange, labelledBy, none = 'No label' }: {
+/** One of your sections (labels), or none, as a row of chips. */
+export function LabelPicker({ value, onChange, labelledBy, none = 'No section' }: {
   value: string | null; onChange: (id: string | null) => void; labelledBy: string; none?: string;
 }) {
   const { prefs } = usePlanner();
@@ -54,7 +54,7 @@ function LabelRow({ l, i, count, last, focus, onFocused, change, move, remove }:
     <li style={tint(l.color)}>
       <div className="lrow">
         <button type="button" className="adot" aria-label={`Colour for ${l.name}`} aria-expanded={colorsOpen} onClick={() => setColorsOpen(o => !o)} />
-        <input ref={input} type="text" aria-label={`Name of label ${i + 1}`} value={name} maxLength={LABEL_NAME_MAX} enterKeyHint="done"
+        <input ref={input} type="text" aria-label={`Name of section ${i + 1}`} value={name} maxLength={LABEL_NAME_MAX} enterKeyHint="done"
           onChange={e => setName(e.target.value)} onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
         <span className="lcount">{count ? `${count} open` : ''}</span>
@@ -75,7 +75,7 @@ function LabelRow({ l, i, count, last, focus, onFocused, change, move, remove }:
   );
 }
 
-/** Settings → Labels: the parts of your life your tasks sort into. */
+/** Settings → Sections: the parts of your life your goals and tasks sort into (labels, in the code). */
 export function LabelsSection() {
   const { prefs, setPrefs, toast, tasks, labelOf } = usePlanner();
   const labels = prefs.labels;
@@ -97,11 +97,11 @@ export function LabelsSection() {
     const before = labels;
     save(labels.filter(x => x.id !== l.id));
     // Tasks keep the id, so Undo brings their label straight back.
-    toast(`Removed ${l.name}. Its tasks have no label now.`, () => setPrefs({ labels: before }));
+    toast(`Removed ${l.name}. Its tasks and goals have no section now.`, () => setPrefs({ labels: before }));
   };
   const add = () => {
     const used = new Set(labels.map(l => l.color));
-    const l: Label = { id: newLabelId(), name: 'New label', color: PALETTE.find(c => !used.has(c)) ?? PALETTE[labels.length % PALETTE.length] };
+    const l: Label = { id: newLabelId(), name: 'New section', color: PALETTE.find(c => !used.has(c)) ?? PALETTE[labels.length % PALETTE.length] };
     save([...labels, l]);
     setFocusId(l.id);
   };
@@ -113,10 +113,10 @@ export function LabelsSection() {
 
   return (
     <section id="set-labels" className="set-sec" aria-labelledby="set-labels-h">
-      <div className="set-h"><h3 id="set-labels-h">Labels</h3><span className="muted sm">rows in the matrix</span></div>
+      <div className="set-h"><h3 id="set-labels-h">Sections</h3><span className="muted sm">where your goals live</span></div>
       <p className="note">
-        The parts of your life, like work, a side project, personal and helping others. The AI puts each thing you dump under one;
-        you can change it on any task, or type a #tag.
+        The parts of your life, like your company, a side project, personal and helping others. Each goal sits in one, and its
+        tasks take that section. The AI puts off-goal work under one too; change it on any task, or type a #tag.
       </p>
       {labels.length > 0 && (
         <ul className="labels">
@@ -128,12 +128,12 @@ export function LabelsSection() {
         </ul>
       )}
       <div className="acts">
-        <button type="button" className={'btn sm ' + (labels.length ? 'sec' : 'pri')} disabled={labels.length >= MAX_LABELS} onClick={add}>Add a label</button>
+        <button type="button" className={'btn sm ' + (labels.length ? 'sec' : 'pri')} disabled={labels.length >= MAX_LABELS} onClick={add}>Add a section</button>
       </div>
       <p className="note">
-        {labels.length >= MAX_LABELS ? `That’s the most labels the planner holds. ` : ''}
-        Give each Google account or calendar a label in <button type="button" className="link" onClick={toGoogle}>Calendars</button>, so
-        work and personal time show in their colours. The order here is the order of the matrix.
+        {labels.length >= MAX_LABELS ? `That’s the most sections the planner holds. ` : ''}
+        Give each Google account or calendar a section in <button type="button" className="link" onClick={toGoogle}>Calendars</button>, so
+        work and personal time show in their colours.
       </p>
     </section>
   );

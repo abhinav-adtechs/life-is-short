@@ -12,9 +12,14 @@ export interface PromptTask {
   due: string | null;
   /** Label id, or null. */
   label?: string | null;
+  /** Goal id, or null for off-goal. */
+  goal?: string | null;
   /** How it repeats, for one of a repeat's tasks: "Every Mon and Thu · 7:00 AM". */
   repeats?: string;
 }
+
+/** A goal as the model sees it: what it is, where it sits, and what "done" means. */
+export interface PromptGoal { id: string; title: string; section?: string | null; results?: string[]; by?: string | null }
 
 /** A conversation in progress: what they said before, and the changes proposed so far, as {add, update}. */
 export interface PromptDraft {
@@ -68,24 +73,35 @@ function spokenLines(v: PromptVoice | undefined): string[] {
  */
 export function buildPrompt(
   text: string, nowArg?: number | Date, open: PromptTask[] = [], hours = { start: 9 * 60, end: 21 * 60 }, labels: Label[] = [], convo?: PromptDraft,
-  voice?: PromptVoice,
+  voice?: PromptVoice, goals: PromptGoal[] = [],
 ): string {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
   const days = Array.from({ length: 14 }, (_, i) => { const d = addDays(today, i); return `${DOWL[d.getDay()]} ${ymd(d)}`; });
   const hm = (m: number) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
   const list = open.length
-    ? open.map(t => `${t.ref} | P${t.priority} | ${String(t.title).replace(/\s+/g, ' ').slice(0, 140)} | ${t.start || 'backlog'} | ${t.due ? 'due ' + t.due : '-'} | ${t.label || '-'}${t.repeats ? ` | repeats: ${t.repeats}` : ''}`).join('\n')
+    ? open.map(t => `${t.ref} | P${t.priority} | ${String(t.title).replace(/\s+/g, ' ').slice(0, 140)} | ${t.start || 'backlog'} | ${t.due ? 'due ' + t.due : '-'} | ${t.label || '-'} | ${t.goal || 'off-goal'}${t.repeats ? ` | repeats: ${t.repeats}` : ''}`).join('\n')
     : '(none yet)';
   const labelList = labels.map(l => `${l.id} = ${l.name}`).join(', ');
+  const sectionName = (id: string | null | undefined) => labels.find(l => l.id === id)?.name ?? null;
+  const goalList = goals.map(g => [
+    `- ${g.id} = ${String(g.title).replace(/\s+/g, ' ').slice(0, 100)}`,
+    sectionName(g.section) ? ` (${sectionName(g.section)})` : '',
+    g.results?.length ? `. Done when: ${g.results.map(r => String(r).slice(0, 100)).join('; ')}` : '',
+    g.by ? `. By ${g.by}` : '',
+  ].join(''));
   return [
     'You are the planning assistant inside a personal day planner. Read what the user just said and update their task list.',
     `Right now it is ${DOWL[now.getDay()]} ${ymd(now)}, ${pad(now.getHours())}:${pad(now.getMinutes())} local time. Working hours are ${hm(hours.start)} to ${hm(hours.end)}.`,
     `Dates for the next 14 days: ${days.join(', ')}.`,
     labels.length ? `They sort tasks into these labels (id = name): ${labelList}.` : 'They have no labels.',
+    ...(goals.length ? [
+      'Their goals: the few specific outcomes they are working towards right now, most important first (id = goal):',
+      ...goalList,
+    ] : ['They have no goals set yet, so every task is off-goal.']),
     '',
     ...hintLines(voice),
-    'Their open tasks right now (ref | priority | task | scheduled | due | label), and how it repeats for a repeating one:',
+    'Their open tasks right now (ref | priority | task | scheduled | due | label | goal), and how it repeats for a repeating one:',
     list,
     '',
     ...(convo ? [
@@ -102,7 +118,7 @@ export function buildPrompt(
     ...spokenLines(voice),
     ...(convo ? [
       'They are changing the draft. Reply with the complete revised draft in the same format, not only what changed:',
-      '- Keep every item they did not mention exactly as it is: same title, priority, minutes, date, time, deadline, notes, label, repeat and ref.',
+      '- Keep every item they did not mention exactly as it is: same title, priority, minutes, date, time, deadline, notes, label, goal, repeat and ref.',
       '- Change the items they mention, drop the ones they no longer want, and add anything new.',
       '- If they want to drop everything, reply with empty lists.',
       '',
@@ -129,9 +145,13 @@ export function buildPrompt(
     labels.length
       ? ' "label": the id of the label the task belongs to, from their labels above. Pick the closest fit from what it is about; null only when none fits. A #tag naming a label picks that label: leave the tag out of the title,'
       : ' "label": null,',
+    goals.length
+      ? ' "goal": the id of the goal this task directly moves forward, from their goals above, else null for off-goal work. Be strict: only when doing it gets that goal closer to done, not because it is loosely related. When they name a goal ("for the exit", "towards the launch") or a #tag names one, use it. A task on a goal takes the goal\'s section as its label,'
+      : ' "goal": null,',
     ' "repeat": null, unless it happens again and again. Then {"freq": "day", "week" or "month", "every": 1, or 2 for every other, 3 for every third, "days": for "week" the weekdays as ["mon", "thu"], else [], "monthday": for "month" the day of the month, else null}.',
     '   For a repeat, "date" is the first day it happens (null for the next day it falls on), "time" is when each one happens (null keeps each one in the backlog on its day), and the title leaves out the schedule ("Order groceries", not "Order groceries every Monday")}',
     'Each "update" item: {"ref": "T3"} plus only the fields that change, from the same fields above, and optionally "done": true to tick it off or "unschedule": true to move it back to the backlog.',
+    'In an update, "goal" puts the task on that goal, and "goal": "none" takes it off its goal. When they ask to sort tasks into their goals, update each task that moves one.',
     'In an update, "repeat" makes the task repeat or changes how it repeats, and "stop_repeat": true stops a repeating one (this one stays). Moving one of a repeat\'s tasks moves only that one.',
     '"reply": one short, friendly sentence back to them in plain words about what you propose or changed, such as "Two new tasks, and I\'ll tick off the roadmap." Name tasks by title, never by ref. If something was unclear, say what you assumed.',
     ...(voice?.learn ? [

@@ -2,13 +2,13 @@ import 'server-only';
 import { McpServer, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import {
-  PRIORITIES, TaskError, completeTask, createTask, deleteTask, getTask, listTasks, reopenTask, updateTask, type Ctx,
+  PRIORITIES, TaskError, completeTask, createTask, deleteTask, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx,
 } from '../../mcp/tools';
 import { zoneOr } from '../../mcp/when';
 import { connectionRepo } from './db';
 
 /*
- * The MCP server: seven tools over your tasks. A fresh one is made for every request (createMcpHandler in app/mcp),
+ * The MCP server: eight tools over your tasks and goals. A fresh one is made for every request (createMcpHandler in app/mcp),
  * bound to the connection whose token came with it, so nothing about one connection is kept for the next.
  */
 
@@ -18,6 +18,7 @@ const when = (what: string) => z.string().min(10).max(40).describe(what);
 const status = z.enum(['open', 'done']);
 const priority = z.enum(PRIORITIES).describe('urgent, important or later (the app shows these as Urgent, Important, Later).');
 const project = z.string().min(1).max(40);
+const goal = z.string().min(1).max(80);
 const minutes = z.number().int().min(15).max(480).multipleOf(15).describe('How long it takes, in minutes: 15 to 480, in steps of 15.');
 const id = z.string().min(1).max(64).describe('The task id, from list_tasks or create_task.');
 /** A string or null. Bounded, so it renders as anyOf rather than a type array, which more clients read. */
@@ -29,6 +30,7 @@ const summary = z.object({
   status,
   priority: z.enum(PRIORITIES),
   project: orNull('The task’s label (Work, Personal…), or null.'),
+  goal: orNull('The goal this task moves, by title, or null for off-goal work.'),
   due: orNull('Deadline, YYYY-MM-DD, or null.'),
   scheduled: orNull('When it’s on the calendar (RFC 3339, the user’s time zone), or null when it’s in the backlog.'),
   minutes: z.number(),
@@ -47,10 +49,13 @@ const changed = detail.extend({ changed: z.boolean().describe('False when the ta
 
 const TIME_NOTE = 'Times without an offset are read in the user’s time zone (list_tasks returns it).';
 
-const INSTRUCTIONS = `Life is short is the user's own to-do planner. Each task is either in the backlog (no time) or on the calendar
-(scheduled), can have a deadline (due), a priority (urgent, important or later) and a project, which the app calls a label
-(Work, Personal, Helping others, or the user's own). The app shows the user one task to do now: the one on the calendar at this
-minute, else the top of the backlog. Use list_tasks to find tasks and their ids before changing them; get_task has the notes.
+const INSTRUCTIONS = `Life is short is the user's own to-do planner, organised around a few goals: specific outcomes they are working
+towards, each with what "done" means (list_goals). Every task either moves one goal or is off-goal, which is fine as long as
+the user knows. Each task is either in the backlog (no time) or on the calendar (scheduled), can have a deadline (due), a
+priority (urgent, important or later), a goal, and a project, which the app calls a section (the user's own, like their
+company, Personal or Helping others); a task on a goal takes the goal's section. The app shows the user one task to do now:
+the one on the calendar at this minute, else the top of the backlog. When adding tasks, put each on the goal it directly
+moves, if any. Use list_tasks to find tasks and their ids before changing them; get_task has the notes.
 Prefer complete_task over delete_task for anything the user did. Items from Google Calendar or Google Tasks are read-only apart
 from their priority, project, notes and status. ${TIME_NOTE}`;
 
@@ -87,6 +92,7 @@ export function buildServer(auth: AuthInfo): McpServer {
     inputSchema: z.object({
       status: z.enum(['open', 'done', 'any']).optional().describe('open (the default), done, or any.'),
       project: project.optional().describe('Only tasks with this label (name or id, e.g. "Work"); "none" for tasks without one.'),
+      goal: goal.optional().describe('Only tasks on this goal (its title, a key word of it, or its id); "none" for off-goal tasks.'),
       due_after: date('Only tasks due on or after this date (YYYY-MM-DD).').optional(),
       due_before: date('Only tasks due on or before this date (YYYY-MM-DD).').optional(),
       scheduled_after: when(`Only tasks on the calendar from this date (YYYY-MM-DD, from midnight) or date-time on. ${TIME_NOTE}`).optional(),
@@ -105,6 +111,25 @@ export function buildServer(auth: AuthInfo): McpServer {
     }),
     annotations: { title: 'List tasks', ...READ },
   }, async args => run(() => listTasks(c, args)));
+
+  server.registerTool('list_goals', {
+    title: 'List goals',
+    description: 'The user’s goals, most important first: what each is, its section, its target date, what has to be true for it '
+      + 'to be done (done_when, with what’s ticked), and how many tasks are open and done on it, plus how many open tasks are '
+      + 'off-goal. Goals are set in the app’s Goals panel; this can’t change them.',
+    inputSchema: z.object({ include_closed: z.boolean().optional().describe('Also list achieved and dropped goals. Default false.') }),
+    outputSchema: z.object({
+      goals: z.array(z.object({
+        id: z.string(), title: z.string(), section: orNull('Its section, or null.'),
+        status: z.enum(['active', 'achieved', 'dropped']), rank: z.number().nullable().describe('1 for the most important active goal; null when closed.'),
+        by: orNull('Target date, YYYY-MM-DD, or null.'),
+        done_when: z.array(z.object({ text: z.string(), done: z.boolean() })),
+        open_tasks: z.number(), done_tasks: z.number(),
+      })),
+      off_goal_open_tasks: z.number().describe('Open tasks not on any active goal.'),
+    }),
+    annotations: { title: 'List goals', ...READ },
+  }, async args => run(() => listGoals(c, args)));
 
   server.registerTool('get_task', {
     title: 'Get a task',
@@ -125,6 +150,7 @@ export function buildServer(auth: AuthInfo): McpServer {
       due: date('Deadline (YYYY-MM-DD).').nullable().optional(),
       priority: priority.optional(),
       project: project.nullable().optional().describe('A label name or id (e.g. "Work"). Labels are set up in the app; an unknown one is refused with the list.'),
+      goal: goal.nullable().optional().describe('The goal it moves, by title or id (list_goals), or null for off-goal work. Its section becomes the project unless you give one.'),
       status: status.optional().describe('open (the default) or done, to log something already finished.'),
       scheduled: when(`When to put it on the calendar, e.g. 2026-11-12T15:00. ${TIME_NOTE}`).nullable().optional(),
       minutes: minutes.optional(),
@@ -145,6 +171,7 @@ export function buildServer(auth: AuthInfo): McpServer {
       due: date('Deadline (YYYY-MM-DD), or null to clear it.').nullable().optional(),
       priority: priority.optional(),
       project: project.nullable().optional().describe('A label name or id, or null to clear it.'),
+      goal: goal.nullable().optional().describe('Put it on this goal (title or id), or null to make it off-goal.'),
       status: status.optional(),
       scheduled: when(`New time on the calendar, or null for the backlog. ${TIME_NOTE}`).nullable().optional(),
       minutes: minutes.optional(),

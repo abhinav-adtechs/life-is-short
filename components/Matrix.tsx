@@ -3,11 +3,12 @@
 import { Fragment, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
-import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
+import { dueLabel, fmtDur, fmtWhen, shortTitle } from '@/lib/format';
 import { describeRepeat, describeRule } from '@/lib/repeat';
-import type { Label } from '@/lib/labels';
+import type { Goal } from '@/lib/goals';
 import { usePlanner, useLists, type Filter } from './Planner';
-import { CheckIcon, ChevronDown, RepeatIcon, XIcon } from './icons';
+import { fmtHrs, useGoalWeek } from './Goals';
+import { CheckIcon, ChevronDown, RepeatIcon, TargetIcon, XIcon } from './icons';
 
 const PRIS: Priority[] = [1, 2, 3];
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -21,15 +22,23 @@ function useStagger(step: number, cap: number) {
 /** How dark a count cell is: a few tasks barely tint it, ten or more make it the darkest. */
 const heat = (n: number) => (n === 0 ? 'var(--bg)' : `color-mix(in srgb, var(--ink) ${n === 1 ? 5 : n < 4 ? 9 : n < 10 ? 14 : 20}%, var(--raised))`);
 
-interface Row { id: string; name: string; color: string | null }
+interface Row { id: string; name: string; color: string | null; section: string | null }
 
-/** The matrix's rows: your labels in order, then No label. */
+/** The matrix's rows: your goals, most important first, in their sections' colours; then everything off-goal. */
 function useRows(): Row[] {
-  const { prefs } = usePlanner();
-  return [...prefs.labels.map(l => ({ id: l.id, name: l.name, color: l.color as string | null })), { id: '', name: 'No label', color: null }];
+  const { prefs, activeGoals } = usePlanner();
+  const section = (g: Goal) => prefs.labels.find(l => l.id === g.section) ?? null;
+  return [
+    ...activeGoals.map(g => ({ id: g.id, name: g.title, color: section(g)?.color ?? null, section: section(g)?.name ?? null })),
+    { id: '', name: 'Off-goal', color: null, section: null },
+  ];
 }
 
-const labelName = (labels: Label[], id: string) => labels.find(l => l.id === id)?.name ?? 'No label';
+const goalName = (goals: Goal[], id: string) => goals.find(g => g.id === id)?.title ?? 'Off-goal';
+/** What the filter shows, in words: a goal, or a goal at one priority. */
+const filterName = (goals: Goal[], f: Filter) => `${shortTitle(goalName(goals, f.goal), 34)}${f.priority ? ` · ${PRI[f.priority]}` : ''}`;
+/** The row a task sits in: its active goal, or '' for off-goal. */
+const useRowOf = () => { const { goalOf } = usePlanner(); return (t: Task) => goalOf(t)?.id ?? ''; };
 
 /* ---------- one task ---------- */
 
@@ -60,9 +69,12 @@ function useTag(t: Task, kind: Kind) {
 
 /** A backlog row on a laptop: tick it, click then click a time, drag it to the calendar or another cell, double-click to edit. */
 function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf } = usePlanner();
+  const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf, goalOf, activeGoals, filter } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
+  const goal = goalOf(t);
+  // The goal it moves, unless the list is already just that goal's.
+  const goalTag = filter || !activeGoals.length || kind === 'done' ? null : goal ? goal.title : 'Off-goal';
   const repeat = repeatOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
   const ticking = plan.ticks.has(t.id);
@@ -87,14 +99,15 @@ function TaskRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
         {tag && <span className={tag.cls}>{tag.text}</span>}
         {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
         {due && <span className={'due' + (due.hot ? ' hot' : '')}>{due.text}</span>}
-        <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} title={label?.name ?? 'No label'} />
+        {goalTag && <span className={'gtag' + (goal ? '' : ' off')} title={goal ? `Moves: ${goal.title}` : 'Not on a goal'}>{goalTag}</span>}
+        <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} title={label?.name ?? 'No section'} />
         <span className="len num">{fmtDur(t.minutes)}</span>
       </button>
     </div>
   );
 }
 
-/** A task in a cell of the full matrix: drag it to another cell to change its label and priority. */
+/** A task in a cell of the full matrix: drag it to another cell to change its goal and priority. */
 function Chip({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
   const { completing, picked, setPicked, openEditor, drag, now, plan, repeatOf } = usePlanner();
   const repeat = repeatOf(t);
@@ -154,48 +167,82 @@ function Done({ Item, stagger }: { Item: typeof TaskRow; stagger: (i: number) =>
   );
 }
 
-/** The backlog as a list under the counts: by priority, or just the cell you picked. */
+/** The backlog as a list under the counts: by priority; or the goal or cell you picked. */
 function useGroups() {
-  const { filter, plan, labelOf } = usePlanner();
+  const { filter, plan } = usePlanner();
   const { backlog } = useLists();
-  const lab = (t: Task) => labelOf(t)?.id ?? '';
-  const inCell = (list: Task[], f: Filter) => list.filter(t => lab(t) === f.label && t.priority === f.priority);
-  if (filter) return [{ key: 'f', p: filter.priority, items: [...inCell(plan.added, filter).map(t => ({ t, kind: 'new' as Kind })), ...inCell(backlog, filter).map(t => ({ t, kind: 'open' as Kind }))] }];
-  return PRIS.map(p => ({
+  const rowOf = useRowOf();
+  const inCell = (list: Task[], f: Filter) => list.filter(t => rowOf(t) === f.goal && (f.priority == null || t.priority === f.priority));
+  if (filter?.priority) {
+    return [{ key: 'f', p: filter.priority, items: [...inCell(plan.added, filter).map(t => ({ t, kind: 'new' as Kind })), ...inCell(backlog, filter).map(t => ({ t, kind: 'open' as Kind }))] }];
+  }
+  const added = filter ? inCell(plan.added, filter) : plan.added, open = filter ? inCell(backlog, filter) : backlog;
+  const groups = PRIS.map(p => ({
     key: `p${p}`, p,
-    items: [...plan.added.filter(t => t.priority === p).map(t => ({ t, kind: 'new' as Kind })), ...backlog.filter(t => t.priority === p).map(t => ({ t, kind: 'open' as Kind }))],
+    items: [...added.filter(t => t.priority === p).map(t => ({ t, kind: 'new' as Kind })), ...open.filter(t => t.priority === p).map(t => ({ t, kind: 'open' as Kind }))],
   })).filter(g => g.items.length);
+  return filter && !groups.length ? [{ key: 'f', p: null, items: [] }] : groups;
 }
+
+/** A group's heading: the priority, under a goal you filtered to. */
+const groupName = (goals: Goal[], filter: Filter | null, p: Priority | null) =>
+  filter ? `${shortTitle(goalName(goals, filter.goal), 34)}${p ? ` · ${PRI[p]}` : ''}` : p ? PRI[p] : '';
 
 /* ---------- the count grid ---------- */
 
+/** The goal grid: a row per goal and one for off-goal, a column per priority, and this week's time on each goal. */
 function CountGrid({ phone, head }: { phone?: boolean; head: number }) {
-  const { filter, setFilter, drag, labelOf } = usePlanner();
+  const { filter, setFilter, drag } = usePlanner();
   const { backlog } = useLists();
   const rows = useRows();
+  const rowOf = useRowOf();
+  const { week } = useGoalWeek();
   const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
-  const n = (r: Row, p: Priority) => backlog.filter(t => (labelOf(t)?.id ?? '') === r.id && t.priority === p).length;
+  const n = (r: Row, p: Priority) => backlog.filter(t => rowOf(t) === r.id && t.priority === p).length;
   return (
-    <div className="mx-grid" style={{ gridTemplateColumns: `${head}px repeat(3, minmax(0, 1fr))` }} role="grid" aria-label="Open tasks by label and priority">
+    <div className={'mx-grid goals' + (phone ? ' ph' : '')} style={{ gridTemplateColumns: `minmax(${head}px, ${phone ? 2.4 : 2.5}fr) repeat(3, minmax(0, 1fr)) minmax(${phone ? 36 : 46}px, .55fr)` }}
+      role="grid" aria-label="Open tasks by goal and priority, and time on each goal this week">
       <span />
       {PRIS.map(p => <span key={p} className="mx-ch">{PRI[p]}</span>)}
-      {rows.map(r => (
-        <Fragment key={r.id || '-'}>
-          <span className="mx-rh"><span className={'dot' + (r.color ? '' : ' none')} style={tint(r.color)} /><span className="ell">{r.name}</span></span>
-          {PRIS.map(p => {
-            const c = n(r, p), key = `${r.id}|${p}`;
-            const sel = filter?.label === r.id && filter.priority === p;
-            const aria = `${r.name} · ${PRI[p]} · ${c}`;
-            return (
-              <button key={key} type="button" className={'mx-n num' + (target === key ? ' over' : '') + (c ? '' : ' zero') + (phone ? ' ph' : '')} data-cell={phone ? undefined : key}
-                aria-pressed={sel} aria-label={aria} title={aria} style={{ background: target === key ? undefined : heat(c) }}
-                onClick={() => setFilter(sel ? null : { label: r.id, priority: p })}>
-                {c || '–'}
-              </button>
-            );
-          })}
-        </Fragment>
-      ))}
+      <span className="mx-ch wk" title="Time on it this week">Week</span>
+      {rows.map(r => {
+        const rowSel = filter?.goal === r.id && filter.priority == null;
+        const spent = week.get(r.id)?.spent ?? 0;
+        return (
+          <Fragment key={r.id || '-'}>
+            <button type="button" className={'mx-rh' + (r.id ? '' : ' off')} aria-pressed={rowSel} title={r.section ? `${r.name} · ${r.section}` : r.name}
+              onClick={() => setFilter(rowSel ? null : { goal: r.id, priority: null })}>
+              <span className={'dot' + (r.color ? '' : ' none')} style={tint(r.color)} /><span className="ell">{r.name}</span>
+            </button>
+            {PRIS.map(p => {
+              const c = n(r, p), key = `${r.id}|${p}`;
+              const sel = filter?.goal === r.id && filter.priority === p;
+              const aria = `${r.name} · ${PRI[p]} · ${c}`;
+              return (
+                <button key={key} type="button" className={'mx-n num' + (target === key ? ' over' : '') + (c ? '' : ' zero') + (phone ? ' ph' : '')} data-cell={phone ? undefined : key}
+                  aria-pressed={sel} aria-label={aria} title={aria} style={{ background: target === key ? undefined : heat(c) }}
+                  onClick={() => setFilter(sel ? null : { goal: r.id, priority: p })}>
+                  {c || '–'}
+                </button>
+              );
+            })}
+            <span className={'mx-wk num' + (spent ? '' : ' zero')} title={`${r.name}: ${spent ? fmtDur(spent) : 'nothing'} this week`}>{fmtHrs(spent)}</span>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Before any goals: what they're for, and the way in. */
+function SetGoals({ phone }: { phone?: boolean }) {
+  const { openSheet, activeGoals, goalsLoaded } = usePlanner();
+  if (!goalsLoaded || activeGoals.length) return null;
+  return (
+    <div className={'mx-goals' + (phone ? ' ph' : '')}>
+      <span className="gempty-i"><TargetIcon size={18} /></span>
+      <p className="note"><b>Set your goals.</b> The four or five outcomes that matter most right now. Every task then moves one, or it’s off-goal.</p>
+      <button type="button" className="btn pri sm" onClick={() => openSheet('goals')}>Set goals</button>
     </div>
   );
 }
@@ -203,29 +250,31 @@ function CountGrid({ phone, head }: { phone?: boolean; head: number }) {
 /* ---------- laptop ---------- */
 
 /**
- * The laptop backlog: a label × priority matrix. With the calendar wide, the matrix is counts you click to filter the
- * list under them; with the calendar at half the screen or less, every task sits in its cell. Drag a task between
- * cells to change its label and priority, or onto the calendar to schedule it.
+ * The laptop backlog: a goal × priority matrix. With the calendar wide, the matrix is counts you click to filter the
+ * list under them (a goal's name filters to the goal); with the calendar at half the screen or less, every task sits in
+ * its cell. Drag a task between cells to change its goal and priority, or onto the calendar to schedule it.
  */
 export function MatrixPanel() {
-  const { split, filter, setFilter, drag, prefs } = usePlanner();
+  const { split, filter, setFilter, drag, goals, openSheet } = usePlanner();
   const { backlog } = useLists();
   const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
   return (
-    <section className={'mx panel' + (dropOk ? ' drop-ok' : '')} aria-label="Priority matrix" data-backlog="">
+    <section className={'mx panel' + (dropOk ? ' drop-ok' : '')} aria-label="Goal matrix" data-backlog="">
       <div className="mx-h">
-        <span className="mx-title">Priority matrix</span>
+        <span className="mx-title">Goals</span>
         <span className="muted sm num">{backlog.length} pending</span>
         <span className="spacer" />
         {filter && !split.full ? (
           <button type="button" className="fchip" aria-label="Clear filter" onClick={() => setFilter(null)}>
-            {labelName(prefs.labels, filter.label)} · {PRI[filter.priority]}<XIcon size={11} />
+            {filterName(goals, filter)}<XIcon size={11} />
           </button>
-        ) : <span className="hint">{split.full ? 'Drag between cells to change priority' : 'Click a count to filter'}</span>}
+        ) : <span className="hint">{split.full ? 'Drag between cells to change goal or priority' : 'Click a goal or a count to filter'}</span>}
+        <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><TargetIcon size={14} />Edit goals</button>
       </div>
+      <SetGoals />
       {split.full ? <FullMatrix /> : (
         <>
-          <CountGrid head={split.matrixW < 460 ? 96 : 120} />
+          <CountGrid head={split.matrixW < 460 ? 110 : 150} />
           <MatrixList />
         </>
       )}
@@ -234,7 +283,7 @@ export function MatrixPanel() {
 }
 
 function MatrixList() {
-  const { filter, setFilter, prefs, store } = usePlanner();
+  const { filter, setFilter, goals, store } = usePlanner();
   const { backlog } = useLists();
   const groups = useGroups();
   const stagger = useStagger(32, 18);
@@ -243,7 +292,7 @@ function MatrixList() {
     <div className="mx-list">
       {groups.map(g => (
         <Fragment key={g.key}>
-          <GroupHead name={filter ? `${labelName(prefs.labels, filter.label)} · ${PRI[filter.priority]}` : PRI[g.p]} count={g.items.length}
+          <GroupHead name={groupName(goals, filter, g.p)} count={g.items.length}
             action={filter ? { label: `Show all ${backlog.length}`, onClick: () => setFilter(null) } : undefined} />
           {g.items.map(x => <TaskRow key={x.t.id} t={x.t} kind={x.kind} delay={stagger(i++)} />)}
           {!g.items.length && <p className="mx-empty">Nothing here yet.</p>}
@@ -259,26 +308,30 @@ function MatrixList() {
 
 /** Every task in its cell, for when the matrix has the room. */
 function FullMatrix() {
-  const { drag, plan, labelOf } = usePlanner();
+  const { drag, plan } = usePlanner();
   const { backlog } = useLists();
   const rows = useRows();
+  const { week } = useGoalWeek();
   const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
-  const lab = (t: Task) => labelOf(t)?.id ?? '';
+  const lab = useRowOf();
   const stagger = useStagger(26, 24);
   let i = 0;
   return (
     <div className="mx-full">
-      <div className="mx-fgrid">
+      <div className="mx-fgrid goals">
         <span className="mx-fch" />
         {PRIS.map(p => <div key={p} className="mx-fch">{PRI[p]}<span className="muted num">{backlog.filter(t => t.priority === p).length + plan.added.filter(t => t.priority === p).length}</span></div>)}
         {rows.map(r => {
           const mine = backlog.filter(t => lab(t) === r.id);
           return (
             <Fragment key={r.id || '-'}>
-              <div className="mx-flab"><span className={'dot' + (r.color ? '' : ' none')} style={tint(r.color)} /><span className="ell">{r.name}</span><span className="muted num">{mine.length}</span></div>
+              <div className="mx-flab" title={r.section ? `${r.name} · ${r.section}` : r.name}>
+                <span className={'dot' + (r.color ? '' : ' none')} style={tint(r.color)} />
+                <span className="mx-flab-t"><span className="ell2">{r.name}</span><span className="muted sm num">{mine.length} open · {week.get(r.id)?.spent ? `${fmtHrs(week.get(r.id)?.spent ?? 0)} this week` : 'nothing this week'}</span></span>
+              </div>
               {PRIS.map(p => {
                 const key = `${r.id}|${p}`;
-                const ghosts = plan.added.filter(t => (t.label ?? '') === r.id && t.priority === p);
+                const ghosts = plan.added.filter(t => lab(t) === r.id && t.priority === p);
                 return (
                   <div key={key} className={'mx-cell' + (target === key ? ' over' : '')} data-cell={key}>
                     {ghosts.map(t => <Chip key={t.id} t={t} kind="new" delay={stagger(i++)} />)}
@@ -301,15 +354,17 @@ function FullMatrix() {
 
 /** A backlog row on a phone: a big ring, the title in full, and a line of facts. Tap to open it; press and hold to drag it to Done or the trash. */
 function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
-  const { completing, openEditor, labelOf, now, drag, repeatOf } = usePlanner();
+  const { completing, openEditor, labelOf, now, drag, repeatOf, goalOf, activeGoals, filter } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
   const repeat = repeatOf(t);
+  const goal = goalOf(t);
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
+  const where = filter ? null : goal ? shortTitle(goal.title, 28) : activeGoals.length ? 'Off-goal' : label?.name ?? null;
   const facts = [
     kind === 'new' ? 'New' : null,
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
-    due?.text ?? null, label?.name ?? null, fmtDur(t.minutes), repeat ? describeRule(repeat.rule) : null,
+    due?.text ?? null, where, fmtDur(t.minutes), repeat ? describeRule(repeat.rule) : null,
   ].filter(Boolean).join(' · ');
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '');
@@ -328,18 +383,19 @@ function PhoneRow({ t, kind, delay }: { t: Task; kind: Kind; delay: string }) {
 
 /** The phone's matrix tab: the counts in a card, then the list. */
 export function PhoneMatrix() {
-  const { filter, setFilter, prefs, store } = usePlanner();
+  const { filter, setFilter, goals, store } = usePlanner();
   const { backlog } = useLists();
   const groups = useGroups();
   const stagger = useStagger(34, 14);
   let i = 0;
   return (
     <>
+      <SetGoals phone />
       <div className="ph-card mx-card"><CountGrid phone head={92} /></div>
       <div className="ph-list">
         {groups.map(g => (
           <Fragment key={g.key}>
-            <GroupHead name={filter ? `${labelName(prefs.labels, filter.label)} · ${PRI[filter.priority]}` : PRI[g.p]} count={g.items.length}
+            <GroupHead name={groupName(goals, filter, g.p)} count={g.items.length}
               action={filter ? { label: `Show all ${backlog.length}`, onClick: () => setFilter(null) } : undefined} />
             {g.items.map(x => <PhoneRow key={x.t.id} t={x.t} kind={x.kind} delay={stagger(i++)} />)}
             {!g.items.length && <p className="mx-empty">Nothing here yet.</p>}

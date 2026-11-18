@@ -168,10 +168,11 @@ describe('what a connection can do', () => {
     expect(rows[0]).not.toHaveProperty('user_id');
   });
   it('adds and changes tasks, but never makes or changes a Google id', async () => {
-    const rows = [row('new1', 'From Claude', { external_id: 'gcal:fake:x', label: 'work' }), row('meet', 'Team meeting', { priority: 1, external_id: null })];
+    const rows = [row('new1', 'From Claude', { external_id: 'gcal:fake:x', label: 'work', goal: 'gship' }), row('meet', 'Team meeting', { priority: 1, external_id: null })];
     expect(await server('select public.mcp_put($1, $2, $3::jsonb)', [KEY, sha(token), JSON.stringify(rows)])).toBe(2);
     const now = await list(token);
-    expect(now.find(r => r.id === 'new1')).toMatchObject({ title: 'From Claude', external_id: null, label: 'work' });
+    expect(now.find(r => r.id === 'new1')).toMatchObject({ title: 'From Claude', external_id: null, label: 'work', goal: 'gship' });
+    expect(now.find(r => r.id === 'meet')).toMatchObject({ goal: null });
     expect(now.find(r => r.id === 'meet')).toMatchObject({ priority: 1, external_id: 'gcal:work@example.com:ev1' });
   });
   it('the table still checks every row', async () => {
@@ -182,8 +183,10 @@ describe('what a connection can do', () => {
     expect(await server('select public.mcp_remove($1, $2, $3)', [KEY, sha(token), ['new1', 'nope']])).toBe(1);
     expect((await list(token)).map(r => r.id)).not.toContain('new1');
   });
-  it('reads your labels, repeats and slips, and writes only repeats and slips', async () => {
+  it('reads your labels, goals, repeats and slips, and writes only repeats and slips', async () => {
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'prefs'])).toMatchObject({ labels: [{ id: 'work' }] });
+    expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'goals'])).toBeNull();
+    await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'goals', '[]'])).rejects.toThrow(/not available/);
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'repeats'])).toBeNull();
     for (const name of ['google', 'history', 'voice']) {
       await expect(server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), name])).rejects.toThrow(/not available/);

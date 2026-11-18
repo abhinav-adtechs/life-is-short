@@ -20,6 +20,7 @@
   <a href="#roadmap">Roadmap</a> ·
   <a href="#contributing">Contributing</a>
 </p>
+[Goals](#goals-first) · [How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Claude](#connect-claude) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
 
 <br>
 
@@ -44,7 +45,22 @@ You get about four thousand weeks. That's it. And most to-do apps want you to sp
 >
 > **Do it.** The screen shows the one thing to do now, a **Done** button and a **Schedule** button. Nothing else to manage.
 
-No folders. No filing: the AI even picks the label. No "weekly review". You don't keep a system going; you get on with your day.
+No folders. No filing: the AI even picks the goal. No "weekly review". You don't keep a system going; you get on with your day.
+
+<br>
+
+## Goals first
+
+A list of tasks says what's busy. It doesn't say what matters. So Life is short starts from **four or five goals**: the outcomes you're working towards right now, like an objective with its key results.
+
+- **Specific enough to finish.** "Give Sam a clean exit", not "Fundraising". Each goal says what **done** means (*Share transfer signed*, *Money in the bank*), lines you tick as they come true, and, if you like, a date to get it done by.
+- **In a section.** Goals sit in the parts of your life you name: your company, a side project, Personal, Helping others. A task on a goal takes its section and its colour.
+- **Ranked.** Your top goal first. The order breaks ties in the backlog.
+- **Every task moves a goal, or it's off-goal.** The AI puts each thing you dump on the goal it moves, strictly: loosely related doesn't count. Errands, admin and favours land **off-goal**, which is fine, as long as you know. Change it on any task, drag it to another goal's row, or type a `#tag` naming the goal.
+- **Time on goals, all week.** Tick something off, or sit through a meeting that's on a goal, and the time counts towards it. The header says what share of your week went to goals; **Goals** shows each one's time, what's planned, what's open and what's ticked; the review breaks it down by day, week or month and says which goal got nothing.
+- **Achieved, dropped, brought back.** Closing a goal moves its open tasks off-goal; the time you spent on it stays in your reviews.
+
+**Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The matrix is your goals down the side and **Urgent · Important · Later** across the top, plus the time each goal got this week. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
 
 ## Features
 
@@ -175,7 +191,7 @@ The AI reads it like a good assistant would. It pulls out every task, gives each
 - **Said a day or a time?** It goes straight onto the calendar.
 - **Said a deadline?** It waits in the backlog with a due date.
 - **Said neither?** It waits in the backlog, ranked: **Urgent**, **Important**, **Later**, then by due date.
-- **Every task gets a label**, like **Work**, **Personal** or **Helping others**. The AI picks it from what you said, or type a `#tag`.
+- **Every task gets a goal or goes off-goal**, and a section, like your company, **Personal** or **Helping others**. The AI picks both from what you said, or type a `#tag`.
 
 When you're ready, one tap finds the **next free gap in your day**, on a 15-minute grid, inside the hours you set.
 
@@ -209,8 +225,8 @@ Say it once and it's a **repeat**: every day, on weekdays, on the days you name,
 - **On its day, not before.** Each day it lands on, you get one ordinary task. With a time it goes on the calendar; without one it waits in the backlog, due that day. Thursday's grocery order is never Tuesday's Next task.
 - **One at a time.** Skip Monday's order and Thursday's takes its place, so you never have two "Order groceries". The one you skipped still counts as missed in the review.
 - **Ahead on the calendar.** Repeats with a time show faintly on the days to come, and slotting works around them.
-- **Change the task, change the repeat.** Rename it, re-prioritise it or give it a label, and the ones to come follow. Moving one on the calendar moves just that one.
-- **Skip one or stop them all.** Delete today's to skip it; it won't come back. Pick _Doesn't repeat_, say _"stop the grocery repeat"_, or use **Settings → Repeats**, which lists everything that repeats and when it comes next.
+- **Change the task, change the repeat.** Rename it, re-prioritise it or put it on a goal, and the ones to come follow. Moving one on the calendar moves just that one.
+- **Skip one or stop them all.** Delete today's to skip it; it won't come back. Pick *Doesn't repeat*, say *"stop the grocery repeat"*, or use **Settings → Repeats**, which lists everything that repeats and when it comes next.
 
 ### See how it went
 
@@ -218,8 +234,9 @@ Open **Analytics** (at the top on a laptop, in the `•••` menu on a phone) 
 
 - **A score out of 100**, and what it's made of: how much of what came due got done, how much on its day, how many of your busy days you got something done, and how your Urgent and Important work fared. Under it, what stood out, in plain sentences.
 - **Done and missed.** Every task with a slot or a deadline is on time, late, missed or still to come. A missed task goes back to your backlog, but its slot still counts as missed where it happened, and so does one you reslot or delete, so the review stays honest.
-- **Type of work.** Time by label, your tasks and your Google meetings together, with each label's share, what got done and what was missed.
-- **Day by day, hour by hour.** Stacked by label, with missed slots marked. Pick a day to open it. Every chart has a table view.
+- **Goals.** Time on each goal and off-goal, your tasks and your Google meetings together, with each one's share, what got done and what was missed. It says what share of your time went to goals, against the stretch before.
+- **Type of work.** The same by section.
+- **Day by day, hour by hour.** Stacked by section, with missed slots marked. Pick a day to open it. Every chart has a table view.
 - **Rhythm, flow and load.** The hour you get the most done, what came in against what went out, how long things take from capture to done, how full your calendar was against your day, and quick wins against deep work.
 - **The trend and the tasks behind it.** The last 14 days, 8 weeks or 6 months side by side, and every task that was missed, late, done or still to come.
 
@@ -235,16 +252,11 @@ Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the
   <img alt="Three phone screens: the Next task above the Priority matrix, the day's timeline with a suggested slot, and Night train" src="docs/images/phone.png" width="100%">
 </p>
 
-**On your phone** it's focused: the Next task on top with Done and Schedule, then the Priority matrix or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. Press and hold a task to drag it onto **Done** or the **trash**. How the day and week are going, Analytics, Share and Settings are in the `•••` menu.
+**On your phone** it's focused: the Next task on top with Done and Schedule, then the goal matrix or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. Press and hold a task to drag it onto **Done** or the **trash**. How the day and week are going, how much went to goals, Goals, Analytics, Share and Settings are in the `•••` menu.
 
-**On your laptop** it opens up into a full planner: the Next task and the Priority matrix on the left, a calendar that fits your day on the right, and the chat bar floating over it.
+**On your laptop** it opens up into a full planner: the Next task and the goal matrix on the left, a calendar that fits your day on the right, and the chat bar floating over it.
 
-<details>
-<summary><b>Every laptop gesture and shortcut</b></summary>
-
-<br>
-
-- **The matrix is your backlog:** a row per label, a column per priority, each cell a count that darkens as it fills. Click a cell to filter the list to it; what you filter out fades on the calendar. Drag a task onto another cell to change its label or priority.
+- **The matrix is your backlog:** a row per goal and one for off-goal, a column per priority, each cell a count that darkens as it fills, and this week's time on each goal. Click a goal to see its tasks, or a cell to filter to it; what you filter out fades on the calendar. Drag a task onto another cell to change its goal or priority.
 - **One divider, sized your way.** Drag it and the calendar shows 1, 2, 3, 5 or 7 days, settling on the nearest. Arrow keys step it, a double-click resets it. Give the matrix the room and it opens into the full grid of tasks.
 - **The calendar fits your day:** your hours fill the height, with one tap for anything earlier or later, and a live wave (or line) at the current time.
 - **Drag** a task from the matrix onto any time. Drag it back to unschedule it.
@@ -271,8 +283,8 @@ It feels fast because it is fast: rows rise in, ticked tasks get a check-and-str
 - **9 fonts**, including **Lexend** and **Atkinson Hyperlegible** for easier reading.
 - Text size, list density, **increased contrast**, reduced motion, and a 12- or 24-hour clock.
 - **Your day:** set the hours you work. The calendar shows them, auto-slotting stays inside them, and the AI plans around them.
-- **Your labels:** the parts of your life, named, coloured and ordered your way. Every task wears its label's colour, so work time and personal time read at a glance.
-- Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by label, account, calendar or priority.
+- **Your sections:** the parts of your life your goals live in, named, coloured and ordered your way. Every task wears its section's colour, so work time and personal time read at a glance.
+- Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by section, account, calendar or priority.
 
 <p align="center">
   <img alt="Settings → Appearance in a side panel: theme cards, accent colours and ambient light" src="docs/images/settings.png" width="100%">
@@ -287,7 +299,7 @@ Connect **up to five Google accounts**, personal and work alike. Their **Google 
 - It refreshes every 30 minutes while the app is open.
 - A meeting that's on two of your accounts shows **once**.
 - You choose which calendars to pull, per account. Holidays and other subscriptions stay off until you tick them.
-- Give each account a **label** (or one calendar inside it, like a gym calendar on your work account) and its events take that label's colour.
+- Give each account a **section** (or one calendar inside it, like a gym calendar on your work account) and its events take that section's colour. Put a meeting on a goal and its time counts towards it.
 - It's **read-only**: nothing is written back to Google. Your priorities, notes and done ticks stay yours.
 
 ### On every screen you own
@@ -321,16 +333,17 @@ https://<your-domain>/mcp
 
 Claude sends you to your planner to sign in (the PIN and a code, Face ID or a passkey, exactly as on any day) and asks whether to allow it. Press **Allow** and you're back in Claude. Settings → **Claude** in the planner shows the same address with a Copy button, lists every connection and when it was last used, and disconnects one on the spot.
 
-| Tool                           | What it does                                                                                                                                              |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_tasks`                   | Open, done or all; by project, due date, time on the calendar or words in the title and notes. Ranked like the backlog, paged with a cursor. _Read-only._ |
-| `get_task`                     | One task with its notes, what you said when you added it, and its repeat. _Read-only._                                                                    |
-| `create_task`                  | Title, description, due date, priority, project, status, and a time on the calendar or not.                                                               |
-| `update_task`                  | Any of those by id; only what you pass changes. `null` takes it off the calendar or clears a field.                                                       |
-| `complete_task`, `reopen_task` | Tick it off, or open it again.                                                                                                                            |
-| `delete_task`                  | Gone for good. _Marked destructive_, so Claude asks first.                                                                                                |
+| tool | what it does |
+|---|---|
+| `list_goals` | Your goals, most important first: what done means and what's ticked, the date, the section, and how many tasks are open and done on each. *Read-only.* |
+| `list_tasks` | Open, done or all; by goal, project, due date, time on the calendar or words in the title and notes. Ranked like the backlog, paged with a cursor. *Read-only.* |
+| `get_task` | One task with its notes, what you said when you added it, and its repeat. *Read-only.* |
+| `create_task` | Title, description, due date, priority, goal, project, status, and a time on the calendar or not. |
+| `update_task` | Any of those by id; only what you pass changes. `null` takes it off the calendar or clears a field. |
+| `complete_task`, `reopen_task` | Tick it off, or open it again. |
+| `delete_task` | Gone for good. *Marked destructive*, so Claude asks first. |
 
-Every tool has a JSON schema for its input and output and answers with compact JSON: ids, titles, status, priority, project, due date, scheduled time and when it last changed, in your time zone. A **project** is a label (Work, Personal…). A change to a repeating task carries on to the ones to come, a missed slot Claude moves still counts in your review, and Google items stay Google's: Claude can tick them off or re-prioritise them, not rename, move or delete them.
+Every tool has a JSON schema for its input and output and answers with compact JSON: ids, titles, status, priority, goal, project, due date, scheduled time and when it last changed, in your time zone. A **project** is a section (Work, Personal…); a task on a goal takes the goal's. Goals themselves are set in the planner; Claude reads them. A change to a repeating task carries on to the ones to come, a missed slot Claude moves still counts in your review, and Google items stay Google's: Claude can tick them off or re-prioritise them, not rename, move or delete them.
 
 **Locked down like the rest.** It's OAuth 2.1 as the [MCP authorization spec](https://modelcontextprotocol.io/specification) asks (discovery, dynamic client registration, PKCE, tokens bound to `/mcp`), with your own sign-in as the consent screen. The database holds only hashes of the tokens, and its connector functions answer only this app's server. An access token lasts an hour, a refresh token 30 days and is replaced each time it's used, and a token that turns up twice ends the connection. Claude never sees your Google account, chat history, shares or anything about signing in. More in [`docs/security.md`](docs/security.md#connecting-claude).
 
@@ -341,7 +354,7 @@ Every tool has a JSON schema for its input and output and answers with compact J
 
 It's part of the app, so it runs wherever the app runs. It needs Supabase (tasks kept only in a browser can't be reached from a server) and a server key:
 
-1. Run `supabase/migrations/0009_connectors.sql` in the Supabase SQL editor (on the backup too).
+1. Run `supabase/migrations/0009_connectors.sql`, then `0010_goals.sql`, in the Supabase SQL editor (on the backup too).
 2. Make a key, and give the database its sha256:
 
    ```sh

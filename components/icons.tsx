@@ -62,3 +62,13 @@ export const SettingsIcon = ({ size = 15 }: P) => (
 export const MoreIcon = ({ size = 18 }: P) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="12.5" cy="8" r="1.4" /></svg>
 );
+/** A goal: a target with its centre. */
+export const TargetIcon = ({ size = 15 }: P) => (
+  <svg {...svg(size, 1.5)}><circle cx="8" cy="8" r="5.75" /><circle cx="8" cy="8" r="2.75" /><circle cx="8" cy="8" r=".6" fill="currentColor" /></svg>
+);
+export const ChevronUp = ({ size = 12 }: P) => (
+  <svg {...svg(size, 1.6)}><path d="M3.5 10l4.5-4.5L12.5 10" /></svg>
+);
+export const PlusIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.6)}><path d="M8 3v10M3 8h10" /></svg>
+);
