@@ -1,0 +1,687 @@
+'use client';
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { newId, PRI, type Priority, type Task } from '@/lib/model';
+import { patchGoal, type Goal } from '@/lib/goals';
+import {
+  buildFlow, describeEntry, linkKey, type Flow, newWaitId, parallelLinks, patchWait, planOf, toJson, toMermaid, withLink, withWait, withoutLink,
+  withoutStep, wouldLoop, WAIT_TITLE_MAX, type Link, type LogEntry, type Plan, type Step,
+} from '@/lib/flow';
+import { fmtDur, fmtWhen, longDate, shortTitle } from '@/lib/format';
+import { ymd } from '@/lib/time';
+import { usePlanner } from './Planner';
+import { CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, TargetIcon, XIcon } from './icons';
+
+/* ---------- geometry ---------- */
+
+const PAD = 36, GOAL_W = 176, GOAL_H = 76, NODE_W = 200, NODE_H = 72, GAP_X = 72, ROW_H = 96;
+const colX = (c: number) => (c === 0 ? PAD : PAD + GOAL_W + GAP_X + (c - 1) * (NODE_W + GAP_X));
+
+interface Box { x: number; y: number; w: number; h: number }
+
+/** Where everything goes: the goal on the left, each column (its lanes included) centred on the tallest. */
+function useLayout(flow: Flow) {
+  return useMemo(() => {
+    const counts = flow.rows;
+    const rows = Math.max(1, ...counts);
+    const height = PAD * 2 + rows * ROW_H - (ROW_H - NODE_H);
+    const at = (col: number, row: number): Box => ({ x: colX(col), y: PAD + ((rows - (counts[col] ?? 1)) * ROW_H) / 2 + row * ROW_H, w: NODE_W, h: NODE_H });
+    const boxes = new Map<string, Box>(flow.steps.map(s => [s.id, at(s.col, s.row)]));
+    // Each lane is a step-sized slot an arrow runs straight through.
+    const lanes = new Map([...flow.lanes].map(([key, list]) => [key, list.map(l => at(l.col, l.row))]));
+    const goal: Box = { x: PAD, y: height / 2 - GOAL_H / 2, w: GOAL_W, h: GOAL_H };
+    return { boxes, lanes, goal, width: colX(Math.max(1, flow.cols)) + NODE_W + PAD, height: Math.max(height, GOAL_H + PAD * 2) };
+  }, [flow]);
+}
+
+/**
+ * A left-to-right arrow from the right edge of one box to the left edge of another, curving between columns and
+ * running straight through any lanes on the way; and the middle of it, for the button that removes it.
+ */
+function curve(a: Box, b: Box, via: Box[] = []) {
+  const stops = [a, ...via, b];
+  let d = '';
+  const mids: { x: number; y: number }[] = [];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const p = stops[i], q = stops[i + 1];
+    const x1 = i === 0 ? p.x + p.w : p.x + p.w, y1 = p.y + p.h / 2;
+    const x2 = i === stops.length - 2 ? q.x - 4 : q.x, y2 = q.y + q.h / 2;
+    const dx = Math.max(28, (x2 - x1) / 2);
+    // Into a lane, then straight across it.
+    d += `${i ? ' L' : 'M'} ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+    mids.push({ x: (x1 + 3 * (x1 + dx) + 3 * (x2 - dx) + x2) / 8, y: (y1 + 3 * y1 + 3 * y2 + y2) / 8 });
+  }
+  return { d, mid: mids[Math.floor((mids.length - 1) / 2)] };
+}
+
+/* ---------- words ---------- */
+
+const KIND = { task: 'Task', wait: 'Waiting on', milestone: 'Milestone' } as const;
+
+function stateText(s: Step, byId: Map<string, Step>, now: number) {
+  if (s.kind === 'milestone') return s.done ? 'Reached' : s.state === 'reached' ? 'Ready to tick' : s.needs.length ? `After ${s.needs.length} step${s.needs.length === 1 ? '' : 's'}` : 'Nothing leads here yet';
+  if (s.kind === 'wait') return s.done ? 'Resolved' : s.state === 'blocked' ? 'Waiting, held up' : 'Waiting';
+  if (s.done) return 'Done';
+  if (s.state === 'blocked') {
+    const open = s.needs.filter(id => !byId.get(id)?.done).length;
+    return `Blocked by ${open}`;
+  }
+  return s.task?.start != null ? fmtWhen(s.task.start, now) : 'Ready';
+}
+
+/* ---------- the panel ---------- */
+
+/** The flow chart of the goal in the address (#flow/<goal id>). */
+export function FlowPanel() {
+  const { section, goalById, closeSheet, openSheet, goalsLoaded } = usePlanner();
+  const goal = goalById(section);
+  if (!goal && !goalsLoaded) return <div className="side-b"><p className="note">Opening the chart…</p></div>;
+  if (!goal) {
+    return (
+      <div className="side-b">
+        <p className="note">That goal isn’t here any more. <button type="button" className="link" onClick={() => openSheet('goals')}>Back to your goals</button> or <button type="button" className="link" onClick={closeSheet}>close</button>.</p>
+      </div>
+    );
+  }
+  return <FlowChart key={goal.id} goal={goal} />;
+}
+
+type Sel = { kind: 'step'; id: string } | { kind: 'link'; key: string } | null;
+
+function FlowChart({ goal }: { goal: Goal }) {
+  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet } = usePlanner();
+  const [all, setAll] = useState(false);
+  const flow = useMemo(() => buildFlow(goal, tasks, now, { all }), [goal, tasks, now, all]);
+  const layout = useLayout(flow);
+  const [sel, setSel] = useState<Sel>(null);
+  const [zoom, setZoom] = useState(1);
+  const [side, setSide] = useState<'inspect' | 'history'>('inspect');
+  const [note, setNote] = useState<string | null>(null);
+  const [drawing, setDrawing] = useState<{ from: string; x: number; y: number; moved: boolean } | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+  /** The step whose title to type into next: one just added. */
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const undos = useRef<{ label: string; run: () => void }[]>([]);
+  const [undoLabel, setUndoLabel] = useState<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLDivElement>(null);
+  const section = prefs.labels.find(l => l.id === goal.section) ?? null;
+  const tint = section ? ({ '--c': section.color } as React.CSSProperties) : undefined;
+
+  const say = useCallback((msg: string) => { setNote(msg); window.setTimeout(() => setNote(n => (n === msg ? null : n)), 3200); }, []);
+  const remember = (label: string, run: () => void) => { undos.current = [...undos.current.slice(-19), { label, run }]; setUndoLabel(label); };
+  const undo = () => {
+    const u = undos.current.pop();
+    setUndoLabel(undos.current[undos.current.length - 1]?.label ?? null);
+    if (u) { u.run(); say(`Undid: ${u.label}`); }
+  };
+
+  /** Change this goal's plan, laid over whatever it is by the time it's saved. Returns what undoes it. */
+  const plan = (f: (p: Plan) => Plan) =>
+    changeGoals(list => list.map(g => (g.id === goal.id ? { ...g, plan: f(planOf(g)), updatedAt: Date.now() } : g)));
+  const titleOf = (id: string) => flow.byId.get(id)?.title;
+  const log = (e: Omit<LogEntry, 'at' | 'goal'>) => logGoal([{ at: Date.now(), goal: goal.id, ...e }]);
+
+  /* ---------- changes ---------- */
+
+  const link = (l: Link) => {
+    const cur = planOf(goal);
+    if (cur.links.some(e => e.from === l.from && e.to === l.to)) return;
+    if (wouldLoop(cur.links, l.from, l.to)) { say('That arrow would make a loop: one of these already leads to the other.'); return; }
+    const back = plan(p => withLink(p, l));
+    log({ op: 'link', step: l.to, title: titleOf(l.to), from: l.from, fromTitle: titleOf(l.from) });
+    remember('draw the arrow', back);
+    setSel({ kind: 'link', key: linkKey(l) });
+  };
+
+  const unlink = (l: Link) => {
+    const back = plan(p => withoutLink(p, l));
+    log({ op: 'unlink', step: l.to, title: titleOf(l.to), from: l.from, fromTitle: titleOf(l.from) });
+    remember('remove the arrow', back);
+    setSel(null);
+  };
+
+  /** A new task on this goal: after `after`, or alongside `beside`, or on its own. */
+  const addTask = (opts: { after?: string; beside?: string; before?: string } = {}) => {
+    const at = Date.now();
+    const t: Task = {
+      id: newId(), title: 'New step', raw: '', notes: '', priority: 2, minutes: 60, start: null, due: null, status: 'open',
+      created: at, order: at, doneAt: null, goal: goal.id, label: goal.section ?? null, updatedAt: at,
+    };
+    const before = store.write([t]);
+    const cur = planOf(goal);
+    const links = opts.after ? [{ from: opts.after, to: t.id }] : opts.before ? [{ from: t.id, to: opts.before }] : opts.beside ? parallelLinks(cur, opts.beside, t.id) : [];
+    const back = links.length ? plan(p => links.reduce(withLink, p)) : () => undefined;
+    remember('add the step', () => { back(); store.restore(before); });
+    setSel({ kind: 'step', id: t.id });
+    setSide('inspect');
+    setFocusId(t.id);
+  };
+
+  const addWait = (holds?: string) => {
+    const w = { id: newWaitId(), title: 'Someone or something', done: false, created: Date.now(), doneAt: null };
+    const back = plan(p => (holds ? withLink(withWait(p, w), { from: w.id, to: holds }) : withWait(p, w)));
+    log({ op: 'wait', step: w.id, title: w.title });
+    remember('add the waiting step', back);
+    setSel({ kind: 'step', id: w.id });
+    setSide('inspect');
+    setFocusId(w.id);
+  };
+
+  const rename = (s: Step, title: string) => {
+    const v = title.replace(/\s+/g, ' ').trim();
+    if (!v || v === s.title) return;
+    if (s.kind === 'task' && s.task) { const before = store.patch(s.id, { title: v.slice(0, 160) }); remember('rename', () => store.restore(before)); return; }
+    if (s.kind === 'wait') {
+      const back = plan(p => patchWait(p, s.id, { title: v.slice(0, WAIT_TITLE_MAX) }));
+      log({ op: 'rename', step: s.id, title: v, was: s.title });
+      remember('rename', back);
+      return;
+    }
+    if (s.result) {
+      const id = s.result.id;
+      const back = changeGoals(patchGoal(goal.id, { results: goal.results.map(r => (r.id === id ? { ...r, text: v.slice(0, 120) } : r)) }));
+      log({ op: 'rename', step: s.id, title: v, was: s.title });
+      remember('rename', back);
+    }
+  };
+
+  const toggle = (s: Step) => {
+    if (s.kind === 'task' && s.task) {
+      if (s.task.externalId?.startsWith('gcal:')) { say('A meeting is done once it’s over.'); return; }
+      const isDone = s.task.status !== 'done';
+      const before = store.patch(s.id, { status: isDone ? 'done' : 'open', doneAt: isDone ? Date.now() : null });
+      remember(isDone ? 'tick it off' : 'reopen it', () => store.restore(before));
+      return;
+    }
+    if (s.kind === 'wait' && s.wait) {
+      const done = !s.wait.done;
+      const back = plan(p => patchWait(p, s.id, { done, doneAt: done ? Date.now() : null }));
+      log({ op: done ? 'resolve' : 'unresolve', step: s.id, title: s.title });
+      remember(done ? 'resolve it' : 'wait again', back);
+      return;
+    }
+    if (s.result) {
+      const id = s.result.id, done = !s.result.done;
+      const back = changeGoals(patchGoal(goal.id, { results: goal.results.map(r => (r.id === id ? { ...r, done } : r)) }));
+      log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title });
+      remember(done ? 'tick the milestone' : 'untick the milestone', back);
+    }
+  };
+
+  /** Off the chart: a task off this goal (or deleted), a waiting step gone. Its arrows go too. */
+  const removeStep = (s: Step, how: 'off' | 'delete') => {
+    const back = plan(p => withoutStep(p, s.id));
+    if (s.kind === 'wait') { log({ op: 'remove', step: s.id, title: s.title }); remember('remove it', back); }
+    else if (s.task) {
+      const before = how === 'delete' ? store.remove([s.id]) : store.patch(s.id, { goal: null });
+      remember(how === 'delete' ? 'delete it' : 'take it off the goal', () => { back(); store.restore(before); });
+    }
+    setSel(null);
+  };
+
+  const patchTask = (s: Step, part: Partial<Task>, label: string) => {
+    if (!s.task) return;
+    const before = store.patch(s.id, part);
+    remember(label, () => store.restore(before));
+  };
+
+  /* ---------- drawing an arrow: drag from a step's handle, or click the handle and then a step ---------- */
+
+  const toCanvas = (clientX: number, clientY: number) => {
+    const r = canvas.current?.getBoundingClientRect();
+    return r ? { x: (clientX - r.left) / zoom, y: (clientY - r.top) / zoom } : { x: 0, y: 0 };
+  };
+
+  const startDraw = (e: React.PointerEvent, from: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const p0 = toCanvas(e.clientX, e.clientY);
+    setDrawing({ from, ...p0, moved: false });
+    const move = (ev: PointerEvent) => {
+      const p = toCanvas(ev.clientX, ev.clientY);
+      setDrawing(d => (d ? { ...d, ...p, moved: d.moved || Math.hypot(p.x - p0.x, p.y - p0.y) > 6 } : d));
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const p = toCanvas(ev.clientX, ev.clientY);
+      const moved = Math.hypot(p.x - p0.x, p.y - p0.y) > 6;
+      setDrawing(null);
+      if (!moved) { setPicking(from); return; }
+      const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-step]');
+      const to = hit?.dataset.step;
+      if (to && to !== from) link({ from, to });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const clickStep = (id: string) => {
+    // Keys (Tab, Enter, arrows, Delete) go to the chart once you've picked something on it.
+    scroller.current?.focus({ preventScroll: true });
+    if (picking) {
+      if (picking !== id) link({ from: picking, to: id });
+      setPicking(null);
+      return;
+    }
+    setSel({ kind: 'step', id });
+    setSide('inspect');
+  };
+
+  /* ---------- the keyboard ---------- */
+
+  const selStep = sel?.kind === 'step' ? flow.byId.get(sel.id) ?? null : null;
+  const selLink = sel?.kind === 'link' ? flow.links.find(l => linkKey(l) === sel.key) ?? null : null;
+
+  const onKey = (e: React.KeyboardEvent) => {
+    const typing = (e.target as HTMLElement).closest('input,textarea,select');
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); return; }
+    if (e.key === 'Escape') {
+      if (picking || drawing) { e.preventDefault(); setPicking(null); setDrawing(null); return; }
+      // In a field: leave it (it saves), back on the chart. Then a second Esc lets go of the step, a third closes.
+      if (typing) { e.preventDefault(); (typing as HTMLElement).blur(); scroller.current?.focus({ preventScroll: true }); return; }
+      if (sel) { e.preventDefault(); setSel(null); return; }
+      return;
+    }
+    if (typing) return;
+    if (e.key === 'Tab' && selStep && !e.shiftKey) { e.preventDefault(); addTask(selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }); return; }
+    if (e.key === 'Enter' && selStep && selStep.kind !== 'milestone') { e.preventDefault(); addTask({ beside: selStep.id }); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selLink) { e.preventDefault(); unlink(selLink); return; }
+    if (selStep && e.key.startsWith('Arrow')) {
+      e.preventDefault();
+      const col = flow.steps.filter(s => s.col === selStep.col).sort((a, b) => a.row - b.row);
+      const i = col.indexOf(selStep);
+      const go = e.key === 'ArrowLeft' ? selStep.needs[0] : e.key === 'ArrowRight' ? selStep.unblocks[0]
+        : e.key === 'ArrowUp' ? col[i - 1]?.id : col[i + 1]?.id;
+      if (go) setSel({ kind: 'step', id: go });
+    }
+  };
+
+  /* ---------- zoom and fit ---------- */
+
+  const fit = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    // Fit, but never so small that the steps can't be read: past that, scroll.
+    setZoom(Math.max(0.75, Math.min(1, (el.clientWidth - 8) / layout.width, (el.clientHeight - 8) / layout.height)));
+  }, [layout.width, layout.height]);
+  const fitted = useRef(false);
+  useLayoutEffect(() => { if (!fitted.current && flow.steps.length) { fitted.current = true; fit(); } }, [fit, flow.steps.length]);
+  // Keep the selected step in view.
+  useEffect(() => {
+    const b = selStep ? layout.boxes.get(selStep.id) : null, el = scroller.current;
+    if (!b || !el) return;
+    const x = b.x * zoom, y = b.y * zoom;
+    if (x < el.scrollLeft || x + b.w * zoom > el.scrollLeft + el.clientWidth) el.scrollTo({ left: x - 80, behavior: 'smooth' });
+    if (y < el.scrollTop || y + b.h * zoom > el.scrollTop + el.clientHeight) el.scrollTo({ top: y - 60, behavior: 'smooth' });
+  }, [selStep, layout.boxes, zoom]);
+
+  // Drag the background to move around.
+  const pan = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('[data-step],button,path.fe-hit') || e.button !== 0) return;
+    const el = scroller.current;
+    if (!el) return;
+    setSel(null);
+    setPicking(null);
+    const x0 = e.clientX, y0 = e.clientY, l0 = el.scrollLeft, t0 = el.scrollTop;
+    const move = (ev: PointerEvent) => { el.scrollLeft = l0 - (ev.clientX - x0); el.scrollTop = t0 - (ev.clientY - y0); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  /* ---------- export ---------- */
+
+  const download = (name: string, text: string, type = 'application/json') => {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const slug = goal.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'goal';
+  const copyMermaid = () => {
+    const text = toMermaid(goal, flow);
+    const done = navigator.clipboard?.writeText(text);
+    if (done) done.then(() => say('Copied as a Mermaid flowchart. Paste it into GitHub, Notion or any Mermaid editor.'), () => download(`${slug}.mmd`, text, 'text/plain'));
+    else download(`${slug}.mmd`, text, 'text/plain');
+  };
+
+  /* ---------- drawing it ---------- */
+
+  const box = (id: string) => layout.boxes.get(id) as Box;
+  const z = zoom;
+  const live = drawing && drawing.moved ? (() => {
+    const a = box(drawing.from);
+    return `M ${a.x + a.w} ${a.y + a.h / 2} L ${drawing.x} ${drawing.y}`;
+  })() : null;
+
+  return (
+    <div className={'flowc' + (wide ? '' : ' ph')} onKeyDown={onKey}>
+      <div className="flow-bar">
+        <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><ChevronLeft size={13} />Goals</button>
+        <span className="flow-goal ell" style={tint}><span className={'dot' + (section ? '' : ' none')} />{goal.title}</span>
+        <span className="spacer" />
+        <button type="button" className="btn sec sm" onClick={() => addTask(selStep && selStep.kind !== 'milestone' ? { after: selStep.id } : {})} title="Add a step (Tab adds one after the selected step)"><PlusIcon size={13} />Step</button>
+        <button type="button" className="btn sec sm" onClick={() => addWait(selStep && selStep.kind !== 'wait' ? selStep.id : undefined)} title="Something outside your control that holds steps up"><PlusIcon size={13} />Waiting on</button>
+        <span className="vsep wide-only" aria-hidden="true" />
+        <label className="flow-check wide-only"><input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} />All done steps</label>
+        <div className="flow-zoom wide-only" role="group" aria-label="Zoom">
+          <button type="button" className="ib bare" aria-label="Zoom out" onClick={() => setZoom(v => Math.max(0.4, +(v - 0.1).toFixed(2)))}>−</button>
+          <button type="button" className="btn ghost sm num" onClick={fit} title="Fit the chart">{Math.round(zoom * 100)}%</button>
+          <button type="button" className="ib bare" aria-label="Zoom in" onClick={() => setZoom(v => Math.min(1.6, +(v + 0.1).toFixed(2)))}>+</button>
+        </div>
+        <button type="button" className="btn ghost sm" disabled={!undoLabel} onClick={undo} title={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : 'Nothing to undo'}>Undo</button>
+        <button type="button" className="btn ghost sm" aria-pressed={side === 'history'} onClick={() => setSide(s => (s === 'history' ? 'inspect' : 'history'))}><HistoryIcon size={13} />History</button>
+        <button type="button" className="btn ghost sm wide-only" onClick={copyMermaid} title="Copy the chart as a Mermaid flowchart">Mermaid</button>
+        <button type="button" className="btn ghost sm wide-only" onClick={() => download(`${slug}-flow.json`, JSON.stringify(toJson(goal, flow), null, 2))} title="Download the chart as JSON">JSON</button>
+      </div>
+
+      <div className="flow-body">
+        <div ref={scroller} className={'flow-scroll' + (picking ? ' picking' : '')} onPointerDown={pan} tabIndex={0} aria-label={`Flow chart for ${goal.title}`}>
+          {(note || picking) && <p className="flow-note" role="status">{picking ? <>Click the step that comes after “{shortTitle(titleOf(picking) ?? '', 40)}” · <kbd>Esc</kbd> to stop</> : note}</p>}
+          <div className="flow-size" style={{ width: layout.width * z, height: layout.height * z }}>
+            <div ref={canvas} className="flow-canvas" style={{ width: layout.width, height: layout.height, transform: `scale(${z})` }}>
+              <svg className="flow-svg" width={layout.width} height={layout.height} aria-hidden="true">
+                <defs>
+                  {(['n', 'c', 'd', 's'] as const).map(k => (
+                    <marker key={k} id={`fa-${k}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                      <path d="M0 0 L10 5 L0 10 z" className={`fa fa-${k}`} />
+                    </marker>
+                  ))}
+                </defs>
+                {flow.roots.map(id => {
+                  const c = curve(layout.goal, box(id));
+                  return <path key={`g>${id}`} d={c.d} className="fe root" markerEnd="url(#fa-d)" />;
+                })}
+                {flow.links.map(l => {
+                  const key = linkKey(l), c = curve(box(l.from), box(l.to), layout.lanes.get(key));
+                  const from = flow.byId.get(l.from) as Step;
+                  const cls = sel?.kind === 'link' && sel.key === key ? 's' : flow.critical.links.has(key) ? 'c' : from.done ? 'd' : 'n';
+                  return (
+                    <g key={key}>
+                      <path d={c.d} className={`fe fe-${cls}`} markerEnd={`url(#fa-${cls})`} />
+                      <path d={c.d} className="fe-hit" onClick={e => { e.stopPropagation(); scroller.current?.focus({ preventScroll: true }); setSel({ kind: 'link', key }); }}>
+                        <title>{`${from.title} → ${titleOf(l.to)}`}</title>
+                      </path>
+                    </g>
+                  );
+                })}
+                {live && <path d={live} className="fe fe-s" markerEnd="url(#fa-s)" />}
+              </svg>
+
+              <div className="fn-goal" style={{ left: layout.goal.x, top: layout.goal.y, width: layout.goal.w, height: layout.goal.h, ...tint }}>
+                <TargetIcon size={16} />
+                <span className="fn-t">{goal.title}</span>
+                <span className="fn-m num">{flow.counts.done} of {flow.counts.steps} done{flow.older ? ` · ${flow.older} older` : ''}</span>
+              </div>
+
+              {flow.steps.map(s => {
+                const b = box(s.id);
+                const on = sel?.kind === 'step' && sel.id === s.id;
+                const cls = `fn fn-${s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}`;
+                return (
+                  <div key={s.id} className={cls} data-step={s.id} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...tint }}
+                    onClick={e => { e.stopPropagation(); clickStep(s.id); }}>
+                    {s.kind === 'milestone' && <span className="fn-ms" aria-hidden="true" />}
+                    <button type="button" className={'fn-ck' + (s.done ? ' on' : '')} aria-label={`${s.done ? 'Not done' : 'Done'}: ${s.title}`}
+                      title={s.kind === 'milestone' ? (s.done ? 'Untick it' : 'Tick it: reached') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Tick it off'}
+                      onClick={e => { e.stopPropagation(); toggle(s); }}><CheckIcon size={10} w={2.6} /></button>
+                    <span className="fn-t">{s.kind === 'wait' && <span className="fn-k">Waiting on </span>}{s.title}</span>
+                    <span className="fn-m">
+                      {s.kind === 'task' && <span className="num">{fmtDur(s.minutes)}</span>}
+                      <span className={'fn-st ' + s.state}>{stateText(s, flow.byId, now)}</span>
+                    </span>
+                    {s.kind !== 'milestone' && (
+                      <button type="button" className="fn-h" aria-label={`Draw an arrow from ${s.title}`} title="Drag to the step that comes after this one, or click and then click it"
+                        onPointerDown={e => startDraw(e, s.id)} onClick={e => e.stopPropagation()} />
+                    )}
+                    {on && s.kind !== 'milestone' && (
+                      <button type="button" className="fn-add" aria-label="Add the next step" title="Add the next step (Tab)" onClick={e => { e.stopPropagation(); addTask({ after: s.id }); }}><PlusIcon size={12} /></button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {selLink && (() => {
+                const c = curve(box(selLink.from), box(selLink.to), layout.lanes.get(linkKey(selLink)));
+                return (
+                  <button type="button" className="fe-x" style={{ left: c.mid.x - 11, top: c.mid.y - 11 }} aria-label="Remove this arrow" title="Remove this arrow (Delete)"
+                    onClick={e => { e.stopPropagation(); unlink(selLink); }}><XIcon size={11} /></button>
+                );
+              })()}
+
+              {!flow.counts.steps && (
+                <button type="button" className="flow-first" style={{ left: colX(1), top: layout.goal.y + 8 }} onClick={() => addTask()}>
+                  <PlusIcon size={14} />Add the first step
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <aside className="flow-side" aria-label={side === 'history' ? 'History' : 'Step'}>
+          {side === 'history' ? <History goal={goal} />
+            : selStep ? <Inspector key={selStep.id} s={selStep} flow={flow} focus={focusId === selStep.id} onFocused={() => setFocusId(null)} goal={goal}
+              act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask }} />
+            : selLink ? (
+              <div className="fi">
+                <p className="rv-k">Arrow</p>
+                <p className="fi-link"><b>{titleOf(selLink.from)}</b> has to be done before <b>{titleOf(selLink.to)}</b> can start.</p>
+                <button type="button" className="btn sec sm" onClick={() => unlink(selLink)}>Remove the arrow</button>
+              </div>
+            ) : wide ? <Guide goal={goal} /> : <p className="note fi-hint">Tap a step to edit it. Drag from its dot to the step that comes after it.</p>}
+        </aside>
+      </div>
+
+      <div className="flow-foot num">
+        <span>{flow.counts.steps} step{flow.counts.steps === 1 ? '' : 's'} · {flow.counts.done} done · {flow.counts.ready} ready · {flow.counts.blocked} blocked</span>
+        {flow.critical.steps.length > 0 && (
+          <button type="button" className="link" onClick={() => setSel({ kind: 'step', id: flow.critical.steps[0] })}>
+            Critical path: {fmtDur(flow.critical.minutes)} over {flow.critical.steps.length} steps
+          </button>
+        )}
+        <span className="spacer" />
+        {wide && <span className="muted">Tab: next step · Enter: parallel step · Delete: remove arrow · ⌘Z: undo</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- the side: one step ---------- */
+
+interface Acts {
+  rename: (s: Step, title: string) => void;
+  toggle: (s: Step) => void;
+  link: (l: Link) => void;
+  unlink: (l: Link) => void;
+  addTask: (o?: { after?: string; beside?: string; before?: string }) => void;
+  addWait: (holds?: string) => void;
+  removeStep: (s: Step, how: 'off' | 'delete') => void;
+  patchTask: (s: Step, part: Partial<Task>, label: string) => void;
+}
+
+const LENGTHS = [15, 30, 60, 90, 120, 240];
+
+function Inspector({ s, flow, focus, onFocused, goal, act }: {
+  s: Step; flow: ReturnType<typeof buildFlow>; focus: boolean; onFocused: () => void; goal: Goal; act: Acts;
+}) {
+  const { now, openEditor, slot } = usePlanner();
+  const [title, setTitle] = useState(s.title);
+  const [armed, setArmed] = useState(false);
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => setTitle(s.title), [s.title]);
+  // A step you just added: type its title straight away. Enter takes you back to the chart.
+  useEffect(() => { if (focus && input.current) { input.current.focus(); input.current.select(); onFocused(); } }, [focus, onFocused]);
+  const others = flow.steps.filter(x => x.id !== s.id);
+  const links = planOf(goal).links;
+  const canNeed = others.filter(x => x.kind !== 'milestone' && !s.needs.includes(x.id) && !wouldLoop(links, x.id, s.id));
+  const canUnblock = s.kind === 'milestone' ? [] : others.filter(x => !s.unblocks.includes(x.id) && !wouldLoop(links, s.id, x.id));
+  const name = (id: string) => flow.byId.get(id)?.title ?? 'a step';
+  const t = s.task;
+
+  return (
+    <div className="fi">
+      <p className="rv-k">{KIND[s.kind]}{s.critical ? ' · on the critical path' : ''}</p>
+      <textarea ref={input} className="ed-title sm" rows={2} aria-label="Title" value={title} maxLength={s.kind === 'wait' ? WAIT_TITLE_MAX : 160}
+        onChange={e => setTitle(e.target.value)} onBlur={() => act.rename(s, title)}
+        onKeyDown={e => {
+          if (e.key !== 'Enter' || e.shiftKey) return;
+          e.preventDefault();
+          e.currentTarget.blur();
+          (document.querySelector('.flow-scroll') as HTMLElement | null)?.focus({ preventScroll: true });
+        }} />
+      <p className={'fi-st ' + s.state}>{stateText(s, flow.byId, now)}{s.state === 'blocked' ? `: waiting for ${s.needs.filter(id => !flow.byId.get(id)?.done).map(id => `“${shortTitle(name(id), 28)}”`).join(', ')}` : ''}</p>
+
+      <div className="acts">
+        <button type="button" className={'btn sm ' + (s.done ? 'sec' : 'pri')} onClick={() => act.toggle(s)}>
+          {s.kind === 'milestone' ? (s.done ? 'Untick' : 'Tick: reached') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Done'}
+        </button>
+        {t && t.status === 'open' && !t.externalId && (t.start == null
+          ? <button type="button" className="btn sec sm" onClick={() => slot(t.id)}>Next free slot</button>
+          : <span className="muted sm">{fmtWhen(t.start, now)}</span>)}
+      </div>
+
+      {t && !t.externalId && (
+        <>
+          <div className="fld">
+            <span className="flabel">Length</span>
+            <div className="chips" role="radiogroup" aria-label="Length">
+              {LENGTHS.map(m => <button key={m} type="button" className="chipb num" role="radio" aria-checked={t.minutes === m} onClick={() => act.patchTask(s, { minutes: m }, 'change the length')}>{fmtDur(m)}</button>)}
+            </div>
+          </div>
+          <div className="fld">
+            <span className="flabel">Priority</span>
+            <div className="seg fill" role="radiogroup" aria-label="Priority">
+              {([1, 2, 3] as Priority[]).map(p => <button key={p} type="button" role="radio" aria-checked={t.priority === p} onClick={() => act.patchTask(s, { priority: p }, 'change the priority')}>{PRI[p]}</button>)}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="fld">
+        <span className="flabel">Needs first</span>
+        {s.needs.length ? (
+          <ul className="fi-list">
+            {s.needs.map(id => (
+              <li key={id}><span className={'fi-dot ' + (flow.byId.get(id)?.state ?? '')} /><span className="ell">{name(id)}</span>
+                <button type="button" className="ib bare" aria-label={`Doesn’t need ${name(id)}`} onClick={() => act.unlink({ from: id, to: s.id })}><XIcon size={11} /></button></li>
+            ))}
+          </ul>
+        ) : <p className="note">{s.kind === 'milestone' ? 'Nothing leads here yet.' : 'Nothing: it can start now.'}</p>}
+        {canNeed.length > 0 && (
+          <select className="input sm" value="" aria-label="Add a step this one needs first" onChange={e => { if (e.target.value) act.link({ from: e.target.value, to: s.id }); }}>
+            <option value="">{s.kind === 'milestone' ? '+ A step that leads here…' : '+ Needs…'}</option>
+            {canNeed.map(x => <option key={x.id} value={x.id}>{x.kind === 'wait' ? 'Waiting on ' : ''}{shortTitle(x.title, 50)}</option>)}
+          </select>
+        )}
+        {s.kind !== 'wait' && <button type="button" className="link sm" onClick={() => act.addWait(s.id)}>+ Waiting on someone or something</button>}
+      </div>
+
+      {s.kind !== 'milestone' && (
+        <div className="fld">
+          <span className="flabel">Then unblocks</span>
+          {s.unblocks.length ? (
+            <ul className="fi-list">
+              {s.unblocks.map(id => (
+                <li key={id}><span className={'fi-dot ' + (flow.byId.get(id)?.state ?? '')} /><span className="ell">{name(id)}</span>
+                  <button type="button" className="ib bare" aria-label={`Doesn’t unblock ${name(id)}`} onClick={() => act.unlink({ from: s.id, to: id })}><XIcon size={11} /></button></li>
+              ))}
+            </ul>
+          ) : <p className="note">Nothing yet.</p>}
+          {canUnblock.length > 0 && (
+            <select className="input sm" value="" aria-label="Add a step this one unblocks" onChange={e => { if (e.target.value) act.link({ from: s.id, to: e.target.value }); }}>
+              <option value="">+ Unblocks…</option>
+              {canUnblock.map(x => <option key={x.id} value={x.id}>{x.kind === 'milestone' ? '◆ ' : x.kind === 'wait' ? 'Waiting on ' : ''}{shortTitle(x.title, 50)}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+
+      <div className="acts fi-acts">
+        {s.kind === 'milestone'
+          ? <button type="button" className="btn sec sm" onClick={() => act.addTask({ before: s.id })}><PlusIcon size={12} />A step that leads here</button>
+          : <>
+            <button type="button" className="btn sec sm" onClick={() => act.addTask({ after: s.id })}><PlusIcon size={12} />Next step</button>
+            <button type="button" className="btn sec sm" onClick={() => act.addTask({ beside: s.id })}><PlusIcon size={12} />Parallel step</button>
+          </>}
+      </div>
+
+      <div className="acts fi-end">
+        {t && <button type="button" className="btn text sm" onClick={() => openEditor(t.id)}>Open in the editor</button>}
+        <span className="spacer" />
+        {s.kind === 'wait' && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Remove</button>}
+        {t && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Take off this goal</button>}
+        {t && !t.externalId && (
+          <button type="button" className="btn text sm warn" onBlur={() => setArmed(false)} onClick={() => { if (!armed) { setArmed(true); return; } act.removeStep(s, 'delete'); }}>
+            {armed ? 'Click again to delete' : 'Delete'}
+          </button>
+        )}
+      </div>
+      {s.kind === 'milestone' && <p className="note">Milestones are the goal’s “Done when” lines. Change them in <b>Goals → Edit</b>.</p>}
+    </div>
+  );
+}
+
+/** With nothing selected: how the chart works. */
+function Guide({ goal }: { goal: Goal }) {
+  return (
+    <div className="fi fi-guide">
+      <p className="rv-k">How this chart works</p>
+      <ul>
+        <li><b>Left to right.</b> {shortTitle(goal.title, 40)} is on the left; each step sits one column after the steps it needs.</li>
+        <li><b>An arrow</b> means the first step has to be done before the next can start. Drag from the dot on a step’s right edge to the step that comes after it.</li>
+        <li><b>Parallel steps</b> have no arrow between them: work on them in any order. Select a step and press <kbd>Enter</kbd>.</li>
+        <li><b>Waiting on</b> (the D-shaped step) is something outside your control that holds steps up, like a reply or a signature. Resolve it when it comes through.</li>
+        <li><b>Milestones</b> (the pointed ones) are the goal’s “Done when” lines, reached once everything before them is done.</li>
+        <li><b>Blocked</b> steps don’t come up as your Next task. The <b>critical path</b>, the chain with the most work left, is in your accent colour.</li>
+      </ul>
+      <p className="note">Every step here is a task in your planner, on this goal. History keeps every change to the chart.</p>
+    </div>
+  );
+}
+
+/* ---------- the side: history ---------- */
+
+function History({ goal }: { goal: Goal }) {
+  const { readGoalLog, now } = usePlanner();
+  const [entries, setEntries] = useState<LogEntry[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    readGoalLog().then(l => { if (alive) setEntries(l.filter(e => e.goal === goal.id).reverse()); });
+    return () => { alive = false; };
+  }, [readGoalLog, goal.id]);
+  if (!entries) return <div className="fi"><p className="note">Reading the history…</p></div>;
+  const days = new Map<string, LogEntry[]>();
+  for (const e of entries) { const k = ymd(e.at); days.set(k, [...(days.get(k) ?? []), e]); }
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ goal: { id: goal.id, title: goal.title }, history: [...entries].reverse() }, null, 2)], { type: 'application/json' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'goal-history.json' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return (
+    <div className="fi">
+      <div className="fi-hh"><p className="rv-k">History</p><span className="spacer" />{entries.length > 0 && <button type="button" className="link sm" onClick={download}>Download</button>}</div>
+      {!entries.length && <p className="note">Nothing yet. Every step you add, link, finish or rename shows up here, so you can see how the plan changed.</p>}
+      {[...days].map(([day, list]) => (
+        <section key={day} className="fh-day">
+          <h4>{day === ymd(now) ? 'Today' : longDate(list[0].at)}</h4>
+          <ul>
+            {list.map((e, i) => (
+              <li key={i} className={'fh ' + e.op}><span className="fh-t num">{new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><span>{describeEntry(e)}</span></li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** The goal's step count, for buttons that open its chart. */
+export function useFlowCount(goal: Goal) {
+  const { tasks, now } = usePlanner();
+  return useMemo(() => buildFlow(goal, tasks, now).counts, [goal, tasks, now]);
+}

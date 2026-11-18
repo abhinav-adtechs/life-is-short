@@ -59,11 +59,13 @@ function Ring({ t, kind, size = 10 }: { t: Task; kind: Kind; size?: number }) {
 
 /** What a row says about itself: Now, a tick-off or a new task in the plan you're reviewing. */
 function useTag(t: Task, kind: Kind) {
-  const { plan } = usePlanner();
+  const { plan, blocked } = usePlanner();
   const { focus } = useLists();
   if (kind === 'new') return { text: 'New', cls: 'tag' };
   if (plan.ticks.has(t.id)) return { text: 'Tick off', cls: 'tag' };
   if (kind === 'open' && focus.now?.id === t.id) return { text: 'Now', cls: 'tag now' };
+  // Held up by a step before it on its goal's flow chart.
+  if (kind === 'open' && blocked.has(t.id)) return { text: 'Blocked', cls: 'tag blocked' };
   return null;
 }
 

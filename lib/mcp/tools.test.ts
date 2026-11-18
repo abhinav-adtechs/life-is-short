@@ -206,7 +206,8 @@ describe('delete_task', () => {
 
 describe('goals', () => {
   const GOALS = [
-    { id: 'gexit', title: 'Give Sam an exit', section: 'work', results: [{ id: 'k1', text: 'Shares transferred', done: true }, { id: 'k2', text: 'Paid', done: false }], by: '2026-12-31', status: 'active', created: 1, closedAt: null, updatedAt: 1 },
+    { id: 'gexit', title: 'Give Sam an exit', section: 'work', results: [{ id: 'k1', text: 'Shares transferred', done: true }, { id: 'k2', text: 'Paid', done: false }], by: '2026-12-31', status: 'active', created: 1, closedAt: null, updatedAt: 1,
+      plan: { links: [{ from: 'lawyer', to: 'deck' }, { from: 'deck', to: 'kr:k2' }], waits: [] } },
     { id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 },
     { id: 'gold', title: 'Old launch', section: null, results: [], by: null, status: 'achieved', created: 1, closedAt: 2, updatedAt: 2 },
   ];
@@ -221,10 +222,14 @@ describe('goals', () => {
   it('lists the goals, most important first, with what done means and their tasks', async () => {
     const out = await listGoals(ctx(seed()));
     expect(out.goals.map(g => g.id)).toEqual(['gexit', 'grun']);
-    expect(out.goals[0]).toEqual({
+    expect(out.goals[0]).toMatchObject({
       id: 'gexit', title: 'Give Sam an exit', section: 'Work', status: 'active', rank: 1, by: '2026-12-31',
       done_when: [{ text: 'Shares transferred', done: true }, { text: 'Paid', done: false }], open_tasks: 1, done_tasks: 1,
     });
+    // Its flow chart: the deck needs the lawyer, and leads to being paid.
+    expect(out.goals[0].flow.arrows).toEqual([{ from: 'lawyer', to: 'deck' }, { from: 'deck', to: 'kr:k2' }]);
+    expect(out.goals[0].flow.steps.find(s => s.id === 'deck')).toMatchObject({ kind: 'task', state: 'ready', needs: ['lawyer'] });
+    expect(out.goals[0].flow.steps.find(s => s.id === 'kr:k2')).toMatchObject({ kind: 'milestone', title: 'Paid', state: 'open' });
     // On an achieved goal is off-goal now.
     expect(out.off_goal_open_tasks).toBe(2);
     expect((await listGoals(ctx(seed()), { include_closed: true })).goals.map(g => [g.id, g.rank])).toEqual([['gexit', 1], ['grun', 2], ['gold', null]]);

@@ -62,6 +62,19 @@ A list of tasks says what's busy. It doesn't say what matters. So Life is short 
 
 **Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The matrix is your goals down the side and **Urgent · Important · Later** across the top, plus the time each goal got this week. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
 
+### Every goal as a flow chart
+
+Open **Goals → Flow chart** (or click "Moves ‹goal›" on the Next task) and the goal is laid out as a precedence diagram, the way project plans draw dependencies:
+
+- **Left to right.** The goal sits on the left. Each step goes one column after the steps it needs, so the chart lays itself out and stays readable as it grows. Arrows that skip columns get a lane of their own, so they never run behind a step.
+- **An arrow means "finish this first"** (finish-to-start). Steps with no arrow between them are **parallel**.
+- **Standard shapes.** The goal is a *terminator* (pill), tasks are *process* boxes, **Waiting on** steps (a reply, a signature, someone else's work) use the D-shaped *delay*, and the goal's "Done when" lines are pointed **milestones** on the right.
+- **Live.** Every task on the goal is a step, so the chart is always current: **Done**, **Ready** or **Blocked**, with the **critical path** (the chain with the most work left) in your accent colour. A blocked task never comes up as your **Next task** and wears a *Blocked* tag in the matrix.
+- **An editor that keeps up with you.** Drag from a step's dot to the step after it, or click the dot and then the step. Select a step and press **Tab** for the next step or **Enter** for a parallel one, and type its title straight away. Arrow keys move around, **Delete** removes an arrow, **⌘Z** undoes. The side panel edits a step: its title, length and priority, what it needs first and what it unblocks, and something to wait on. Loops are refused.
+- **History.** Every step added, linked, finished, renamed or resolved is logged, so you can see how the plan changed. Download it, or the chart itself as **JSON** or as a **Mermaid** flowchart for GitHub, Notion or any docs tool. Claude's `list_goals` returns each goal's chart too.
+
+The arrows and waiting steps are kept on the goal in your synced settings; the history under `goal-log`. Nothing new to migrate.
+
 ## Features
 
 <table>
@@ -335,7 +348,7 @@ Claude sends you to your planner to sign in (the PIN and a code, Face ID or a pa
 
 | tool | what it does |
 |---|---|
-| `list_goals` | Your goals, most important first: what done means and what's ticked, the date, the section, and how many tasks are open and done on each. *Read-only.* |
+| `list_goals` | Your goals, most important first: what done means and what's ticked, the date, the section, how many tasks are open and done on each, and its flow chart (steps, what each needs first, what's blocked, the critical path). *Read-only.* |
 | `list_tasks` | Open, done or all; by goal, project, due date, time on the calendar or words in the title and notes. Ranked like the backlog, paged with a cursor. *Read-only.* |
 | `get_task` | One task with its notes, what you said when you added it, and its repeat. *Read-only.* |
 | `create_task` | Title, description, due date, priority, goal, project, status, and a time on the calendar or not. |

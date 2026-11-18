@@ -115,8 +115,9 @@ export function buildServer(auth: AuthInfo): McpServer {
   server.registerTool('list_goals', {
     title: 'List goals',
     description: 'The user’s goals, most important first: what each is, its section, its target date, what has to be true for it '
-      + 'to be done (done_when, with what’s ticked), and how many tasks are open and done on it, plus how many open tasks are '
-      + 'off-goal. Goals are set in the app’s Goals panel; this can’t change them.',
+      + 'to be done (done_when, with what’s ticked), how many tasks are open and done on it, and its flow chart: the steps in '
+      + 'order of what depends on what, which are blocked, and the critical path. Plus how many open tasks are off-goal. Goals '
+      + 'and their charts are set in the app; this can’t change them.',
     inputSchema: z.object({ include_closed: z.boolean().optional().describe('Also list achieved and dropped goals. Default false.') }),
     outputSchema: z.object({
       goals: z.array(z.object({
@@ -125,6 +126,16 @@ export function buildServer(auth: AuthInfo): McpServer {
         by: orNull('Target date, YYYY-MM-DD, or null.'),
         done_when: z.array(z.object({ text: z.string(), done: z.boolean() })),
         open_tasks: z.number(), done_tasks: z.number(),
+        flow: z.object({
+          steps: z.array(z.object({
+            id: z.string(), kind: z.enum(['task', 'wait', 'milestone']).describe('task: a task on the goal; wait: something outside the user’s control it waits on; milestone: one of its done-when lines'),
+            title: z.string(), state: z.enum(['done', 'ready', 'blocked', 'reached', 'open']),
+            minutes: z.number().optional(), needs: z.array(z.string()).optional().describe('Step ids that have to be done first'),
+            critical: z.boolean().optional().describe('On the critical path: the chain with the most work left'),
+          })),
+          arrows: z.array(z.object({ from: z.string(), to: z.string() })).describe('from has to be done before to can start'),
+          critical_path: z.array(z.string()),
+        }).describe('The goal’s flow chart, left to right from the goal: steps, what each needs first, and the critical path.'),
       })),
       off_goal_open_tasks: z.number().describe('Open tasks not on any active goal.'),
     }),

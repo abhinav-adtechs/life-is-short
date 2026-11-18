@@ -36,7 +36,7 @@ function dueChoices(now: number) {
  * nothing else waits on it. On one of a repeat's tasks, what the task is goes to the ones to come too.
  */
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet } = usePlanner();
+  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet, blocked } = usePlanner();
   const repeat = repeatOf(t);
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
@@ -149,7 +149,9 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
             {activeGoals.length || goal ? (
               <>
                 <GoalPicker labelledBy="ed-goal" value={goal} onChange={setGoal} />
-                <p className="note">{goal ? 'Time on this counts towards the goal.' : 'Not on a goal. Fine, as long as it’s a choice.'}</p>
+                <p className="note">
+                  {goal ? <>Time on this counts towards the goal. <button type="button" className="link" onClick={() => openSheet('flow', goal)}>{blocked.has(t.id) ? 'Blocked: see' : 'See'} its flow chart</button></> : 'Not on a goal. Fine, as long as it’s a choice.'}
+                </p>
               </>
             ) : (
               <p className="note">No goals yet. <button type="button" className="link" onClick={() => openSheet('goals')}>Set your goals</button> and every task can move one.</p>

@@ -13,6 +13,7 @@ import { usePlanner } from './Planner';
 import { LabelPicker } from './Labels';
 import { radio, radioKeys } from './Controls';
 import { CheckIcon, ChevronDown, ChevronUp, PlusIcon, TargetIcon } from './icons';
+import { useFlowCount } from './Flow';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -123,8 +124,9 @@ function daysLeft(by: string, now: number) {
 function GoalCard({ g, rank, count, week, ever, open, onTasks }: {
   g: Goal; rank: number; count: number; week: GoalTally; ever: GoalTally; open: number; onTasks: () => void;
 }) {
-  const { prefs, changeGoals, toast, now, wide } = usePlanner();
+  const { prefs, changeGoals, toast, now, wide, openSheet } = usePlanner();
   const [editing, setEditing] = useState(false);
+  const steps = useFlowCount(g);
   const section = prefs.labels.find(l => l.id === g.section) ?? null;
   const left = g.by ? daysLeft(g.by, now) : null;
   const ticked = g.results.filter(r => r.done).length;
@@ -176,7 +178,10 @@ function GoalCard({ g, rank, count, week, ever, open, onTasks }: {
         <span className="muted num">{open} open{ever.spent ? ` · ${fmtDur(ever.spent)} all told` : ''}</span>
       </div>
       <div className="goal-acts">
-        <button type="button" className="btn sec sm" onClick={onTasks}>{wide ? 'Its tasks' : 'Tasks'}</button>
+        <button type="button" className="btn sec sm" onClick={() => openSheet('flow', g.id)} title="Its steps as a flow chart">
+          Flow chart{steps.blocked ? <span className="muted num"> · {steps.blocked} blocked</span> : null}
+        </button>
+        <button type="button" className="btn text sm" onClick={onTasks}>{wide ? 'Its tasks' : 'Tasks'}</button>
         <button type="button" className="btn text sm" onClick={() => setEditing(true)}>Edit</button>
         <span className="spacer" />
         <button type="button" className="ib bare" aria-label={`Move ${g.title} up`} disabled={rank === 0} onClick={() => changeGoals(moveGoal(g.id, -1))}><ChevronUp /></button>

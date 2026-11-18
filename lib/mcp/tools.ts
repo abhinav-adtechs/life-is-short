@@ -3,6 +3,7 @@ import type { TaskRepo } from '../repo/types';
 import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
 import { GOALS_KEY, activeGoals, goalRanker, normalizeGoals, pickGoal, type Goal } from '../goals';
+import { buildFlow, toJson } from '../flow';
 import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
@@ -394,11 +395,17 @@ export interface GoalSummary {
   done_when: { text: string; done: boolean }[];
   open_tasks: number;
   done_tasks: number;
+  /**
+   * Its flow chart: every step (tasks on it, things it's waiting on, and its done-when lines as milestones) with its
+   * state and what it needs first, the arrows between them, and the critical path.
+   */
+  flow: Pick<ReturnType<typeof toJson>, 'steps' | 'arrows' | 'critical_path'>;
 }
 
 /** The user's goals, most important first; with include_closed, the achieved and dropped ones after them. */
 export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): Promise<{ goals: GoalSummary[]; off_goal_open_tasks: number }> {
   const { tasks, byLabel, goals } = await load(c);
+  const now = clock(c);
   const live = activeGoals(goals);
   const mine = tasks.filter(t => !isEvent(t));
   const count = (id: string, status: Status) => mine.filter(t => t.goal === id && t.status === status).length;
@@ -408,6 +415,7 @@ export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): P
       id: g.id, title: g.title, section: (g.section && byLabel.get(g.section)?.name) || null, status: g.status,
       rank: g.status === 'active' ? live.indexOf(g) + 1 : null, by: g.by,
       done_when: g.results.map(r => ({ text: r.text, done: r.done })), open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
+      flow: (({ steps, arrows, critical_path }) => ({ steps, arrows, critical_path }))(toJson(g, buildFlow(g, tasks, now))),
     })),
     off_goal_open_tasks: mine.filter(t => t.status === 'open' && !(t.goal && live.some(g => g.id === t.goal))).length,
   };

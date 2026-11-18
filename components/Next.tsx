@@ -24,7 +24,7 @@ function nextWhen(t: Task, now: number) {
  * your day goes.
  */
 export function NextCard({ phone }: { phone?: boolean }) {
-  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf, goalOf, activeGoals } = usePlanner();
+  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf, goalOf, activeGoals, openSheet, blocked } = usePlanner();
   const { focus: f, busy, freeUntil } = useLists();
   const cur = f.now;
   const dayStart = startOfDay(now).getTime() + prefs.dayStart * 3600000;
@@ -64,7 +64,10 @@ export function NextCard({ phone }: { phone?: boolean }) {
       </h1>
       {goal ? (
         <p className="next-goal" style={tint(label?.color)} key={`g:${cur.id}`}>
-          <TargetIcon size={13} /><span className="muted">Moves</span><span className="ell">{goal.title}</span>
+          <button type="button" onClick={() => openSheet('flow', goal.id)} title="See where it sits on the goal’s flow chart">
+            <TargetIcon size={13} /><span className="muted">Moves</span><span className="ell">{goal.title}</span>
+          </button>
+          {blocked.has(cur.id) && <span className="loz">Blocked</span>}
         </p>
       ) : activeGoals.length > 0 && (
         <p className="next-goal off" key={`g:${cur.id}`}><span className="dot none" />Off-goal</p>

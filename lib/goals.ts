@@ -1,4 +1,5 @@
 import type { Task } from './model';
+import { normalizePlan, type Plan } from './flow';
 import { OFF_GOAL, isEvent } from './select';
 import { endOf } from './time';
 
@@ -24,6 +25,8 @@ export interface Goal {
   /** YYYY-MM-DD to get it done by, or null. */
   by: string | null;
   status: GoalStatus;
+  /** Its flow chart: the arrows between its steps and what it's waiting on (lib/flow.ts). Missing for none yet. */
+  plan?: Plan;
   created: number;
   /** When it was achieved or dropped. */
   closedAt: number | null;
@@ -73,6 +76,7 @@ export function normalizeGoals(raw: unknown): Goal[] {
       results,
       by: typeof o.by === 'string' && DAY.test(o.by) ? o.by : null,
       status,
+      ...(o.plan ? (p => (p.links.length || p.waits.length ? { plan: p } : {}))(normalizePlan(o.plan)) : {}),
       created: num(o.created, 0),
       closedAt: status === 'active' ? null : num(o.closedAt, num(o.updatedAt, 0)),
       updatedAt: num(o.updatedAt, 0),

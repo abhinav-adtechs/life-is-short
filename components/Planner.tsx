@@ -16,6 +16,7 @@ import {
 } from '@/lib/google-client';
 import { resolveLabel, type Label } from '@/lib/labels';
 import { activeGoalOf, activeGoals, goalRanker, goalSection, type Goal, type GoalsFn } from '@/lib/goals';
+import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
 import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
@@ -30,6 +31,7 @@ import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
 import { useGoals } from './goalStore';
+import { useGoalLog } from './goalLog';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
@@ -41,7 +43,7 @@ import { Phone } from './Phone';
  * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
  * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
  */
-export type SheetKind = 'goals' | 'analytics' | 'review' | 'share' | 'settings';
+export type SheetKind = 'goals' | 'flow' | 'analytics' | 'review' | 'share' | 'settings';
 
 /** A cell of the matrix: one goal ('' for off-goal) at one priority. */
 export interface Cell { goal: string; priority: Priority }
@@ -120,6 +122,12 @@ export interface PlannerApi {
   goalById: (id: string | null | undefined) => Goal | null;
   /** Give tasks a goal (null takes them off-goal); a goal brings its section. */
   setGoal: (ids: string[], goal: string | null) => void;
+  /** Open tasks held up by a step before them on their goal's chart (lib/flow.ts). */
+  blocked: Set<string>;
+  /** Note changes to a goal's chart in its history. Task changes are noted on their own. */
+  logGoal: (entries: LogEntry[]) => void;
+  /** The history of your goals' charts, oldest first. */
+  readGoalLog: () => Promise<LogEntry[]>;
   chat: Chat;
   /** How you talk: the mic's language, your words, what it mishears (lib/voice.ts). */
   voice: VoiceApi;
@@ -182,7 +190,7 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(goals|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
+const SHEET_HASH = /^#(goals|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -194,6 +202,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slipLog = useSlips(repo);
   const repeats = useRepeats(repo, toast);
   const goals = useGoals(repo, toast);
+  const goalLog = useGoalLog(repo);
+  const { add: logGoal } = goalLog;
   const voice = useVoiceProfile(repo, toast);
   const { record: recordSlips, note: noteSlips } = slipLog;
   const { get: getRepeat, read: readRepeats, change: changeRepeats } = repeats;
@@ -201,13 +211,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   // made anywhere in the planner, goes on to the ones to come.
   const heard = useCallback((changes: Write[]) => {
     recordSlips(changes);
+    logGoal(logFromWrites(changes, Date.now()));
     for (const { after } of changes) {
       const o = after && occurrenceOf(after.id);
       const r = o ? getRepeat(o.repeat) : null;
       if (!after || !r || !followTask(r, after, Date.now())) continue;
       changeRepeats(l => l.map(x => (x.id === r.id ? followTask(x, after, Date.now()) ?? x : x)));
     }
-  }, [recordSlips, getRepeat, changeRepeats]);
+  }, [recordSlips, getRepeat, changeRepeats, logGoal]);
   const store = useTaskStore(repo, msg => toast(msg), heard);
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
@@ -705,7 +716,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     return label?.color ?? a.color;
   }, [prefs.colorBy, labelIndex]);
 
-  const derived = useMemo(() => lists(store.tasks, now, isOff, rank), [store.tasks, now, isOff, rank]);
+  const blocked = useMemo(() => blockedTasks(goals.list, store.tasks, now), [goals.list, store.tasks, now]);
+  const derived = useMemo(() => lists(store.tasks, now, isOff, rank, blocked), [store.tasks, now, isOff, rank, blocked]);
 
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
@@ -713,6 +725,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
     goals: goals.list, activeGoals: liveGoals, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, goalById, setGoal,
+    blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,
     repeats: repeats.list, repeatOf, applyRepeats: repeats.apply, upcomingOn: upcomingDay, deletedText, busyTasks,
@@ -739,10 +752,10 @@ function Ghost({ id, x, y }: { id: string; x: number; y: number }) {
 }
 
 /** Now, Next, the backlog and Done, shared by phone and laptop. Google events are calendar items, not tasks to do. */
-function lists(all: Task[], now: number, isOff: (t: Task) => boolean, rank?: Rank) {
+function lists(all: Task[], now: number, isOff: (t: Task) => boolean, rank?: Rank, blocked?: Set<string>) {
   const live = all.filter(t => !isOff(t));
   const mine = live.filter(t => !isEvent(t));
-  const f = focus(mine, now, rank);
+  const f = focus(mine, now, rank, blocked?.size ? t => blocked.has(t.id) : undefined);
   // Free until the next thing on the calendar today, or busy in a meeting right now.
   const dayEnd = startOfDay(now).getTime() + 864e5;
   const sched = live.filter(t => t.status === 'open' && t.start != null).sort((a, b) => (a.start as number) - (b.start as number));
