@@ -1,6 +1,7 @@
 import type { Priority, Task } from './model';
 import { PRI } from './model';
 import type { Label } from './labels';
+import type { Goal } from './goals';
 import type { WorkHours } from './place';
 import { slipKey, type Slip } from './slips';
 import { fmtDur, fmtTime, shortDate } from './format';
@@ -96,6 +97,8 @@ interface Fact {
   t: Task;
   /** Label id, '' for none. */
   label: string;
+  /** Goal id, '' for off-goal. */
+  goal: string;
   source: Source;
   /** A Google event with a time: its time counts once it's over, and it's never missed. */
   event: boolean;
@@ -111,6 +114,8 @@ export interface Item {
   id: string;
   title: string;
   label: string;
+  /** Goal id, '' for off-goal. */
+  goal: string;
   priority: Priority;
   minutes: number;
   source: Source;
@@ -128,7 +133,7 @@ export interface Item {
 /** A commitment that came due, from a task or a slip. */
 interface Due { item: Item; outcome: Outcome; day: string }
 
-function factOf(t: Task, label: string, now: number): Fact {
+function factOf(t: Task, label: string, goal: string, now: number): Fact {
   const source = sourceOf(t);
   const event = source === 'gcal' && t.start != null;
   let when: number | null = null, workAt = 0;
@@ -150,11 +155,11 @@ function factOf(t: Task, label: string, now: number): Fact {
       : (slot ? endOf(t) <= now : now >= deadline) ? 'missed' : 'pending';
     commit = { at, deadline, slot, outcome };
   }
-  return { t, label, source, event, when, workAt, commit };
+  return { t, label, goal, source, event, when, workAt, commit };
 }
 
 const itemOf = (f: Fact, at: number): Item => ({
-  id: f.t.id, title: f.t.title, label: f.label, priority: f.t.priority, minutes: f.t.minutes, source: f.source,
+  id: f.t.id, title: f.t.title, label: f.label, goal: f.goal, priority: f.t.priority, minutes: f.t.minutes, source: f.source,
   at, slot: f.t.start != null, doneAt: f.t.status === 'done' ? f.t.doneAt : null,
   how: f.commit?.outcome === 'missed' ? 'open' : undefined,
 });
@@ -180,6 +185,8 @@ export interface ReviewInput {
   labels: Label[];
   /** The task's label id: its own, or a Google event's calendar's or account's. Defaults to its own. */
   labelOf?: (t: Task) => string | null;
+  /** Your goals, achieved and dropped ones too, so time spent on them still shows. */
+  goals?: Goal[];
   now: number;
   /** First day of the week: 0 Sunday, 1 Monday, 6 Saturday. */
   firstDow?: number;
@@ -195,6 +202,7 @@ interface Ctx {
   /** Tasks that have missed a slot and moved off it. */
   slipped: Set<string>;
   labels: Label[];
+  goals: Goal[];
   now: number;
   firstDow: number;
   hours: WorkHours;
@@ -202,9 +210,12 @@ interface Ctx {
 
 function context(input: ReviewInput): Ctx {
   const known = new Set(input.labels.map(l => l.id));
+  const goals = input.goals ?? [];
+  const knownGoals = new Set(goals.map(g => g.id));
   const labelOf = input.labelOf ?? ((t: Task) => t.label ?? null);
   const lab = (id: string | null | undefined) => (id && known.has(id) ? id : '');
-  const facts = input.tasks.map(t => factOf(t, lab(labelOf(t)), input.now));
+  const gl = (id: string | null | undefined) => (id && knownGoals.has(id) ? id : '');
+  const facts = input.tasks.map(t => factOf(t, lab(labelOf(t)), gl(t.goal), input.now));
   const dues: Due[] = [];
   for (const f of facts) if (f.commit) dues.push({ item: itemOf(f, f.commit.at), outcome: f.commit.outcome, day: ymd(f.commit.at) });
   // A slip whose task is back on that very slot is told by the task itself.
@@ -215,12 +226,12 @@ function context(input: ReviewInput): Ctx {
     if (seen.has(k) || current.get(s.id) === s.start) continue;
     seen.add(k);
     dues.push({
-      item: { id: s.id, title: s.title, label: lab(s.label), priority: s.priority, minutes: s.minutes, source: 'own', at: s.start, slot: !s.due, doneAt: null, how: s.how },
+      item: { id: s.id, title: s.title, label: lab(s.label), goal: gl(s.goal), priority: s.priority, minutes: s.minutes, source: 'own', at: s.start, slot: !s.due, doneAt: null, how: s.how },
       outcome: 'missed', day: ymd(s.start),
     });
   }
   const doneDays = new Set(facts.filter(f => f.when != null && !f.event).map(f => ymd(f.when as number)));
-  return { facts, dues, doneDays, slipped: new Set((input.slips ?? []).map(s => s.id)), labels: input.labels, now: input.now, firstDow: input.firstDow ?? 1, hours: input.hours ?? { start: 9 * 60, end: 21 * 60 } };
+  return { facts, dues, doneDays, slipped: new Set((input.slips ?? []).map(s => s.id)), labels: input.labels, goals, now: input.now, firstDow: input.firstDow ?? 1, hours: input.hours ?? { start: 9 * 60, end: 21 * 60 } };
 }
 
 export interface Tally { count: number; minutes: number }
@@ -250,6 +261,8 @@ export interface Summary {
   busyDays: number;
   /** Minutes by label id ('' for none), tasks and events together. */
   byLabel: Record<string, number>;
+  /** Minutes by goal id ('' for off-goal), tasks and events together. */
+  byGoal: Record<string, number>;
   score: Score | null;
 }
 
@@ -289,12 +302,13 @@ const outcomes = (): Outcomes => ({ onTime: 0, late: 0, missed: 0, pending: 0 })
 function summarize(c: Ctx, p: Period): Summary {
   const done = tally(), held = tally(), o = outcomes();
   const pri: Record<Priority, Outcomes> = { 1: outcomes(), 2: outcomes(), 3: outcomes() };
-  const byLabel: Record<string, number> = {};
+  const byLabel: Record<string, number> = {}, byGoal: Record<string, number> = {};
   const active = new Set<string>(), busy = new Set<string>();
   for (const f of c.facts) {
     if (!inP(p, f.when)) continue;
     add(f.event ? held : done, f.t.minutes);
     byLabel[f.label] = (byLabel[f.label] ?? 0) + f.t.minutes;
+    byGoal[f.goal] = (byGoal[f.goal] ?? 0) + f.t.minutes;
     if (!f.event) { const d = ymd(f.when); active.add(d); busy.add(d); }
   }
   for (const d of c.dues) {
@@ -308,7 +322,7 @@ function summarize(c: Ctx, p: Period): Summary {
     period: p, done, held, outcomes: o,
     completion: due ? (o.onTime + o.late) / due : null,
     onTimeRate: due ? o.onTime / due : null,
-    activeDays: active.size, busyDays: busy.size, byLabel,
+    activeDays: active.size, busyDays: busy.size, byLabel, byGoal,
     score: scoreOf(o, active.size, busy.size, pri),
   };
 }
@@ -324,6 +338,9 @@ export interface LabelRow {
   share: number;
   outcomes: Outcomes;
 }
+
+/** A goal's line in the review, in the same shape as a label's; '' is off-goal. */
+export type GoalRow = LabelRow & { status: Goal['status'] | null };
 
 export interface PriorityRow { priority: Priority; name: string; done: Tally; outcomes: Outcomes }
 
@@ -346,6 +363,8 @@ export interface Review extends Summary {
   /** The periods leading up to this one, oldest first, ending with it. */
   trend: Summary[];
   labels: LabelRow[];
+  /** Your goals that had time or something due in the period, then off-goal. Empty when you have no goals. */
+  goals: GoalRow[];
   priorities: PriorityRow[];
   sources: Record<Source, Tally>;
   /** Done tasks by length: up to 30 min, 45 min to 1.5 h, 2 h and more. */
@@ -388,8 +407,12 @@ export function review(input: ReviewInput, p: Period): Review {
   const sources: Record<Source, Tally> = { own: tally(), gtask: tally(), gcal: tally() };
   const sizes = { quick: tally(), medium: tally(), deep: tally() };
   const priorities: PriorityRow[] = ([1, 2, 3] as const).map(n => ({ priority: n, name: PRI[n], done: tally(), outcomes: outcomes() }));
-  const rows = new Map<string, LabelRow>([...c.labels.map(l => ({ id: l.id, name: l.name, color: l.color as string | null })), { id: '', name: 'No label', color: null }]
+  const rows = new Map<string, LabelRow>([...c.labels.map(l => ({ id: l.id, name: l.name, color: l.color as string | null })), { id: '', name: 'No section', color: null }]
     .map(l => [l.id, { ...l, done: tally(), held: tally(), minutes: 0, share: 0, outcomes: outcomes() }]));
+  const sectionColor = (id: string | null) => c.labels.find(l => l.id === id)?.color ?? null;
+  const goalRows = new Map<string, GoalRow>([...c.goals.map(g => ({ id: g.id, name: g.title, color: sectionColor(g.section) as string | null, status: g.status as GoalRow['status'] })),
+    { id: '', name: 'Off-goal', color: null, status: null }]
+    .map(g => [g.id, { ...g, done: tally(), held: tally(), minutes: 0, share: 0, outcomes: outcomes() }]));
   const days = daysIn(p);
   const buckets: Bucket[] = p.span === 'day'
     ? Array.from({ length: 24 }, (_, h) => ({ start: atMinutes(p.start, h * 60), end: atMinutes(p.start, (h + 1) * 60), byLabel: {}, minutes: 0, done: 0, held: 0, missed: 0 }))
@@ -405,9 +428,11 @@ export function review(input: ReviewInput, p: Period): Review {
     if (inP(p, t.start)) planned += m;
     if (f.source === 'own' && inP(p, t.created)) created++;
     if (!inP(p, f.when)) continue;
-    const row = rows.get(f.label) as LabelRow;
+    const row = rows.get(f.label) as LabelRow, grow = goalRows.get(f.goal) as GoalRow;
     row.minutes += m;
+    grow.minutes += m;
     add(sources[f.source], m);
+    add(f.event ? grow.held : grow.done, m);
     if (f.event) add(row.held, m);
     else {
       add(row.done, m);
@@ -435,6 +460,7 @@ export function review(input: ReviewInput, p: Period): Review {
     if (!inP(p, it.at)) continue;
     planned += it.slot && (it.how === 'moved' || it.how === 'dropped' || it.how === 'replaced') ? it.minutes : 0;
     (rows.get(it.label) as LabelRow).outcomes[d.outcome]++;
+    (goalRows.get(it.goal) as GoalRow).outcomes[d.outcome]++;
     priorities[it.priority - 1].outcomes[d.outcome]++;
     if (d.outcome === 'missed') {
       lists.missed.push(it);
@@ -449,6 +475,10 @@ export function review(input: ReviewInput, p: Period): Review {
   const labels = [...rows.values()]
     .map(r => ({ ...r, share: total ? r.minutes / total : 0 }))
     .filter(r => r.minutes || cameDue(r.outcomes) || r.outcomes.pending);
+  // Every active goal shows, even with nothing yet: a goal with no time on it is worth seeing.
+  const goals = c.goals.length ? [...goalRows.values()]
+    .map(r => ({ ...r, share: total ? r.minutes / total : 0 }))
+    .filter(r => r.status === 'active' || r.minutes || cameDue(r.outcomes) || r.outcomes.pending) : [];
   for (const l of Object.values(lists)) l.sort((a: Item, b: Item) => a.at - b.at);
 
   // Streaks: a day still under way doesn't break one.
@@ -478,7 +508,7 @@ export function review(input: ReviewInput, p: Period): Review {
   };
 
   const r: Review = {
-    ...base, prev, compared: versus(p.span, partial), trend, labels, priorities, sources, sizes, buckets, hours, weekdays,
+    ...base, prev, compared: versus(p.span, partial), trend, labels, goals, priorities, sources, sizes, buckets, hours, weekdays,
     peakHour: hours[peak] > 0 ? peak : null, best, streak, bestRun, created, leadTime,
     load: { planned, capacity: Math.max(0, c.hours.end - c.hours.start) * days.length },
     lists, backlog, insights: [],
@@ -536,11 +566,21 @@ export function insights(r: Review, now: number): string[] {
     out.push(o.late ? `Nothing missed outright, though ${plural(o.late, 'task')} finished after ${o.late === 1 ? 'its' : 'their'} day.` : 'Nothing missed: everything that came due got done on its day.');
   }
 
+  // How much went to your goals, against the period before.
+  if (r.goals.length && time) {
+    const on = time - (r.byGoal[''] ?? 0), prevTime = r.prev.done.minutes + r.prev.held.minutes;
+    const share = on / time, prevShare = prevTime ? (prevTime - (r.prev.byGoal[''] ?? 0)) / prevTime : null;
+    out.push(`${pct(share)} of your time went to your goals${prevShare != null ? `, ${Math.abs(share - prevShare) < 0.05 ? 'about the same as' : share > prevShare ? `up from ${pct(prevShare)}` : `down from ${pct(prevShare)}`} ${than}` : ''}.`);
+    const idle = r.goals.filter(g => g.id && g.status === 'active' && !g.minutes);
+    if (idle.length === 1) out.push(`Nothing moved “${idle[0].name}” in this stretch.`);
+    else if (idle.length > 1) out.push(`${plural(idle.length, 'goal')} got no time in this stretch.`);
+  }
+
   const top = [...r.labels].sort((a, b) => b.minutes - a.minutes)[0];
   if (top && top.minutes && time) {
     const was = r.prev.byLabel[top.id] ?? 0, prevTime = r.prev.done.minutes + r.prev.held.minutes;
     const share = top.minutes / time, prevShare = prevTime ? was / prevTime : null;
-    const name = top.id ? top.name : 'Unlabelled work';
+    const name = top.id ? top.name : 'Work with no section';
     if (prevShare != null && Math.abs(share - prevShare) >= 0.1) out.push(`${name} took ${pct(share)} of your time, ${share > prevShare ? 'up' : 'down'} from ${pct(prevShare)} ${than}.`);
     else if (r.labels.filter(l => l.minutes).length > 1) out.push(`${name} took the most time: ${fmtDur(top.minutes)}, ${pct(share)} of it.`);
   }

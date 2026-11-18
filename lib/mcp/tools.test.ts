@@ -3,7 +3,7 @@ import type { Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { normalizeRepeats, startRepeat, occurrence, REPEATS_KEY } from '../repeat';
 import { SLIPS_KEY } from '../slips';
-import { TaskError, completeTask, createTask, deleteTask, getTask, listTasks, reopenTask, updateTask, type Ctx } from './tools';
+import { TaskError, completeTask, createTask, deleteTask, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx } from './tools';
 
 const NOW = Date.parse('2026-11-11T10:00:00Z');
 const H = 3600000;
@@ -51,7 +51,7 @@ describe('list_tasks', () => {
     expect(out.tasks.map(t => t.id)).toEqual(['urgent', 'soon', 'cal', 'gt', 'later']);
     expect(out).toMatchObject({ total: 5, next_cursor: null, today: '2026-11-11', timezone: TZ });
     expect(out.tasks.find(t => t.id === 'cal')).toEqual({
-      id: 'cal', title: 'cal', status: 'open', priority: 'important', project: null, due: null,
+      id: 'cal', title: 'cal', status: 'open', priority: 'important', project: null, goal: null, due: null,
       scheduled: '2026-11-11T10:00:00-05:00', minutes: 30, updated: '2026-11-11T00:00:00-05:00',
     });
     expect(out.tasks.find(t => t.id === 'gt')?.source).toBe('google_tasks');
@@ -201,5 +201,66 @@ describe('delete_task', () => {
   });
   it('says when the task isn’t there', async () => {
     await expect(deleteTask(ctx(memRepo([])), 'x')).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+describe('goals', () => {
+  const GOALS = [
+    { id: 'gexit', title: 'Give Sam an exit', section: 'work', results: [{ id: 'k1', text: 'Shares transferred', done: true }, { id: 'k2', text: 'Paid', done: false }], by: '2026-12-31', status: 'active', created: 1, closedAt: null, updatedAt: 1 },
+    { id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 },
+    { id: 'gold', title: 'Old launch', section: null, results: [], by: null, status: 'achieved', created: 1, closedAt: 2, updatedAt: 2 },
+  ];
+  const seed = () => memRepo([
+    task('chore', { priority: 2 }),
+    task('deck', { priority: 2, goal: 'gexit', label: 'work' }),
+    task('lawyer', { priority: 2, goal: 'gexit', label: 'work', status: 'done', doneAt: NOW - H }),
+    task('jog', { priority: 3, goal: 'grun' }),
+    task('relic', { priority: 2, goal: 'gold' }),
+  ], { prefs: LABELS, goals: GOALS });
+
+  it('lists the goals, most important first, with what done means and their tasks', async () => {
+    const out = await listGoals(ctx(seed()));
+    expect(out.goals.map(g => g.id)).toEqual(['gexit', 'grun']);
+    expect(out.goals[0]).toEqual({
+      id: 'gexit', title: 'Give Sam an exit', section: 'Work', status: 'active', rank: 1, by: '2026-12-31',
+      done_when: [{ text: 'Shares transferred', done: true }, { text: 'Paid', done: false }], open_tasks: 1, done_tasks: 1,
+    });
+    // On an achieved goal is off-goal now.
+    expect(out.off_goal_open_tasks).toBe(2);
+    expect((await listGoals(ctx(seed()), { include_closed: true })).goals.map(g => [g.id, g.rank])).toEqual([['gexit', 1], ['grun', 2], ['gold', null]]);
+  });
+
+  it('ranks goal work before off-goal work at the same priority, and filters by goal', async () => {
+    const out = await listTasks(ctx(seed()), {});
+    expect(out.tasks.map(t => t.id)).toEqual(['deck', 'chore', 'relic', 'jog']);
+    expect(out.tasks[0].goal).toBe('Give Sam an exit');
+    expect((await listTasks(ctx(seed()), { goal: 'exit' })).tasks.map(t => t.id)).toEqual(['deck']);
+    expect((await listTasks(ctx(seed()), { goal: 'none' })).tasks.map(t => t.id)).toEqual(['chore', 'relic']);
+    await expect(listTasks(ctx(seed()), { goal: 'world peace' })).rejects.toThrow(/no goal called "world peace".*"Give Sam an exit", "Run a half marathon"/);
+  });
+
+  it('puts a new task on a goal, in its section', async () => {
+    const m = seed();
+    const t = await createTask(ctx(m), { title: 'Send the cap table', goal: 'Give Sam an exit' });
+    expect(t).toMatchObject({ goal: 'Give Sam an exit', project: 'Work' });
+    expect(m.rows.get(t.id)).toMatchObject({ goal: 'gexit', label: 'work' });
+    // A project given wins over the goal's section.
+    const u = await createTask(ctx(m), { title: 'Buy shoes', goal: 'marathon', project: 'Work' });
+    expect(m.rows.get(u.id)).toMatchObject({ goal: 'grun', label: 'work' });
+  });
+
+  it('moves a task onto a goal and off it again', async () => {
+    const m = seed();
+    expect(await updateTask(ctx(m), 'chore', { goal: 'grun' })).toMatchObject({ changed: true, goal: 'Run a half marathon', project: 'Home life' });
+    expect(await updateTask(ctx(m), 'chore', { goal: 'grun' })).toMatchObject({ changed: false });
+    expect(await updateTask(ctx(m), 'chore', { goal: null })).toMatchObject({ changed: true, goal: null });
+    expect(m.rows.get('chore')?.goal).toBeNull();
+  });
+
+  it('has no goals on a database from before them', async () => {
+    const m = seed();
+    m.repo.getSetting = async <T,>(k: string) => { if (k === 'goals') throw new Error('mcp: setting not available'); return (k === 'prefs' ? LABELS : null) as T; };
+    expect(await listGoals(ctx(m))).toEqual({ goals: [], off_goal_open_tasks: 4 });
+    expect((await listTasks(ctx(m), {})).tasks.every(t => t.goal === null)).toBe(true);
   });
 });

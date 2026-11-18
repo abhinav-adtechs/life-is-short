@@ -1,5 +1,6 @@
 import type { ParsedItem, Priority } from './model';
 import { labelNamed, type Label } from './labels';
+import { goalNamed, type Goal } from './goals';
 import { takeRepeat } from './repeat';
 import { DAY_MS, addDays, minsOf, pad, startOfDay, ymd } from './time';
 
@@ -25,17 +26,21 @@ const TAG = /(^|\s)#([\p{L}\p{N}][\p{L}\p{N}_-]*)/gu;
 
 /**
  * Keyword fallback when the AI route can't sort the dump. One item per line or `;`. A #tag naming one of `labels` picks
- * it. "Every Monday and Thursday", "daily" and the like make it a repeat; a day it names is then the first one.
+ * it; one naming an active goal (its title or a key word of it) puts the task on that goal. "Every Monday and
+ * Thursday", "daily" and the like make it a repeat; a day it names is then the first one.
  */
-export function localParse(text: string, nowArg?: number | Date, labels: Label[] = []): ParsedItem[] {
+export function localParse(text: string, nowArg?: number | Date, labels: Label[] = [], goals: Goal[] = []): ParsedItem[] {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
   return String(text).split(/\n+|;\s*/).map(s => s.trim()).filter(Boolean).map(whole => {
     let label: string | null = null;
+    let goal: string | null = null;
     const tagged = whole.replace(TAG, (m, pre: string, tag: string) => {
       const l = labelNamed(labels, tag);
-      if (!l) return m;
-      label ??= l.id;
+      if (l) { label ??= l.id; return pre; }
+      const g = goalNamed(goals, tag);
+      if (!g) return m;
+      goal ??= g.id;
       return pre;
     }).trim() || whole;
     const rep = takeRepeat(tagged);
@@ -101,6 +106,7 @@ export function localParse(text: string, nowArg?: number | Date, labels: Label[]
       date: date ? ymd(date) : null,
       time: time != null && !deadline ? `${pad(Math.floor(time / 60))}:${pad(time % 60)}` : null,
       deadline, notes: '', label,
+      ...(goal ? { goal } : {}),
       ...(rep ? { repeat: rep.rule } : {}),
     };
   });

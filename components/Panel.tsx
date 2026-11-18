@@ -9,11 +9,12 @@ import { Settings } from './Settings';
 import { Analytics } from './Analytics';
 import { Review } from './Review';
 import { SharingSection } from './SharingSection';
+import { Goals } from './Goals';
 
-const TITLES = { analytics: 'Analytics', review: 'Review', share: 'Share', settings: 'Settings', edit: 'Edit task' };
+const TITLES = { goals: 'Goals', analytics: 'Analytics', review: 'Review', share: 'Share', settings: 'Settings', edit: 'Edit task' };
 
 /**
- * Analytics, the review, Share, Settings and the task editor. On a laptop they slide in from the right over the
+ * Goals, Analytics, the review, Share, Settings and the task editor. On a laptop they slide in from the right over the
  * planner, below the header (the review wider, for its charts); on a phone they rise as a sheet. Esc or the scrim
  * closes them.
  */
@@ -29,7 +30,7 @@ export function Panel() {
       <Frame key={kind + (editing?.id ?? '')} kind={kind} wide={wide} onClose={close}>
         {editing ? <Editor key={editing.id} task={editing} onClose={closeEditor} />
           : kind === 'review' ? <Review />
-          : <div className="side-b">{kind === 'analytics' ? <Analytics /> : kind === 'share' ? <SharingSection /> : <Settings />}</div>}
+          : <div className="side-b">{kind === 'goals' ? <Goals /> : kind === 'analytics' ? <Analytics /> : kind === 'share' ? <SharingSection /> : <Settings />}</div>}
       </Frame>
     </>
   );
@@ -39,7 +40,7 @@ function Frame({ kind, wide, onClose, children }: { kind: keyof typeof TITLES; w
   const ref = useRef<HTMLElement>(null);
   useTrap(ref);
   return (
-    <aside ref={ref} className={(wide ? 'side' : 'sheet') + (kind === 'edit' || kind === 'review' ? ` ${kind}` : '')} role="dialog" aria-modal="true" aria-labelledby="panel-h" tabIndex={-1}>
+    <aside ref={ref} className={(wide ? 'side' : 'sheet') + (kind === 'edit' || kind === 'review' || kind === 'goals' ? ` ${kind}` : '')} role="dialog" aria-modal="true" aria-labelledby="panel-h" tabIndex={-1}>
       {!wide && <div className="grab" aria-hidden="true" />}
       <div className="side-h">
         <h2 id="panel-h">{TITLES[kind]}</h2>

@@ -1063,3 +1063,96 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 /* ---------- connecting Claude (components/Connect.tsx) ---------- */
 
 .consent-list{display:flex;flex-direction:column;gap:4px;padding-left:20px;color:var(--ink)}
+
+/* ---------- goals ---------- */
+
+/* The goal matrix: a goal per row, its name a button that filters to it, and this week's time on the right. */
+.mx-grid.goals{align-items:center}
+.mx-grid.goals .mx-rh{height:100%;min-height:36px;padding:0 6px 0 4px;border:0;border-radius:var(--r-sm);background:none;color:var(--ink);font-weight:500;text-align:left;cursor:pointer;transition:background var(--fast)}
+.mx-grid.goals .mx-rh:hover{background:var(--soft)}
+.mx-grid.goals .mx-rh[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--ink)}
+.mx-grid.goals .mx-rh.off{font-weight:400;color:var(--muted)}
+.mx-ch.wk,.mx-wk{text-align:right;padding-right:4px}
+.mx-wk{font-size:var(--t-13);font-weight:600;color:var(--ink)}
+.mx-wk.zero{font-weight:400;color:var(--faint)}
+.mx-grid.goals.ph .mx-rh{min-height:44px;font-size:var(--t-13)}
+.mx-goals{flex:none;display:flex;align-items:center;gap:12px;margin:0 12px 12px;padding:12px 14px;border:1px dashed var(--hair2);border-radius:var(--r-md);background:var(--bg)}
+.mx-goals .note{flex:1;color:var(--ink)}
+.mx-goals.ph{margin:12px 16px 0;background:var(--raised)}
+.mx-fgrid.goals{grid-template-columns:minmax(150px,1.1fr) minmax(0,1fr) minmax(0,1.5fr) minmax(0,1fr)}
+.mx-flab-t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mx-flab .dot{margin-top:4px;align-self:flex-start}
+.ell2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:17px}
+.gtag{flex:none;max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-12);color:var(--muted)}
+.gtag.off{color:var(--faint)}
+.gempty-i{flex:none;display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink)}
+
+/* The Next card says which goal the task moves. */
+.next-goal{display:flex;align-items:center;gap:6px;min-width:0;margin:8px 0 0;font-size:var(--t-14);line-height:20px;font-weight:500;color:var(--ink);animation:lisIn 260ms var(--ease) both}
+.next-goal svg{flex:none;color:var(--c,var(--accent))}
+.next-goal.off{font-weight:400;color:var(--muted)}
+.next-goal .dot{width:9px;height:9px}
+
+/* The header's "On goals" metric opens Goals. */
+.metric.mlink{height:28px;margin:0 -8px;padding:0 8px;border:0;border-radius:var(--r-sm);background:none;font:inherit;color:inherit;cursor:pointer;transition:background var(--fast)}
+.metric.mlink:hover{background:var(--soft)}
+.metric.mlink svg{color:var(--muted)}
+.bar.ongoal i{background:var(--accent)}
+
+/* The Goals panel. */
+.side.goals{width:min(500px,calc(100vw - 24px))}
+.gpanel{display:flex;flex-direction:column;gap:28px}
+.gweek{display:flex;flex-direction:column;gap:8px}
+.gweek-big{margin:0;font-size:var(--t-20);line-height:26px;font-weight:600;letter-spacing:-.015em}
+.gweek-big b{font-size:var(--t-28);letter-spacing:-.02em}
+.gbar{display:flex;gap:2px;height:10px;border-radius:5px;background:var(--soft);overflow:hidden}
+.gbar i{display:block;min-width:4px;background:var(--c,var(--muted));transform-origin:left;animation:var(--bar-in)}
+.gbar i.off{background:repeating-linear-gradient(135deg,var(--faint) 0 3px,transparent 3px 6px)}
+.gempty{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:12px;padding:16px;border:1px dashed var(--hair2);border-radius:var(--r-md)}
+.gempty p{margin:0}
+.goal-list{display:flex;flex-direction:column;gap:10px;margin:12px 0 0;padding:0;list-style:none}
+.gcard{position:relative;display:flex;flex-direction:column;gap:8px;padding:14px 14px 10px 16px;border:1px solid var(--hair2);border-radius:var(--r-md);background:var(--raised);animation:var(--row-in)}
+.gcard::before{content:"";position:absolute;left:-1px;top:10px;bottom:10px;width:3px;border-radius:0 2px 2px 0;background:var(--c,var(--faint))}
+.gcard.editing{padding:16px}
+.gcard.new{margin-top:12px}
+.goal-h{display:flex;align-items:center;gap:7px;min-width:0;font-size:var(--t-12);line-height:16px}
+.goal-h .dot{background:var(--c,transparent)}
+.goal-n{display:inline-grid;place-items:center;flex:none;width:18px;height:18px;border-radius:50%;background:var(--ink);color:var(--raised);font-size:var(--t-11);font-weight:700}
+.goal-t{margin:0;font-size:var(--t-17);line-height:23px;font-weight:600;letter-spacing:-.01em;text-wrap:pretty}
+.krs{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
+.kr{display:flex;align-items:flex-start;gap:9px;width:100%;padding:3px 0;border:0;background:none;font-size:var(--t-14);line-height:20px;text-align:left;color:var(--ink);cursor:pointer}
+.kbox{flex:none;display:inline-grid;place-items:center;width:16px;height:16px;margin-top:2px;border:1.5px solid var(--faint);border-radius:var(--r-xs);color:transparent;transition:background var(--fast),border-color var(--fast)}
+.kr:hover .kbox{border-color:var(--muted)}
+.kr.on .kbox{border-color:var(--c,var(--ink));background:var(--c,var(--ink));color:#fff}
+.kr.on>span:last-child{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--faint)}
+.goal-m{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;font-size:var(--t-13);line-height:18px}
+.goal-m b{font-weight:600}
+.goal-acts{display:flex;align-items:center;gap:2px;margin:2px -6px 0;padding-top:8px;border-top:1px solid var(--hair)}
+.goal-acts .btn.sec{margin-left:6px;margin-right:4px}
+.gform{display:flex;flex-direction:column;gap:14px}
+.gadd{margin-top:12px}
+.goff{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--r-md);background:var(--bg)}
+.goff-h{display:flex;align-items:center;gap:8px}
+.goff-h h3{margin:0;font-size:var(--t-15);font-weight:600}
+.gclosed-t{font-size:var(--t-13);font-weight:600;cursor:pointer}
+.gclosed{display:flex;flex-direction:column;margin:8px 0 0;padding:0;list-style:none}
+.gclosed li{display:flex;align-items:center;gap:8px;min-height:40px;border-bottom:1px solid var(--hair);font-size:var(--t-14)}
+.goal-chips .gchip{max-width:100%}
+.goal-chips .gchip .ell{max-width:240px}
+.goal-chips .gchip.off{color:var(--muted)}
+.goal-chips .gchip[aria-checked="true"].off{color:var(--raised)}
+.sheet .gpanel{gap:24px}
+.sheet .goal-t{font-size:var(--t-17)}
+/* A phone has little room for a goal's name: let it take two lines. */
+.mx-grid.goals.ph .mx-rh{gap:6px;padding:2px 4px 2px 2px}
+.mx-grid.goals.ph .mx-rh .ell{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:var(--t-12);line-height:15px}
+.goal-acts{flex-wrap:wrap}
+.sheet .goal-acts .btn.text{padding:0 6px}
+.sheet .goal-acts .btn.sec{margin-left:4px}
+.sec-from{display:inline-flex;align-items:center;gap:6px}
+.rv-hbar i.off{background:repeating-linear-gradient(135deg,var(--faint) 0 3px,transparent 3px 6px)}
+.rv-table tr.rv-off th{font-weight:400;color:var(--muted)}
+.rv-lab .ell{max-width:220px}
+.sheet .goal-acts{gap:0;margin:2px -8px 0}
+.sheet .goal-acts .btn.sec{margin:0 2px 0 8px}
+.sheet .goal-acts .ib{width:30px}

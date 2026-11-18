@@ -21,6 +21,7 @@ const fields = {
   deadline: { type: 'boolean' },
   notes: { type: 'string' },
   label: { ...nullable('string'), description: 'label id' },
+  goal: { ...nullable('string'), description: 'goal id, or null for off-goal; "none" in an update takes it off its goal' },
   repeat: {
     anyOf: [{
       type: 'object',
@@ -47,7 +48,7 @@ export const RESPONSE_SCHEMA = {
     heard: { type: 'string', description: 'What they said as they meant it, for a dictation; "" when typed' },
     add: {
       type: 'array',
-      items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes', 'label', 'repeat'] },
+      items: { type: 'object', properties: fields, required: ['title', 'priority', 'minutes', 'date', 'time', 'deadline', 'notes', 'label', 'goal', 'repeat'] },
     },
     update: {
       type: 'array',

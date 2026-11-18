@@ -13,15 +13,18 @@ import { PhoneCalendar } from './Calendar';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
 import { Ambient } from './Ambient';
-import { AnalyticsIcon, MoreIcon, SettingsIcon, ShareIcon } from './icons';
+import { AnalyticsIcon, MoreIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
+import { useGoalWeek } from './Goals';
 
 const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
-/** The ••• menu: how the day and week are going, then Analytics, Share and Settings. */
+/** The ••• menu: how the day and week are going and how much went to goals, then Goals, Analytics, Share and Settings. */
 function Menu({ onClose }: { onClose: () => void }) {
-  const { tasks, now, prefs, openSheet, inbox } = usePlanner();
+  const { tasks, now, prefs, openSheet, inbox, activeGoals } = usePlanner();
   const m = progress(tasks, now, prefs.weekStart);
-  const go = (k: 'analytics' | 'share' | 'settings') => { onClose(); openSheet(k); };
+  const g = useGoalWeek();
+  const share = g.share == null ? null : Math.round(g.share * 100);
+  const go = (k: 'goals' | 'analytics' | 'share' | 'settings') => { onClose(); openSheet(k); };
   return (
     <>
       <div className="menu-out" onClick={onClose} />
@@ -29,8 +32,10 @@ function Menu({ onClose }: { onClose: () => void }) {
         <div className="menu-m">
           <div><div className="menu-r"><span className="muted">Today</span><b className="num">{m.today.done} of {m.today.total} done</b></div><span className="bar wide"><i style={{ width: pct(m.today.done, m.today.total) }} /></span></div>
           <div><div className="menu-r"><span className="muted">This week</span><b className="num">{m.week.done} of {m.week.total} done</b></div><span className="bar wide"><i style={{ width: pct(m.week.done, m.week.total) }} /></span></div>
+          {activeGoals.length > 0 && <div><div className="menu-r"><span className="muted">On goals this week</span><b className="num">{share == null ? '–' : `${share}%`}</b></div><span className="bar wide ongoal"><i style={{ width: `${share ?? 0}%` }} /></span></div>}
           <div className="menu-r"><span className="muted">Backlog</span><b className="num">{m.backlog.open} open · {m.backlog.urgent} urgent</b></div>
         </div>
+        <button type="button" role="menuitem" onClick={() => go('goals')}><TargetIcon size={17} /><span>Goals</span><span className="muted sm">{activeGoals.length ? `${activeGoals.length} in focus` : 'Set them'}</span></button>
         <button type="button" role="menuitem" onClick={() => go('analytics')}><AnalyticsIcon size={17} /><span>Analytics</span><span className="muted sm">Full breakdown</span></button>
         {hasSupabase() && <button type="button" role="menuitem" onClick={() => go('share')}><ShareIcon size={17} /><span>Share</span>{inbox > 0 && <span className="muted sm">{inbox} waiting</span>}</button>}
         <button type="button" role="menuitem" data-settings-button="" onClick={() => go('settings')}><SettingsIcon size={17} /><span>Settings</span></button>
@@ -41,10 +46,10 @@ function Menu({ onClose }: { onClose: () => void }) {
 
 /** While a task is picked, it takes the Next card's place: tap a time on the calendar below. */
 function SchedulingCard() {
-  const { picked, setPicked, store, labelOf, now } = usePlanner();
+  const { picked, setPicked, store, labelOf, goalOf, now } = usePlanner();
   const t = picked ? store.get(picked) : undefined;
   if (!t) return null;
-  const meta = [PRI[t.priority], labelOf(t)?.name, fmtDur(t.minutes), t.due ? dueLabel(t.due, now).text : null].filter(Boolean).join(' · ');
+  const meta = [PRI[t.priority], goalOf(t)?.title ?? labelOf(t)?.name, fmtDur(t.minutes), t.due ? dueLabel(t.due, now).text : null].filter(Boolean).join(' · ');
   return (
     <section className="ph-pick" aria-label="Scheduling" role="status">
       <div className="ph-pick-b">
@@ -58,8 +63,8 @@ function SchedulingCard() {
 }
 
 /**
- * The phone planner: the task you're on, then the matrix or the calendar a tab away. The chat bar sits under your
- * thumb and rises into a sheet; Analytics, Share and Settings are in the ••• menu.
+ * The phone planner: the task you're on, then the goal matrix or the calendar a tab away. The chat bar sits under your
+ * thumb and rises into a sheet; Goals, Analytics, Share and Settings are in the ••• menu.
  */
 export function Phone() {
   const { tasks, now, prefs, editorId, sheet, chat, picked, phoneTab, setPhoneTab } = usePlanner();

@@ -7,6 +7,7 @@ import type { TaskRepo } from '@/lib/repo/types';
 import { applyCapture, promptContext, type Via } from '@/lib/capture';
 import { changesOf, changedFields, commitChanges, draftOf, kindOf, shownIn, type Change, type ChangeKind } from '@/lib/plan';
 import type { Label } from '@/lib/labels';
+import { activeGoals, type Goal } from '@/lib/goals';
 import { buildPrompt, type PromptVoice } from '@/lib/prompt';
 import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
@@ -25,6 +26,7 @@ import { usePlanner } from './Planner';
 import type { Store } from './store';
 import { LENGTHS, lenLabel } from './Editor';
 import { LabelPicker } from './Labels';
+import { GoalPicker } from './Goals';
 import { ArrowUpIcon, ChatIcon, HistoryIcon, MicIcon, StopIcon, XIcon } from './icons';
 import { Toast } from './Toast';
 import { DropTray } from './Tray';
@@ -122,10 +124,12 @@ const NOTES: Partial<Record<Via, string>> = {
  * accept it. Say more to change the plan, or edit its cards by hand. Accepting or discarding files the conversation
  * away in your history and starts a fresh one.
  */
-export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, repeats, voice }: {
+export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, goals, repeats, voice }: {
   store: Store; repo: TaskRepo; liveTasks: () => Task[]; busyTasks: () => Task[]; hours: WorkHours; toast: (msg: string, undo?: () => void) => void;
   /** Your labels, and the label a task counts as (a Google event takes its calendar's). */
   labels: Label[]; labelId: (t: Task) => string | null;
+  /** Your goals (lib/goals.ts): the AI puts each task on the one it moves, or off-goal. */
+  goals: Goal[];
   /** Your repeats, the one a task is one of, and how to change them. */
   repeats: { list: Repeat[]; repeatOf: (t: Task) => Repeat | null; apply: (ops: RepeatOp[]) => () => void };
   /** How you talk (lib/voice.ts): what the mic listens for, what the AI is told, and what each chat teaches. */
@@ -239,12 +243,15 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
       // Slotting goes around the repeating tasks still to come, too.
       const busy = busyTasks();
       const ruleOf = (id: string) => { const t = store.get(id); return (t && repeats.repeatOf(t)?.rule) ?? null; };
-      const { refs, ctx } = promptContext(tasks, labelId, repeats.repeatOf);
+      const live0 = activeGoals(goals);
+      const goalId = (t: Task) => (t.goal && live0.some(g => g.id === t.goal) ? t.goal : null);
+      const { refs, ctx } = promptContext(tasks, labelId, repeats.repeatOf, goalId);
       const live = plan ? plan.changes.filter(c => !c.skip) : [];
       const refOf = new Map([...refs].map(([ref, id]) => [id, ref]));
       const convo = plan ? { earlier, draft: draftOf(live, refOf) } : undefined;
       const v: PromptVoice = { spoken, doubts: you.doubts, learn: profile.learn, ...voiceHints(profile) };
-      const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo, v));
+      const pg = live0.map(g => ({ id: g.id, title: g.title, section: g.section, results: g.results.filter(r => !r.done).map(r => r.text), by: g.by }));
+      const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo, v, pg));
       if (thread.current !== t0) return;
       heard = spoken && via === 'ai' ? heardOf(result?.heard, text) : null;
       let changes: Change[];
@@ -253,9 +260,9 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
         // No model to revise the plan: keep it, and add whatever the keywords find in what you just said.
         const view = new Map(busy.map(x => [x.id, x]));
         for (const c of live) view.set(c.id, c.after);
-        changes = [...live, ...changesOf(applyCapture({ text, tasks: [...view.values()], refs: new Map(), result: null, via, hours, labels }))];
+        changes = [...live, ...changesOf(applyCapture({ text, tasks: [...view.values()], refs: new Map(), result: null, via, hours, labels, goals }))];
       } else {
-        const out = applyCapture({ text: [...earlier, text].join('\n'), tasks: busy, refs, result, via, hours, labels, revise: !!plan, ruleOf });
+        const out = applyCapture({ text: [...earlier, text].join('\n'), tasks: busy, refs, result, via, hours, labels, goals, revise: !!plan, ruleOf });
         changes = changesOf(out);
         how = out.via;
       }
@@ -271,7 +278,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
       if (thread.current === t0) { busyRef.current = false; setBusy(false); }
     }
     setMsgs(m => m.map(x => (x.id === waitId ? msg : x.id === youId && heard ? { ...x, heard } : x)));
-  }, [liveTasks, busyTasks, store, repeats, hours, labels, labelId, setDraft, setMsgs, past, profile, correct, setFixing, setTeaching]);
+  }, [liveTasks, busyTasks, store, repeats, hours, labels, labelId, goals, setDraft, setMsgs, past, profile, correct, setFixing, setTeaching]);
 
   /** What the mic has typed so far, before any fix, with where it wasn't sure. */
   const micSoFar = (): Spoken | null => {
@@ -364,7 +371,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
   const accept = useCallback(() => {
     const plan = lastPlan(msgsRef.current);
     if (!plan || busyRef.current) return;
-    const { puts, removes, ops, summary } = commitChanges(plan.changes, store.get, Date.now(), labels, repeats.list);
+    const { puts, removes, ops, summary } = commitChanges(plan.changes, store.get, Date.now(), labels, repeats.list, undefined, goals);
     if (!puts.length && !removes.length && !ops.length) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
     // The repeats first, so the tasks written next already belong to them.
     const unrepeat = repeats.apply(ops);
@@ -380,7 +387,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     }
     reset();
     setOpen(false);
-  }, [store, toast, remember, reset, labels, repeats, profile.learn, voice]);
+  }, [store, toast, remember, reset, labels, goals, repeats, profile.learn, voice]);
 
   const discard = useCallback(() => {
     remember(said(msgsRef.current), 'Discarded');
@@ -490,15 +497,18 @@ const VERB: Record<ChangeKind, string> = { add: 'Add', done: 'Tick off', move: '
 const whenText = (t: Pick<Task, 'start'>, now: number) => (t.start != null ? fmtWhen(t.start, now) : 'Backlog');
 
 /** The line under a change: everything about a new task, only what changes for one you have. */
-function metaOf(c: Change, now: number, labels: Label[]): { text: string; hot?: boolean }[] {
+function metaOf(c: Change, now: number, labels: Label[], goals: Goal[]): { text: string; hot?: boolean }[] {
   const a = c.after;
   const name = (id: string | null | undefined) => labels.find(l => l.id === id)?.name;
+  const goal = (id: string | null | undefined) => goals.find(g => g.id === id)?.title;
   if (!c.before) {
     const label = name(a.label);
     const due = a.due ? dueLabel(a.due, now) : null;
+    // With goals set, what it moves (or that it's off-goal) says more than its section.
+    const where = goals.some(g => g.status === 'active') ? goal(a.goal) ?? 'Off-goal' : label;
     return [
       { text: PRI[a.priority], hot: a.priority === 1 },
-      ...(label ? [{ text: label }] : []),
+      ...(where ? [{ text: where }] : []),
       { text: fmtDur(a.minutes) },
       // A repeat: how, and its first one.
       ...(c.repeat ? [
@@ -518,7 +528,8 @@ function metaOf(c: Change, now: number, labels: Label[]): { text: string; hot?: 
     if (f === 'minutes') out.push({ text: `${fmtDur(b.minutes)} → ${fmtDur(a.minutes)}` });
     if (f === 'due') out.push({ text: a.due ? dueLabel(a.due, now).text : 'No due date' });
     if (f === 'title') out.push({ text: `Was “${b.title}”` });
-    if (f === 'label') out.push({ text: `${name(b.label) ?? 'No label'} → ${name(a.label) ?? 'No label'}` });
+    if (f === 'label' && !changedFields(b, a).includes('goal')) out.push({ text: `${name(b.label) ?? 'No section'} → ${name(a.label) ?? 'No section'}` });
+    if (f === 'goal') out.push({ text: `${goal(b.goal) ?? 'Off-goal'} → ${goal(a.goal) ?? 'Off-goal'}` });
     if (f === 'notes' && a.notes) out.push({ text: 'Adds a note' });
   }
   return out;
@@ -648,7 +659,7 @@ const SHOWN_IN = { calendar: 'on the calendar', matrix: 'in the matrix', both: '
 
 /** The plan: one row per change, ticked to keep. Apply writes the ticked ones; until then they're dashed where they'd land. */
 function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boolean }) {
-  const { chat, now, prefs } = usePlanner();
+  const { chat, now, prefs, goals } = usePlanner();
   const [editing, setEditing] = useState<string | null>(null);
   const kept = m.changes.filter(c => !c.skip).length;
   const where = shownIn(m.changes);
@@ -681,7 +692,7 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
                   onClick={() => setEditing(c.id)}>
                   {phone && <span className="plan-v">{VERB[kind]}</span>}
                   <span className={'plan-t' + (kind === 'done' ? ' struck' : '')}>{c.after.title}</span>
-                  <span className="plan-m">{metaOf(c, now, prefs.labels).map((x, i) => <span key={i} className={x.hot ? 'hot' : undefined}>{i ? ' · ' : ''}{x.text}</span>)}</span>
+                  <span className="plan-m">{metaOf(c, now, prefs.labels, goals).map((x, i) => <span key={i} className={x.hot ? 'hot' : undefined}>{i ? ' · ' : ''}{x.text}</span>)}</span>
                 </button>
               </div>
             );
@@ -703,7 +714,7 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
 
 /** Edit one change in place. Day and Start work like the task editor's: a day alone takes that day's first free slot. */
 function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
-  const { chat, busyTasks, hours, prefs, now } = usePlanner();
+  const { chat, busyTasks, hours, prefs, now, goals, activeGoals } = usePlanner();
   const t = c.after;
   const id = useId();
   const [title, setTitle] = useState(t.title);
@@ -715,6 +726,7 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
   const [due, setDue] = useState(t.due || '');
   const [notes, setNotes] = useState(t.notes || '');
   const [label, setLabel] = useState<string | null>(t.label ?? null);
+  const [goal, setGoal] = useState<string | null>(t.goal ?? null);
   // Only a new task can be made to repeat here.
   const [repeat, setRepeat] = useState<Rule | null>(c.repeat ?? null);
   const first = useRef<HTMLTextAreaElement>(null);
@@ -723,7 +735,9 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
 
   const save = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const fields = { title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title, priority, minutes, notes: notes.trim(), label };
+    // A goal brings its section.
+    const g = goal ? goals.find(x => x.id === goal) : undefined;
+    const fields = { title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title, priority, minutes, notes: notes.trim(), label: g?.section ?? label, goal };
     if (repeat) {
       // Its first one: at its time on its day, else in the backlog, due that day.
       const pl = placeFirst(repeat, { date: date || null, time: time || null, deadline: false }, Date.now());
@@ -763,10 +777,16 @@ function CardEditor({ c, onDone }: { c: Change; onDone: () => void }) {
           ))}
         </div>
       </div>
-      {prefs.labels.length > 0 && (
+      {activeGoals.length > 0 && (
         <div className="fld">
-          <span className="flabel" id={`${id}-b`}>Label</span>
-          <LabelPicker labelledBy={`${id}-b`} value={label} onChange={setLabel} />
+          <span className="flabel" id={`${id}-g`}>Goal</span>
+          <GoalPicker labelledBy={`${id}-g`} value={goal} onChange={setGoal} />
+        </div>
+      )}
+      {prefs.labels.length > 0 && !(goal && goals.find(x => x.id === goal)?.section) && (
+        <div className="fld">
+          <span className="flabel" id={`${id}-b`}>Section</span>
+          <LabelPicker labelledBy={`${id}-b`} value={label} onChange={setLabel} none="No section" />
         </div>
       )}
       <div className="two">

@@ -20,7 +20,7 @@ import { ClaudeSection } from './ClaudeSection';
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
   { id: 'calendar', name: 'Calendar' },
-  { id: 'labels', name: 'Labels' },
+  { id: 'labels', name: 'Sections' },
   { id: 'repeats', name: 'Repeats' },
   { id: 'voice', name: 'Voice' },
   { id: 'google', name: 'Calendars' },
@@ -236,10 +236,10 @@ function CalendarPrefs() {
       </Opt>
 
       <Opt label="Colour events by" stack
-        note="Label colours tasks, and Google events by their calendar’s or account’s label. Account and Calendar colour pulled events only.">
+        note="Section colours tasks (a task on a goal takes its goal’s), and Google events by their calendar’s or account’s section. Account and Calendar colour pulled events only.">
         {({ labelId }) => (
           <Choice labelledBy={labelId} value={prefs.colorBy} onChange={colorBy => setPrefs({ colorBy })}
-            options={[{ value: 'label', label: 'Label' }, { value: 'account', label: 'Account' }, { value: 'calendar', label: 'Calendar', hint: 'Google calendar' }, { value: 'priority', label: 'Priority' }, { value: 'none', label: 'None' }]} />
+            options={[{ value: 'label', label: 'Section' }, { value: 'account', label: 'Account' }, { value: 'calendar', label: 'Calendar', hint: 'Google calendar' }, { value: 'priority', label: 'Priority' }, { value: 'none', label: 'None' }]} />
         )}
       </Opt>
 

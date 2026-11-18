@@ -87,7 +87,7 @@ describe('labels when capturing', () => {
     expect(ctx[0].label).toBe('work');
     const p = buildPrompt('call mom', NOW, ctx, undefined, L);
     expect(p).toContain('work = Superjoin, side = Series N, personal = Personal, others = Helping others');
-    expect(p).toContain('| due | label)');
+    expect(p).toContain('| due | label | goal)');
     expect(p).toMatch(/T1 \| P2 \| Board deck \| backlog \| - \| work/);
     expect(p).toContain('"label": the id of the label');
     expect(buildPrompt('x', NOW)).toContain('"label": null');

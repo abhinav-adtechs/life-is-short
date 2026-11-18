@@ -31,7 +31,7 @@ function minuteScale(max: number) {
 
 /** Everything the planner knows, added up for a day, a week or a month: the review panel, at #review/<span>. */
 export function Review() {
-  const { tasks, slips, refreshSlips, prefs, labelOf, isOff, hours, now, section, openSheet, wide } = usePlanner();
+  const { tasks, slips, refreshSlips, prefs, labelOf, isOff, hours, now, section, openSheet, wide, goals } = usePlanner();
   const page = useRef<HTMLDivElement>(null);
   const span: Span = section === 'day' || section === 'month' ? section : 'week';
   const [anchor, setAnchor] = useState(now);
@@ -42,9 +42,9 @@ export function Review() {
 
   const labels = useMemo(() => new Map(prefs.labels.map(l => [l.id, l])), [prefs.labels]);
   const data = useMemo(() => review({
-    tasks: tasks.filter(t => !isOff(t)), slips, labels: prefs.labels, labelOf: t => labelOf(t)?.id ?? null,
+    tasks: tasks.filter(t => !isOff(t)), slips, labels: prefs.labels, labelOf: t => labelOf(t)?.id ?? null, goals,
     now, firstDow: prefs.weekStart, hours,
-  }, period), [tasks, slips, prefs.labels, prefs.weekStart, labelOf, isOff, now, hours, period.start, period.span]);
+  }, period), [tasks, slips, prefs.labels, prefs.weekStart, labelOf, isOff, goals, now, hours, period.start, period.span]);
 
   const go = (p: Period) => { setAnchor(Math.min(p.start, now)); page.current?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); };
   // The span lives in the address, so a reload opens the same one; switching replaces it, so Back still closes the panel.
@@ -86,6 +86,7 @@ export function Review() {
         {!quiet && <>
           <Tiles {...ctx} />
           <Activity {...ctx} />
+          <GoalTime {...ctx} />
           <WorkTypes {...ctx} />
           <Outcomes {...ctx} />
           {span !== 'day' && data.done.count > 0 && <Rhythm {...ctx} />}
@@ -251,7 +252,7 @@ function Columns({ cols, top, ticks, fmt, show = fmtDur, label, height = 168 }: 
 
 /** Label segments for a column, in your label order, unlabelled last. */
 function segsOf(byLabel: Record<string, number>, labels: Map<string, Label>) {
-  return [...labels.values(), null].map(l => ({ name: l?.name ?? 'No label', color: l?.color ?? NONE, value: byLabel[l?.id ?? ''] ?? 0 }));
+  return [...labels.values(), null].map(l => ({ name: l?.name ?? 'No section', color: l?.color ?? NONE, value: byLabel[l?.id ?? ''] ?? 0 }));
 }
 
 function Legend({ items, missed }: { items: { name: string; color: string }[]; missed?: boolean }) {
@@ -293,7 +294,7 @@ function Activity({ data, labels, span, pickDay }: Ctx) {
   }));
   const used = data.labels.filter(l => l.minutes).map(l => ({ name: l.name, color: l.color ?? NONE }));
   return (
-    <Card wide title={span === 'day' ? 'Hour by hour' : 'Day by day'} sub={span === 'day' ? 'Time on tasks and in meetings, by label' : 'Time on tasks and in meetings, by label. Pick a day to see it.'}
+    <Card wide title={span === 'day' ? 'Hour by hour' : 'Day by day'} sub={span === 'day' ? 'Time on tasks and in meetings, by section' : 'Time on tasks and in meetings, by section. Pick a day to see it.'}
       tools={<TableSwitch on={table} set={setTable} />}>
       {table ? (
         <div className="rv-scroll"><table className="rv-table">
@@ -321,19 +322,52 @@ function TableSwitch({ on, set }: { on: boolean; set: (v: boolean) => void }) {
 
 /* ---------- where the time went ---------- */
 
+/** Time on each goal and off-goal: the share of your time that moved something you care about. */
+function GoalTime({ data }: Ctx) {
+  const { openSheet } = usePlanner();
+  const rows = data.goals;
+  const total = data.done.minutes + data.held.minutes;
+  if (!rows.length) {
+    return (
+      <Card title="Goals" sub="No goals set">
+        <p className="note">Set the four or five outcomes you’re working towards, and this shows how much of your time moved each one. <button type="button" className="link" onClick={() => openSheet('goals')}>Set your goals</button></p>
+      </Card>
+    );
+  }
+  const off = rows.find(r => !r.id)?.minutes ?? 0;
+  return (
+    <Card title="Goals" sub={total ? `${pct((total - off) / total)} of ${fmtDur(total)} on goals` : 'No time logged yet'}>
+      {total > 0 && (
+        <div className="rv-hbar" role="img" aria-label={rows.filter(r => r.minutes).map(r => `${r.name} ${pct(r.share)}`).join(', ')}>
+          {rows.filter(r => r.minutes).map(r => <i key={r.id || '-'} className={r.id ? undefined : 'off'} style={{ flexGrow: r.minutes, '--c': r.color ?? NONE } as React.CSSProperties} title={`${r.name}: ${fmtDur(r.minutes)}`} />)}
+        </div>
+      )}
+      <div className="rv-scroll"><table className="rv-table">
+        <thead><tr><th scope="col">Goal</th><th scope="col">Time</th><th scope="col">Share</th><th scope="col">Done</th><th scope="col">Missed</th></tr></thead>
+        <tbody>{rows.map(r => (
+          <tr key={r.id || '-'} className={r.id ? undefined : 'rv-off'}>
+            <th scope="row"><span className="rv-lab">{dot(r.color)}<span className="ell">{r.name}</span>{r.status && r.status !== 'active' && <span className="muted sm">{r.status}</span>}</span></th>
+            <td>{fmtDur(r.minutes)}</td><td>{pct(r.share)}</td><td>{r.done.count + r.held.count}</td><td>{r.outcomes.missed}</td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </Card>
+  );
+}
+
 function WorkTypes({ data }: Ctx) {
   const rows = data.labels;
   const total = data.done.minutes + data.held.minutes;
   const meetings = rows.some(r => r.held.minutes);
   return (
-    <Card title="Type of work" sub={total ? `${fmtDur(total)} in all, by label` : 'No time logged yet'}>
+    <Card title="Type of work" sub={total ? `${fmtDur(total)} in all, by section` : 'No time logged yet'}>
       {total > 0 && (
         <div className="rv-hbar" role="img" aria-label={rows.filter(r => r.minutes).map(r => `${r.name} ${pct(r.share)}`).join(', ')}>
           {rows.filter(r => r.minutes).map(r => <i key={r.id} style={{ flexGrow: r.minutes, '--c': r.color ?? NONE } as React.CSSProperties} title={`${r.name}: ${fmtDur(r.minutes)}`} />)}
         </div>
       )}
       <div className="rv-scroll"><table className="rv-table">
-        <thead><tr><th scope="col">Label</th><th scope="col">Time</th><th scope="col">Share</th><th scope="col">Done</th>{meetings && <th scope="col" className="rv-opt">Meetings</th>}<th scope="col">Missed</th></tr></thead>
+        <thead><tr><th scope="col">Section</th><th scope="col">Time</th><th scope="col">Share</th><th scope="col">Done</th>{meetings && <th scope="col" className="rv-opt">Meetings</th>}<th scope="col">Missed</th></tr></thead>
         <tbody>{rows.map(r => (
           <tr key={r.id}>
             <th scope="row"><span className="rv-lab">{dot(r.color)}{r.name}</span></th>

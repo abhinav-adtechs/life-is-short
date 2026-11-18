@@ -10,6 +10,7 @@ import { addDays, fromYmd, startOfDay, ymd } from '@/lib/time';
 import { describeRepeat, makeRepeating, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
 import { usePlanner } from './Planner';
 import { RepeatField } from './Repeating';
+import { GoalPicker } from './Goals';
 
 export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
 export const lenLabel = (m: number) => (m < 60 ? `${m} min` : m === 60 ? '1 hour' : `${m / 60} hours`);
@@ -35,7 +36,7 @@ function dueChoices(now: number) {
  * nothing else waits on it. On one of a repeat's tasks, what the task is goes to the ones to come too.
  */
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText } = usePlanner();
+  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet } = usePlanner();
   const repeat = repeatOf(t);
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
@@ -43,13 +44,16 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
   const [due, setDue] = useState<string | null>(t.due || null);
   const [notes, setNotes] = useState(t.notes || '');
   const [label, setLabel] = useState<string | null>(t.label ?? null);
+  const [goal, setGoal] = useState<string | null>(t.goal && goalById(t.goal) ? t.goal : null);
+  // A goal brings its section; off-goal, the task keeps its own.
+  const goalSection = goalById(goal)?.section ?? null;
   const [rule, setRule] = useState<Rule | null>(repeat?.rule ?? null);
   const [time, setTime] = useState(repeat?.time ?? (t.start != null ? timeOf(t.start) : ''));
   const [armedDelete, setArmedDelete] = useState(false);
 
   const values = () => ({
     title: title.replace(/\s+/g, ' ').trim().slice(0, 160) || t.title,
-    priority, minutes, due, notes: notes.trim(), label,
+    priority, minutes, due, notes: notes.trim(), label: goalSection ?? label, goal,
   });
 
   const save = (e?: React.FormEvent) => {
@@ -67,7 +71,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
     const ops: RepeatOp[] = !repeat ? []
       : !rule ? [{ kind: 'stop', id: repeat.id }]
       : sameRule(rule, repeat.rule) && at === repeat.time ? []
-      : [{ kind: 'set', repeat: { ...repeat, title: v.title, notes: v.notes, priority: v.priority, minutes: v.minutes, label: v.label, rule, time: at, updatedAt: Date.now() } }];
+      : [{ kind: 'set', repeat: { ...repeat, title: v.title, notes: v.notes, priority: v.priority, minutes: v.minutes, label: v.label, goal: v.goal, rule, time: at, updatedAt: Date.now() } }];
     // The repeat first, so the write below finds it as it now is.
     const unrepeat = applyRepeats(ops);
     const before = store.write([{ ...t, ...v }]);
@@ -116,7 +120,8 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
   const src = sourceOf(t);
   // What a Google event gets from its calendar when it has no label of its own.
   const inherited = src ? labelOf({ ...t, label: null }) : null;
-  const labels = [...prefs.labels.map(l => ({ id: l.id as string | null, name: l.name, color: l.color as string | null })), { id: null, name: inherited ? `From calendar: ${inherited.name}` : 'No label', color: inherited?.color ?? null }];
+  const labels = [...prefs.labels.map(l => ({ id: l.id as string | null, name: l.name, color: l.color as string | null })), { id: null, name: inherited ? `From calendar: ${inherited.name}` : 'No section', color: inherited?.color ?? null }];
+  const goalSectionName = prefs.labels.find(l => l.id === goalSection)?.name ?? null;
   const cur = prefs.labels.some(l => l.id === label) ? label : null;
 
   return (
@@ -140,14 +145,28 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
           </div>
 
           <div className="ed-f">
-            <span className="flabel" id="ed-lab">Label</span>
-            <div className="chips" role="radiogroup" aria-labelledby="ed-lab">
-              {labels.map(l => (
-                <button key={l.id ?? '-'} type="button" role="radio" aria-checked={cur === l.id} className="chipb" onClick={() => setLabel(l.id)}>
-                  <span className={'dot' + (l.color ? '' : ' none')} style={l.color ? ({ '--c': l.color } as React.CSSProperties) : undefined} />{l.name}
-                </button>
-              ))}
-            </div>
+            <span className="flabel" id="ed-goal">Goal</span>
+            {activeGoals.length || goal ? (
+              <>
+                <GoalPicker labelledBy="ed-goal" value={goal} onChange={setGoal} />
+                <p className="note">{goal ? 'Time on this counts towards the goal.' : 'Not on a goal. Fine, as long as it’s a choice.'}</p>
+              </>
+            ) : (
+              <p className="note">No goals yet. <button type="button" className="link" onClick={() => openSheet('goals')}>Set your goals</button> and every task can move one.</p>
+            )}
+          </div>
+
+          <div className="ed-f">
+            <span className="flabel" id="ed-lab">Section</span>
+            {goalSectionName ? <p className="note sec-from"><span className="dot" style={{ '--c': prefs.labels.find(l => l.id === goalSection)?.color } as React.CSSProperties} />{goalSectionName}, from its goal</p> : (
+              <div className="chips" role="radiogroup" aria-labelledby="ed-lab">
+                {labels.map(l => (
+                  <button key={l.id ?? '-'} type="button" role="radio" aria-checked={cur === l.id} className="chipb" onClick={() => setLabel(l.id)}>
+                    <span className={'dot' + (l.color ? '' : ' none')} style={l.color ? ({ '--c': l.color } as React.CSSProperties) : undefined} />{l.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="ed-f">
