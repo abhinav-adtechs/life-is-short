@@ -29,7 +29,7 @@ import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
-import { useGoals } from './goals';
+import { useGoals } from './goalStore';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
