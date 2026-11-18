@@ -1,12 +1,25 @@
-<div align="center">
+<p align="center"><img src=".github/assets/banner.svg" alt="Life is short — Do the one thing that matters right now." width="100%"></p>
 
-# Life is short.
+<p align="center">
+  <a href="https://github.com/abhinav-adtechs/life-is-short/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/abhinav-adtechs/life-is-short/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
+  <a href="https://life-is-short-pi.vercel.app"><img src="https://img.shields.io/badge/website-life--is--short--pi.vercel.app-F2A541?style=for-the-badge&logo=vercel&logoColor=white" alt="Website"></a>
+  <img src="https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js 16">
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4E98E8?style=for-the-badge" alt="MIT license"></a>
+  <a href="https://github.com/abhinav-adtechs/life-is-short/commits/main"><img src="https://img.shields.io/github/last-commit/abhinav-adtechs/life-is-short?style=for-the-badge" alt="Last commit"></a>
+  <a href="https://github.com/abhinav-adtechs/life-is-short/stargazers"><img src="https://img.shields.io/github/stars/abhinav-adtechs/life-is-short?style=for-the-badge" alt="GitHub stars"></a>
+</p>
 
-### Stop managing your to-do list. Do the one thing that matters right now.
+<p align="center"><b>Say what's on your mind. Life is short turns it into tasks, puts them on your calendar,<br>and shows you the one thing to do right now.</b></p>
 
-Say what's on your mind. **Life is short** turns it into tasks, puts them on your calendar,<br>
-and shows you the one thing to do **right now**.
-
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#docs">Docs</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
 [Goals](#goals-first) · [How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Claude](#connect-claude) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
 
 <br>
@@ -16,13 +29,13 @@ and shows you the one thing to do **right now**.
   <img alt="Life is short on a laptop and a phone: the Next task at the top, the Priority matrix, and a calendar that fits the day" src="docs/images/hero-light.png">
 </picture>
 
-</div>
-
 <br>
 
-## The idea
+## Why Life is short?
 
-You get about four thousand weeks. That's it. And most to-do apps want you to spend them *organising*: projects, tags, inboxes, contexts, reviews, a list that only gets longer.
+**Stop managing your to-do list.**
+
+You get about four thousand weeks. That's it. And most to-do apps want you to spend them _organising_: projects, tags, inboxes, contexts, reviews, a list that only gets longer.
 
 **Life is short does the opposite.** One box to dump things into. One answer on the screen.
 
@@ -49,7 +62,106 @@ A list of tasks says what's busy. It doesn't say what matters. So Life is short 
 
 **Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The matrix is your goals down the side and **Urgent · Important · Later** across the top, plus the time each goal got this week. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
 
-<br>
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🎙️ Dump it
+
+Type or talk (`⌘K`). The AI pulls out every task with a title, priority, length and date, spots what's **already on your list**, and shows you the plan before anything lands. [How it works ↓](#how-it-works)
+
+</td>
+<td width="50%" valign="top">
+
+### 🗓️ Slot it
+
+A day or time goes on the calendar; a deadline waits in the backlog with a due date; anything else is ranked **Urgent**, **Important**, **Later**. One tap finds the next free gap on a 15-minute grid.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### ✅ Do it
+
+The top of the screen is always the **Next task**, with **Done** and **Schedule**. Missed one? It stays an hour, then goes back on top of the backlog. No guilt, no lost tasks.
+
+</td>
+<td valign="top">
+
+### 🔁 Things that come back
+
+_"Order groceries every Monday and Thursday."_ Say it once and it repeats, one at a time, on its day and not before. [Repeats ↓](#things-that-come-back)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 📊 See how it went
+
+A score out of 100 for a day, week or month, worked out from every task: done and missed, time by label, rhythm, flow and load. [Review ↓](#see-how-it-went)
+
+</td>
+<td valign="top">
+
+### 🎨 Make it yours
+
+Three themes (**Tide**, **Night train**, **Day train**), ambient light, 10 accents, 9 fonts including Lexend and Atkinson Hyperlegible, increased contrast and reduced motion. [Themes ↓](#make-it-yours)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 📆 One calendar for your whole life
+
+Up to **five Google accounts**: Calendar events and Google Tasks on one calendar, each in its own colour. Read-only, nothing written back. [Google ↓](#your-whole-life-one-calendar)
+
+</td>
+<td valign="top">
+
+### 📱 On every screen you own
+
+Live sync between phone and laptop in seconds, plus **iPhone, iPad and Mac apps** with on-device dictation, Siri and Shortcuts. [Apps ↓](#on-every-screen-you-own)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 👀 Share a view, keep the keys
+
+A view-only window into your planner: you pick what they see and until when; they sign in with a code sent to their email. [Sharing ↓](#share-a-view-keep-the-keys)
+
+</td>
+<td valign="top">
+
+### 🤖 Connect Claude
+
+A built-in **MCP server** at `/mcp` with OAuth 2.1, so Claude can read and change your tasks as a custom connector. [Claude ↓](#connect-claude)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔐 Locked down by default
+
+PIN + authenticator code, PIN + Face ID, or a passkey. Row-level security in the database, a strict CSP, and a nightly breach-checked backup. [Security ↓](#locked-down-by-default)
+
+</td>
+<td valign="top">
+
+### 🪶 Works with no keys at all
+
+No AI key? A built-in parser understands "tomorrow at 9", "by Friday", "urgent", "2h" and "someday". No Supabase? It runs **entirely in your browser**.
+
+</td>
+</tr>
+</table>
 
 ## How it works
 
@@ -65,13 +177,11 @@ A list of tasks says what's busy. It doesn't say what matters. So Life is short 
 
 Type in the chat bar or tap the mic (or press `⌘K`, `Ctrl K` on Windows) and **just talk**. Your words stream in as you speak, and it keeps listening until you tap stop or press `⌘K` again; `Esc` throws it away with an Undo.
 
-*"Finished the roadmap draft. Call the plumber tomorrow at 9, landing page copy is due Friday, and book a haircut at some point."*
+_"Finished the roadmap draft. Call the plumber tomorrow at 9, landing page copy is due Friday, and book a haircut at some point."_
 
 The AI reads it like a good assistant would. It pulls out every task, gives each a short title, a priority and a realistic length, and works out dates. It also spots when you're talking about something **already on your list**: "finished the roadmap" ticks it off instead of adding a duplicate.
 
-**Nothing lands until you say so.** When you stop talking you get the full transcript and the plan, one row per change: *add*, *move*, *tick off*. On a laptop the plan shows on the calendar too, dashed, right where it would go. Tap a change to edit it, untick one you don't want, or just keep talking ("make the haircut Thursday afternoon") and the plan updates. **Apply** and it's done, with Undo; the chat clears for next time and lands in your history.
-
-**It learns how you talk.** The AI knows you spoke, so it reads past misheard words, fillers and "at 3, no, 4" and shows what it took you to mean (what the mic heard is a tap away). Mic got a word wrong? **Fix what I said** and it asks again. Every chat you apply teaches it: your names and places, what the mic mishears ("plum bar" is *plumber*), and how you put things ("kal" means tomorrow). The mic listens out for your words from then on, and a mishearing it's sure of is fixed while you're still talking. Pick the mic's language (English (India), say) and see or change everything it learned in **Settings → Voice**.
+**Nothing lands until you say so.** When you stop talking you get the full transcript and the plan, one row per change: _add_, _move_, _tick off_. On a laptop the plan shows on the calendar too, dashed, right where it would go. Tap a change to edit it, untick one you don't want, or just keep talking ("make the haircut Thursday afternoon") and the plan updates. **Apply** and it's done, with Undo; the chat clears for next time and lands in your history.
 
 </td>
 <td width="33%" valign="top">
@@ -100,13 +210,15 @@ Slipped past something? When its slot ends without a tick, it stays on your cale
 </tr>
 </table>
 
+**It learns how you talk.** The AI knows you spoke, so it reads past misheard words, fillers and "at 3, no, 4" and shows what it took you to mean (what the mic heard is a tap away). Mic got a word wrong? **Fix what I said** and it asks again. Every chat you apply teaches it: your names and places, what the mic mishears ("plum bar" is _plumber_), and how you put things ("kal" means tomorrow). The mic listens out for your words from then on, and a mishearing it's sure of is fixed while you're still talking. Pick the mic's language (English (India), say) and see or change everything it learned in **Settings → Voice**.
+
 Every capture, move and tick comes with **Undo**. A half-typed thought is still there when you come back. No AI key? A built-in parser understands "tomorrow at 9", "by Friday", "urgent", "2h" and "someday", so it keeps working.
 
-<br>
+## A closer look
 
-## Things that come back
+### Things that come back
 
-*"Order groceries every Monday and Thursday."* *"Gym Mon, Wed and Fri at 7am."* *"Pay rent on the 1st of every month."*
+_"Order groceries every Monday and Thursday."_ _"Gym Mon, Wed and Fri at 7am."_ _"Pay rent on the 1st of every month."_
 
 Say it once and it's a **repeat**: every day, on weekdays, on the days you name, every other week, every few days or once a month. The AI hears it, and so does the built-in parser. Or open any task and pick **Repeat**.
 
@@ -116,9 +228,7 @@ Say it once and it's a **repeat**: every day, on weekdays, on the days you name,
 - **Change the task, change the repeat.** Rename it, re-prioritise it or put it on a goal, and the ones to come follow. Moving one on the calendar moves just that one.
 - **Skip one or stop them all.** Delete today's to skip it; it won't come back. Pick *Doesn't repeat*, say *"stop the grocery repeat"*, or use **Settings → Repeats**, which lists everything that repeats and when it comes next.
 
-<br>
-
-## See how it went
+### See how it went
 
 Open **Analytics** (at the top on a laptop, in the `•••` menu on a phone) for how the week is going, then **Full review** for how a **day, week or month** went, worked out from everything on your list. Step back through earlier ones with the arrows (or ← and →).
 
@@ -132,9 +242,7 @@ Open **Analytics** (at the top on a laptop, in the `•••` menu on a phone) 
 
 A week still under way is held up against last week up to the same point, so a Tuesday isn't measured against a whole week.
 
-<br>
-
-## Designed to get out of the way
+### Designed to get out of the way
 
 There are only two heavy things on any screen: **the task you're on, and the mic.** Everything else stays quiet.
 
@@ -159,11 +267,11 @@ Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the
 - **Analytics, Share and Settings** slide in from the side, so the planner stays in view.
 - **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the matrix, `Esc` closes anything.
 
+</details>
+
 It feels fast because it is fast: rows rise in, ticked tasks get a check-and-strike, the next task's time flips in, and your theme loads before the first frame, so it never flashes. Reduced motion keeps all of it still.
 
-<br>
-
-## Make it yours
+### Make it yours
 
 <p align="center">
   <img alt="The planner in the Tide, Night train and Day train themes" src="docs/images/themes.png" width="100%">
@@ -184,9 +292,7 @@ It feels fast because it is fast: rows rise in, ticked tasks get a check-and-str
 
 Every change previews live and **follows you to your other devices**. The theme, accent and ambient light stay per device, so your phone can follow the sun while your laptop rides the night train.
 
-<br>
-
-## Your whole life, one calendar
+### Your whole life, one calendar
 
 Connect **up to five Google accounts**, personal and work alike. Their **Google Calendar events and Google Tasks** land on the same calendar, each account in its own colour, so Life is short slots your tasks around the meetings you already have.
 
@@ -196,30 +302,26 @@ Connect **up to five Google accounts**, personal and work alike. Their **Google 
 - Give each account a **section** (or one calendar inside it, like a gym calendar on your work account) and its events take that section's colour. Put a meeting on a goal and its time counts towards it.
 - It's **read-only**: nothing is written back to Google. Your priorities, notes and done ticks stay yours.
 
-<br>
-
-## On every screen you own
+### On every screen you own
 
 Add a task on your phone in the queue for coffee and it's **on your laptop within seconds**. Live sync keeps every open screen up to date, and the phone and the laptop each get a layout built for them.
 
 **Apps for iPhone, iPad and Mac** wrap the same planner in a native window: dictation on the device, Siri and Shortcuts ("Dump a thought in Life is short"), Home Screen quick actions, and a Mac menu bar with every shortcut. They update whenever the planner does, and ship through TestFlight. See [`docs/apple.md`](docs/apple.md).
 
+[![Apple apps](https://img.shields.io/github/actions/workflow/status/abhinav-adtechs/life-is-short/apple.yml?branch=main&style=flat-square&label=Apple%20apps&logo=apple&logoColor=white)](https://github.com/abhinav-adtechs/life-is-short/actions/workflows/apple.yml)
+
 Want to try it without an account? Run it with no keys and it works **entirely in your browser**.
 
-<br>
-
-## Share a view, keep the keys
+### Share a view, keep the keys
 
 Let someone see your planner without handing it over. **Settings → Sharing**: add their email, pick what they see and for how long, and send them the link.
 
-- **What they see is up to you:** the backlog, the calendar (today, upcoming or all), titles or just *busy*, with or without your Google events. Never your notes.
+- **What they see is up to you:** the backlog, the calendar (today, upcoming or all), titles or just _busy_, with or without your Google events. Never your notes.
 - **No account, no password:** they open the link and sign in with a code sent to that email. The link on its own isn't enough.
 - **They can suggest, you decide:** a task for your backlog or a time on your calendar. A small badge tells you, and nothing lands until you approve it.
 - **You always know your exposure:** who can see what, until when, which devices are signed in, and a log of every sign-in, view and wrong code. **See what they see** shows you exactly that, and **Stop sharing** signs them out on the spot.
 
-<br>
-
-## Connect Claude
+### Connect Claude
 
 Ask Claude about your day, or have it sort your list, and the changes land in the planner while you watch. Life is short has its own **MCP server** at `/mcp`, so Claude (claude.ai, the desktop app and Claude Code) can use it as a **custom connector**.
 
@@ -245,7 +347,10 @@ Every tool has a JSON schema for its input and output and answers with compact J
 
 **Locked down like the rest.** It's OAuth 2.1 as the [MCP authorization spec](https://modelcontextprotocol.io/specification) asks (discovery, dynamic client registration, PKCE, tokens bound to `/mcp`), with your own sign-in as the consent screen. The database holds only hashes of the tokens, and its connector functions answer only this app's server. An access token lasts an hour, a refresh token 30 days and is replaced each time it's used, and a token that turns up twice ends the connection. Claude never sees your Google account, chat history, shares or anything about signing in. More in [`docs/security.md`](docs/security.md#connecting-claude).
 
-### Run it
+<details>
+<summary><b>Run it</b>: the migration, the server key and the two variables</summary>
+
+<br>
 
 It's part of the app, so it runs wherever the app runs. It needs Supabase (tasks kept only in a browser can't be reached from a server) and a server key:
 
@@ -259,7 +364,12 @@ It's part of the app, so it runs wherever the app runs. It needs Supabase (tasks
 
 3. Set `MCP_SERVER_KEY` (and in production `APP_URL=https://<your-domain>`) where the app runs, then `npm run dev` or `npm run build && npm start`. `/mcp` answers `401` with a pointer to its sign-in until a client has a token. Setup details are in [`docs/setup.md`](docs/setup.md#8-connect-claude-optional).
 
-### Put it online
+</details>
+
+<details>
+<summary><b>Put it online</b>: Vercel, Fly.io, Railway, Render or a Cloudflare Tunnel</summary>
+
+<br>
 
 Claude connects from Anthropic's servers, so `/mcp` has to be reachable over **HTTPS** at a public address. The URL to paste is always `https://<that address>/mcp`.
 
@@ -277,7 +387,12 @@ Claude connects from Anthropic's servers, so `/mcp` has to be reachable over **H
 
 Whichever you pick, the redirect back to Claude is limited to `claude.ai` and `claude.com` (and `localhost` for testing). Another client, say a self-hosted one, needs its host in `MCP_REDIRECT_HOSTS`.
 
-### Try it with the MCP Inspector
+</details>
+
+<details>
+<summary><b>Try it with the MCP Inspector</b></summary>
+
+<br>
 
 ```sh
 npx @modelcontextprotocol/inspector --cli https://<your-domain>/mcp --transport http --method tools/list
@@ -285,9 +400,9 @@ npx @modelcontextprotocol/inspector --cli https://<your-domain>/mcp --transport 
 
 It registers itself, opens your browser to sign in and allow it, and lists the tools; `--method tools/call --tool-name list_tasks` calls one. Leave out `--cli` for the web UI.
 
-<br>
+</details>
 
-## Locked down by default
+### Locked down by default
 
 Your task list is a map of your life, so it's protected like one.
 
@@ -299,31 +414,236 @@ Your task list is a map of your life, so it's protected like one.
 
 The full write-up is in [`docs/security.md`](docs/security.md).
 
-<br>
+## Tech stack
 
-## Run your own
+**App** &nbsp;
+![Next.js](https://img.shields.io/badge/Next.js_16-App_Router-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-149ECA?style=flat-square&logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![CSS](https://img.shields.io/badge/plain_CSS-custom_properties-663399?style=flat-square&logo=css&logoColor=white)
 
-Life is short is built to run as **your own private copy**: one person, your own database, nobody else's app.
+**Data and hosting** &nbsp;
+![Supabase](https://img.shields.io/badge/Supabase-Auth_·_Realtime_·_RLS-3FCF8E?style=flat-square&logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=flat-square&logo=vercel&logoColor=white)
 
-```sh
-npm install
-npm run dev        # http://localhost:3000/app, with tasks stored in your browser
+**AI and integrations** &nbsp;
+![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
+![Google Calendar](https://img.shields.io/badge/Google_Calendar_&_Tasks-4285F4?style=flat-square&logo=googlecalendar&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-TypeScript_SDK-D97757?style=flat-square&logo=anthropic&logoColor=white)
+![Zod](https://img.shields.io/badge/Zod-4-3E67B1?style=flat-square&logo=zod&logoColor=white)
+
+**Apple apps** &nbsp;
+![Swift](https://img.shields.io/badge/Swift-F05138?style=flat-square&logo=swift&logoColor=white)
+![UIKit and AppKit](https://img.shields.io/badge/UIKit_·_AppKit-WKWebView-000000?style=flat-square&logo=apple&logoColor=white)
+![XcodeGen](https://img.shields.io/badge/XcodeGen-147EFB?style=flat-square&logo=xcode&logoColor=white)
+
+**Quality** &nbsp;
+![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=flat-square&logo=vitest&logoColor=white)
+![PGlite](https://img.shields.io/badge/PGlite-SQL_tests-336791?style=flat-square&logo=postgresql&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)
+
+## Architecture
+
+One Next.js app serves the public home page, the planner, its API routes and the MCP server. The planner's logic lives in pure, tested modules under `lib/`; where tasks are kept is a swappable `TaskRepo` (your browser, or Supabase with realtime sync). The iPhone, iPad and Mac apps are native shells around the same `/app` page.
+
+```mermaid
+flowchart LR
+    subgraph Clients
+        B["Browser: phone or laptop"]
+        N["iPhone, iPad and Mac apps<br/>(apple/: WKWebView shells)"]
+        C["Claude: claude.ai, desktop, Claude Code"]
+        V["Share viewer (no account)"]
+    end
+
+    subgraph App["Next.js app on Vercel"]
+        P["proxy.ts<br/>CSP nonce per request"]
+        UI["Planner at /app<br/>components/ + lib/"]
+        S["Sort route<br/>api/sort"]
+        G["Google routes<br/>api/google/*"]
+        SH["Sharing routes<br/>api/share/* + shared page"]
+        M["MCP server + OAuth 2.1<br/>mcp, oauth/*"]
+    end
+
+    subgraph Supabase["Supabase (primary)"]
+        A["Auth: password, TOTP, passkeys"]
+        DB[("Postgres: tasks, settings<br/>RLS + private schema")]
+        RT["Realtime"]
+    end
+
+    B --> P --> UI
+    N --> P
+    V --> SH
+    C --> M
+    UI -->|"TaskRepo (lib/repo)"| DB
+    UI --> A
+    RT -->|"changes from other devices"| UI
+    DB --> RT
+    UI --> S --> GEM["Gemini, JSON schema<br/>(on failure: lib/parse.ts in the client)"]
+    UI --> G --> GA["Google Calendar and Tasks<br/>(read-only)"]
+    SH -->|"SHARE_SERVER_KEY"| DB
+    SH --> MAIL["Gmail SMTP or Resend<br/>(sign-in codes)"]
+    M -->|"MCP_SERVER_KEY + access token"| DB
+
+    GH["GitHub Actions<br/>backup-sync / backup-verify"] -->|"breach checks, then copy"| BK[("Backup database<br/>another region")]
+    DB -.->|"read-only backup_reader"| GH
 ```
 
-That's enough to try it. For your phone and laptop, add Supabase (sync and sign-in), a free Gemini key (AI sorting) and, if you like, Google:
+The deep dive (modules, data flow of a dump, the data model, every key file) is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Quick start
+
+> [!NOTE]
+> Life is short is built to run as **your own private copy**: one person, your own database, nobody else's app.
+
+**Prerequisites:** Node.js 20 or newer (CI runs 22) and npm. Everything else is optional.
+
+```sh
+git clone https://github.com/abhinav-adtechs/life-is-short.git
+cd life-is-short
+npm install
+cp .env.example .env.local      # optional: fill in what you have
+npm run dev                     # http://localhost:3000 is the home page; the planner is at /app
+```
+
+Without Supabase keys the planner runs in **local-only mode**, with tasks stored in your browser. Without a Gemini key, dumps are sorted by the keyword parser and the plan says so. That's enough to try it.
+
+For your phone and laptop, add Supabase (sync and sign-in), a free Gemini key (AI sorting) and, if you like, Google:
 
 - [**Setup guide**](docs/setup.md): local development, Supabase, Gemini, Google, Vercel and the full settings reference.
 - [**Go-live checklist**](docs/go-live.md): every step from zero to running on your phone, in order.
 - [**Security and backups**](docs/security.md): how sign-in, the database rules and the backup work.
 - [**iPhone, iPad and Mac apps**](docs/apple.md): the design, the one-time Apple setup, and releasing to TestFlight.
 
-Built with Next.js, TypeScript, Supabase and Gemini. Hosted on Vercel.
+| Script                                     | What it does                                                                                               |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                              | Next.js dev server on <http://localhost:3000>                                                              |
+| `npm test` | Vitest: the `lib/` logic, the backup checks and the SQL tests on PGlite, with the clock pinned to `Asia/Kolkata` |
+| `npm run typecheck`                        | `tsc --noEmit`                                                                                             |
+| `npm run build` / `npm start`              | Production build (also type-checks) and server                                                             |
+| `node scripts/seed-sql.mjs <tasks.json> <email> > ~/seed.sql` | Turns your tasks file into SQL for the Supabase SQL editor (also `npm run seed-sql`). Keep the output outside the repo. |
+
+> [!TIP]
+> Turn on the repo's pre-commit hook once per clone: `git config core.hooksPath .githooks`. It refuses key, secret and task files, and staged content that looks like an API key or a private key.
+
+## Configuration
+
+Copy `.env.example` to `.env.local` (gitignored). Every variable is optional for local development; the table says what each one unlocks.
+
+| Variable                                   | Needed for                 | What it does                                                                                                     |
+| ------------------------------------------ | -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`                 | Sync and sign-in           | Supabase project URL. Empty = local-only mode. Baked in at build time.                                           |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`            | Sync and sign-in           | Supabase `anon` key (public by design; row-level security protects the data). Baked in at build time.            |
+| `GEMINI_API_KEY`                           | AI sorting                 | Server only. Without it, dumps go through the keyword parser.                                                    |
+| `GEMINI_MODEL`                             | Optional                   | Comma-separated models to try in order. Default `gemini-3.1-flash-lite,gemini-flash-lite-latest`.                |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google pull                | OAuth client (type "Web application"). The secret also derives the key that seals stored refresh tokens.         |
+| `GOOGLE_SITE_VERIFICATION`                 | Optional                   | Search Console's HTML-tag token, only while proving you own the site for Google's OAuth review.                  |
+| `ALLOW_LOCAL_MODE`                         | Optional                   | `1` allows running without Supabase in production (a private preview, say). Leave unset on Vercel.               |
+| `SHARE_SERVER_KEY`                         | Sharing                    | Long random value (`openssl rand -base64 33`); the database keeps only its sha256.                               |
+| `SHARE_SMTP_USER`, `SHARE_SMTP_PASS`       | Sharing email (Gmail)      | A Gmail address and an app password. Used whenever both are set.                                                 |
+| `SHARE_SMTP_HOST`, `SHARE_SMTP_PORT`       | Optional                   | Another mail server instead of Gmail (465 TLS, 587 STARTTLS).                                                    |
+| `RESEND_API_KEY`, `SHARE_EMAIL_FROM`       | Sharing email (Resend)     | Resend on a domain you verified there; `SHARE_EMAIL_FROM` like `Life is short <share@yourdomain.com>`.           |
+| `MCP_SERVER_KEY`                           | Connecting Claude          | Long random value; the database keeps only its sha256 (`private.set_mcp_key_hash`).                              |
+| `APP_URL`                                  | Connecting Claude          | The site's public address, e.g. `https://lifeisshort.example.com`. Keeps the OAuth issuer stable behind proxies. |
+| `MCP_REDIRECT_HOSTS`                       | Optional                   | Extra OAuth redirect hosts, comma-separated. `claude.ai`, `claude.com` and loopback are always allowed.          |
+| `APPLE_TEAM_ID`, `LIS_BUNDLE_ID`           | Passkeys in the Apple apps | Serve `/.well-known/apple-app-site-association` so the apps can use the site's passkeys.                         |
+
+Never commit real values. In production they live in Vercel's environment variables; the two `NEXT_PUBLIC_` values need a redeploy to change.
+
+<details>
+<summary><b>GitHub Actions secrets and variables</b> (backup and Apple release)</summary>
+
+<br>
+
+| Name                                                           | Kind             | Used by                                                                                             |
+| -------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `PRIMARY_DB_URL`, `BACKUP_DB_URL`                              | secret           | `backup-sync.yml`, `backup-verify.yml`: Session pooler URLs for `backup_reader` and `backup_writer` |
+| `OWNER_EMAIL`                                                  | secret           | Backup breach checks: your sign-in email                                                            |
+| `SUPABASE_CA_CERT`                                             | secret, optional | Only if Supabase replaces the CA bundled in `scripts/backup/supabase-ca-2021.crt`                   |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`                    | secret           | `apple-release.yml`: an App Store Connect Admin API key                                             |
+| `APPLE_TEAM_ID`, `LIS_SERVER`, `LIS_BUNDLE_ID`, `LIS_PASSKEYS` | variable         | `apple-release.yml`: team, the server the apps open, bundle id, passkeys on/off                     |
+
+Setup for each is in [`docs/security.md`](docs/security.md#set-up-the-backup) and [`docs/apple.md`](docs/apple.md#one-time-setup).
+
+</details>
+
+## Project structure
+
+```text
+life-is-short/
+├── app/                      Next.js App Router
+│   ├── page.tsx, home.css    public home page at /
+│   ├── app/                  the planner at /app
+│   ├── privacy/, shared/     privacy policy, and the share viewer's page
+│   ├── api/sort/             Gemini sorting (falls back to the keyword parser)
+│   ├── api/google/           OAuth and the read-only Calendar/Tasks pull
+│   ├── api/share/            the share viewer's sign-in, view and suggestions
+│   ├── mcp/, oauth/          the MCP server and its OAuth 2.1 endpoints
+│   └── .well-known/          OAuth discovery and apple-app-site-association
+├── components/               React UI: Planner, Phone, Laptop, Matrix, Calendar, Chat, Review, Settings…
+├── lib/                      pure, tested logic (parse, place, capture, plan, repeat, review, layout…)
+│   ├── repo/                 TaskRepo: localStorage and Supabase adapters
+│   ├── mcp/                  what each MCP tool does
+│   └── server/               server-only code: auth, Google, sharing, MCP OAuth
+├── supabase/
+│   ├── migrations/           0001–0009: schema, 2FA rule, PIN, sharing, labels, passkeys, Face ID, connectors
+│   └── roles/                backup_reader (primary) and backup_writer (backup) logins
+├── scripts/
+│   ├── backup/               nightly sync, weekly verify, breach checks, restore
+│   ├── db/                   PGlite harness and SQL tests for sharing and connectors
+│   ├── brand/, scenes/       logo and painted scenes (Python)
+│   └── seed-sql.mjs          tasks.json → seed SQL
+├── apple/                    iPhone, iPad and Mac apps (XcodeGen project, Swift core package)
+├── docs/                     setup, go-live, security, apple, architecture, images
+├── proxy.ts                  per-request CSP nonce
+├── next.config.ts            security headers, no-store on API/MCP/OAuth
+└── .githooks/pre-commit      blocks secrets and task files
+```
+
+## Docs
+
+| Guide                                                | What's in it                                                                                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/setup.md`](docs/setup.md)                     | Local development, Supabase, seeding tasks, Gemini, Google, sharing, Vercel, passkeys, connecting Claude, and the full settings reference |
+| [`docs/go-live.md`](docs/go-live.md)                 | The ordered runbook from zero to running on your phone, plus checks after go-live                                                         |
+| [`docs/security.md`](docs/security.md)               | Sign-in, passkeys, Face ID, sharing, connecting Claude, the backup database and restoring from it                                         |
+| [`docs/apple.md`](docs/apple.md)                     | The native apps: design, bridge, one-time Apple setup, Xcode, TestFlight, App Store review                                                |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)       | Modules, data flow, data model and key files                                                                                              |
+| [`apple/README.md`](apple/README.md)                 | Building the apps from the `apple/` folder                                                                                                |
+| [`scripts/brand/README.md`](scripts/brand/README.md) | How the logo, icons and link previews are drawn                                                                                           |
+
+## Roadmap
+
+- [ ] Set `metadataBase` so link previews point at the deployed site, not `localhost`
+- [ ] Make the migration lists agree across `setup.md`, `go-live.md` and `security.md`
+- [ ] Export your tasks to a file that **Import** reads back
+- [ ] Component tests for the planner UI
+- [ ] An automated accessibility check for the home page, privacy page and planner
+
+Ideas and bugs live in [Issues](https://github.com/abhinav-adtechs/life-is-short/issues).
+
+## Contributing
+
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev setup, the checks CI runs, commit conventions and the PR checklist. Please follow the [Code of Conduct](https://github.com/abhinav-adtechs/.github/blob/main/CODE_OF_CONDUCT.md), and report security issues privately as described in the [security policy](https://github.com/abhinav-adtechs/.github/blob/main/SECURITY.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Abhinav Das
+
+## Star history
+
+<a href="https://star-history.com/#abhinav-adtechs/life-is-short&Date"><img src="https://api.star-history.com/svg?repos=abhinav-adtechs/life-is-short&type=Date" alt="Star history chart" width="600"></a>
 
 <br>
 
 <div align="center">
 
 ### Life is short.
+
 **Dump it. Slot it. Do it.**
+
+Built by [Abhinav Das](https://github.com/abhinav-adtechs)
+
+If this project helped you, consider giving it a ⭐
 
 </div>
