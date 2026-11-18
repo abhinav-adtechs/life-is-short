@@ -6,16 +6,21 @@ import { fmtDur } from '@/lib/format';
 import { PRI } from '@/lib/model';
 import { DOW, DOWL, ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
+import { useGoalWeek } from './Goals';
 
 const tint = (color: string) => ({ '--c': color } as React.CSSProperties);
 const pct = (a: number, b: number) => `${b ? ((a / b) * 100).toFixed(1) : 0}%`;
 
 /** How the week is going: what got done each day, where the time went, and what waits. The review goes further. */
 export function Analytics() {
-  const { tasks, now, prefs, labelOf, wide, slips, openSheet } = usePlanner();
+  const { tasks, now, prefs, labelOf, wide, slips, openSheet, activeGoals } = usePlanner();
+  const gw = useGoalWeek();
+  const goalRows = [...activeGoals.map(g => ({ key: g.id, name: g.title, color: prefs.labels.find(l => l.id === g.section)?.color ?? null })), { key: '', name: 'Off-goal', color: null }]
+    .map(r => ({ ...r, minutes: gw.week.get(r.key)?.spent ?? 0 }));
+  const mostGoal = Math.max(1, ...goalRows.map(r => r.minutes));
   const s = weekStats(tasks, now, { firstDow: prefs.weekStart, labelOf: t => labelOf(t)?.id ?? null, slips });
   const unit = 96 / Math.max(3, ...s.days.map(d => d.total));
-  const rows = [...prefs.labels.map(l => ({ key: l.id, name: l.name, color: l.color as string | null })), { key: '', name: 'No label', color: null }]
+  const rows = [...prefs.labels.map(l => ({ key: l.id, name: l.name, color: l.color as string | null })), { key: '', name: 'No section', color: null }]
     .map(r => ({ ...r, minutes: s.byLabel.get(r.key) ?? 0 }));
   const most = Math.max(1, s.events, ...rows.map(r => r.minutes));
   const mostN = Math.max(1, ...s.byPriority.map(p => p.count));
@@ -54,7 +59,26 @@ export function Analytics() {
       </section>
 
       <section>
-        <div className="an-h"><b>Scheduled time</b><span className="muted sm">this week, by label</span></div>
+        <div className="an-h">
+          <b>On goals</b><span className="muted sm">{gw.share == null ? 'nothing done yet this week' : `${Math.round(gw.share * 100)}% of this week’s time`}</span>
+          <span className="spacer" />
+          <button type="button" className="link sm" onClick={() => openSheet('goals')}>Goals</button>
+        </div>
+        {activeGoals.length ? (
+          <div className="an-rows">
+            {goalRows.map(r => (
+              <div key={r.key || '-'} className="an-row" style={cols}>
+                <span className="an-name" title={r.name}><span className={'dot' + (r.color ? '' : ' none')} style={r.color ? tint(r.color) : undefined} /><span className="ell">{r.name}</span></span>
+                <span className="an-track"><i style={{ width: pct(r.minutes, mostGoal), background: r.color ?? 'var(--faint)' }} /></span>
+                <span className="an-v num">{r.minutes ? fmtDur(r.minutes) : '–'}</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="note">No goals yet. <button type="button" className="link" onClick={() => openSheet('goals')}>Set them</button> to see how much of your week moves them.</p>}
+      </section>
+
+      <section>
+        <div className="an-h"><b>Scheduled time</b><span className="muted sm">this week, by section</span></div>
         <div className="an-rows">
           {rows.map(r => (
             <div key={r.key || '-'} className="an-row" style={cols}>

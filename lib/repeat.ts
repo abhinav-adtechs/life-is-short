@@ -40,6 +40,8 @@ export interface Repeat {
   priority: Priority;
   minutes: number;
   label: string | null;
+  /** The goal each one moves (lib/goals.ts); missing or null for off-goal. */
+  goal?: string | null;
   rule: Rule;
   /** "HH:MM": each one goes on the calendar then. Null: each waits in the backlog, due its day. */
   time: string | null;
@@ -145,6 +147,7 @@ export function occurrence(r: Repeat, day: string, now: number): Task {
   return {
     id: occurrenceId(r.id, day), title: r.title, raw: r.raw, notes: r.notes, priority: r.priority, minutes: r.minutes,
     start, due: start == null ? day : null, status: 'open', created: now, order: now, doneAt: null, label: r.label, updatedAt: now,
+    ...(r.goal ? { goal: r.goal } : {}),
   };
 }
 
@@ -185,7 +188,7 @@ export function dueNow(repeats: Repeat[], tasks: Task[], now: number): Due {
       if (when == null) continue;
       out.slips.push({
         id: t.id, start: when, minutes: t.minutes, title: t.title, label: t.label ?? null, priority: t.priority,
-        at: now, how: 'replaced', ...(t.start == null ? { due: true } : {}),
+        at: now, how: 'replaced', ...(t.start == null ? { due: true } : {}), ...(t.goal ? { goal: t.goal } : {}),
       });
     }
   }
@@ -208,7 +211,7 @@ export const nextDue = (r: Repeat, now: number) => nextOn(r, r.made > ymd(now) ?
 /* ---------- making and changing ---------- */
 
 /** What a repeat is made of: a task's fields, a rule, a time, and its first day. */
-export type RepeatSpec = Pick<Repeat, 'title' | 'notes' | 'priority' | 'minutes' | 'label' | 'raw' | 'rule' | 'time' | 'from'>;
+export type RepeatSpec = Pick<Repeat, 'title' | 'notes' | 'priority' | 'minutes' | 'label' | 'goal' | 'raw' | 'rule' | 'time' | 'from'>;
 
 /**
  * A new repeat. Its first day's task, when that's today or earlier, is made by whoever starts it (so Undo can take it
@@ -223,16 +226,17 @@ export function startRepeat(s: RepeatSpec, now: number, id = newRepeatId()): Rep
   return {
     id, title: s.title, notes: s.notes, priority: s.priority, minutes: s.minutes, label: s.label ?? null, raw: s.raw.slice(0, 600),
     rule, time: s.time, from: s.from, made: s.from <= today ? today : shiftDay(s.from, -1), created: now, updatedAt: now,
+    ...(s.goal ? { goal: s.goal } : {}),
   };
 }
 
 /** The template fields a task has: what an edit to an open occurrence passes on to its repeat. */
-const FIELDS = ['title', 'notes', 'priority', 'minutes', 'label'] as const;
+const FIELDS = ['title', 'notes', 'priority', 'minutes', 'label', 'goal'] as const;
 
-/** The repeat with an open occurrence's title, priority, length, label and notes; null when nothing differs. */
+/** The repeat with an open occurrence's title, priority, length, label, goal and notes; null when nothing differs. */
 export function followTask(r: Repeat, t: Task, now: number): Repeat | null {
   if (t.status !== 'open' || FIELDS.every(k => (r[k] ?? null) === (t[k] ?? null))) return null;
-  return { ...r, title: t.title, notes: t.notes, priority: t.priority, minutes: t.minutes, label: t.label ?? null, updatedAt: now };
+  return { ...r, title: t.title, notes: t.notes, priority: t.priority, minutes: t.minutes, label: t.label ?? null, goal: t.goal ?? null, updatedAt: now };
 }
 
 /**
@@ -244,7 +248,7 @@ export function makeRepeating(t: Task, rule: Rule, time: string | null, now: num
   const today = ymd(now);
   const own = t.start != null ? ymd(t.start) : t.due;
   const day = own && own > today ? own : today;
-  const r = { ...startRepeat({ ...t, label: t.label ?? null, rule, time, from: day }, now, id), made: day };
+  const r = { ...startRepeat({ ...t, label: t.label ?? null, goal: t.goal ?? null, rule, time, from: day }, now, id), made: day };
   return { repeat: r, task: { ...t, id: occurrenceId(r.id, day), updatedAt: now }, removes: [t.id] };
 }
 
@@ -318,6 +322,7 @@ export function normalizeRepeats(raw: unknown): Repeat[] {
       priority: (PRIS.has(o.priority as number) ? o.priority : 2) as Priority,
       minutes: Number.isFinite(minutes) ? Math.min(480, Math.max(10, Math.round(minutes))) : 30,
       label: typeof o.label === 'string' && o.label ? o.label.slice(0, 40) : null,
+      ...(typeof o.goal === 'string' && o.goal ? { goal: o.goal.slice(0, 40) } : {}),
       time: typeof o.time === 'string' && HHMM.test(o.time) ? o.time : null,
       made: typeof o.made === 'string' && YMD.test(o.made) ? o.made : shiftDay(from, -1),
       raw: typeof o.raw === 'string' ? o.raw.slice(0, 600) : '',

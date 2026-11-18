@@ -18,6 +18,8 @@ interface Row {
   done_at: number | string | null;
   external_id: string | null;
   label: string | null;
+  /** Missing before supabase/migrations/0010. */
+  goal?: string | null;
   updated_at: number | string;
 }
 
@@ -29,15 +31,18 @@ export const fromRow = (r: Row): Task => ({
   priority: r.priority as Priority, minutes: r.minutes,
   start: num(r.start), due: r.due, status: r.status as Status,
   created: Number(r.created), order: Number(r.sort_order), doneAt: num(r.done_at),
-  externalId: r.external_id, label: r.label ?? null, updatedAt: Number(r.updated_at),
+  externalId: r.external_id, label: r.label ?? null, goal: r.goal ?? null, updatedAt: Number(r.updated_at),
 });
 
 export const toRow = (t: Task, userId: string): Row => ({
   user_id: userId, id: t.id, title: t.title.slice(0, 160), raw: t.raw || '', notes: t.notes || '',
   priority: t.priority, minutes: t.minutes, start: t.start, due: t.due, status: t.status,
   created: t.created, sort_order: t.order, done_at: t.doneAt, external_id: t.externalId ?? null,
-  label: t.label ?? null, updated_at: t.updatedAt ?? Date.now(),
+  label: t.label ?? null, goal: t.goal ?? null, updated_at: t.updatedAt ?? Date.now(),
 });
+
+/** Columns added after the first migration, and the migration that adds each. */
+const ADDED = { label: { what: 'labels', migration: '0006' }, goal: { what: 'goals', migration: '0010' } } as const;
 
 /** Postgres + row-level security on user_id, with realtime so other devices see changes within seconds. */
 export function supabaseRepo(sb: SupabaseClient, userId: string): TaskRepo {
@@ -51,15 +56,19 @@ export function supabaseRepo(sb: SupabaseClient, userId: string): TaskRepo {
     },
     async put(tasks) {
       if (!tasks.length) return;
-      const rows = tasks.map(t => toRow(t, userId));
-      const { error } = await sb.from('tasks').upsert(rows, { onConflict: 'user_id,id' });
-      // Deployed before supabase/migrations/0006 ran: save everything but the label, and say why labels don't stick.
-      if (error && /'label' column/.test(error.message)) {
-        const { error: again } = await sb.from('tasks').upsert(rows.map(({ label: _, ...r }) => r), { onConflict: 'user_id,id' });
-        fail('Could not save', again);
-        throw new Error('Saved without labels. Run supabase/migrations/0006 to keep them.');
+      let rows: Partial<Row>[] = tasks.map(t => toRow(t, userId));
+      // Deployed before a migration ran: save everything but the column it adds, then say how to keep it.
+      const missing: (keyof typeof ADDED)[] = [];
+      for (;;) {
+        const { error } = await sb.from('tasks').upsert(rows, { onConflict: 'user_id,id' });
+        const col = error ? (Object.keys(ADDED) as (keyof typeof ADDED)[]).find(c => error.message.includes(`'${c}' column`)) : undefined;
+        if (!col || missing.includes(col)) { fail('Could not save', error); break; }
+        missing.push(col);
+        rows = rows.map(r => { const c = { ...r }; delete c[col]; return c; });
       }
-      fail('Could not save', error);
+      if (missing.length) {
+        throw new Error(`Saved without ${missing.map(c => ADDED[c].what).join(' or ')}. Run ${missing.map(c => `supabase/migrations/${ADDED[c].migration}`).join(' and ')} to keep them.`);
+      }
     },
     async remove(ids) {
       if (!ids.length) return;

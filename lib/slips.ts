@@ -15,6 +15,8 @@ export interface Slip {
   minutes: number;
   title: string;
   label: string | null;
+  /** The goal it was on, if any. Missing on slips noted before goals. */
+  goal?: string | null;
   priority: Priority;
   /** When it was moved off the slot, deleted or replaced. */
   at: number;
@@ -44,7 +46,7 @@ export function slipsFrom(changes: Change[], now: number): Slip[] {
     if (a && (a.status === 'done' || a.start === b.start)) continue;
     out.push({
       id: b.id, start: b.start as number, minutes: b.minutes, title: b.title, label: b.label ?? null, priority: b.priority,
-      at: now, how: a ? 'moved' : 'dropped',
+      at: now, how: a ? 'moved' : 'dropped', ...(b.goal ? { goal: b.goal } : {}),
     });
   }
   return out;
@@ -64,6 +66,7 @@ export function normalizeSlips(raw: unknown): Slip[] {
       minutes: typeof o.minutes === 'number' && o.minutes > 0 ? Math.min(1440, Math.round(o.minutes)) : 30,
       title: typeof o.title === 'string' ? o.title.slice(0, 160) : '',
       label: typeof o.label === 'string' ? o.label : null,
+      ...(typeof o.goal === 'string' && o.goal ? { goal: o.goal.slice(0, 40) } : {}),
       priority: (PRIS.has(o.priority as number) ? o.priority : 2) as Priority,
       at: typeof o.at === 'number' && isFinite(o.at) ? o.at : o.start,
       how: o.how === 'dropped' || o.how === 'replaced' ? o.how : 'moved',

@@ -6,7 +6,7 @@ Everything needed to take Life is short live, in order. Each step says what it u
 
 1. Create a project. Pick a region near you (Mumbai, `ap-south-1`) and a strong database password, and keep that password in your password manager.
 2. SQL editor, in order:
-   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, `0007_passkeys.sql`, `0008_face_id.sql`, then `supabase/roles/primary_backup_reader.sql`.
+   `supabase/migrations/0001_init.sql`, `0002_require_fresh_2fa.sql`, `0003_audit_snapshot.sql`, `0004_pin_unlock.sql`, `0005_sharing.sql`, `0006_labels.sql`, `0007_passkeys.sql`, `0008_face_id.sql`, `0009_connectors.sql`, `0010_goals.sql`, then `supabase/roles/primary_backup_reader.sql`. (0009's functions answer only a server holding `MCP_SERVER_KEY`, so they sit idle until you connect Claude in step 7b.)
 3. Authentication settings:
    - Sign In / Providers → Email: **Allow new users to sign up: off**. Minimum password length 16.
    - Multi-Factor: TOTP **enabled** (enroll and verify).
@@ -74,7 +74,7 @@ Only if you want to share view-only links. Follow [setup.md → Sharing](setup.m
 
 ## 7b. Connect Claude *(optional)*
 
-Only if you want Claude to read and change your tasks. Follow [setup.md → Connect Claude](setup.md#8-connect-claude-optional): run `supabase/migrations/0009` on both databases, make `MCP_SERVER_KEY`, put its sha256 in the database with `private.set_mcp_key_hash`, and add `MCP_SERVER_KEY` and `APP_URL` to Vercel. After your first sign-in, Settings → Claude has the address to paste into claude.ai → Settings → Connectors.
+Only if you want Claude to read and change your tasks. Follow [setup.md → Connect Claude](setup.md#8-connect-claude-optional): with `supabase/migrations/0009` already run on both databases (step 1), make `MCP_SERVER_KEY`, put its sha256 in the database with `private.set_mcp_key_hash`, and add `MCP_SERVER_KEY` and `APP_URL` to Vercel. After your first sign-in, Settings → Claude has the address to paste into claude.ai → Settings → Connectors.
 
 ## 8. First sign-in
 

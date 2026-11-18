@@ -1,6 +1,7 @@
 import type { Task } from './model';
 import type { CaptureOutcome } from './capture';
 import type { Label } from './labels';
+import type { Goal } from './goals';
 import { NOTHING, summarize } from './capture';
 import { dayName, describeRepeat, makeRepeating, occurrenceId, occurrenceOf, ruleForModel, startRepeat, timeOf, type Repeat, type RepeatOp, type Rule } from './repeat';
 import { pad, ymd } from './time';
@@ -22,7 +23,7 @@ export interface Change {
 
 export type ChangeKind = 'add' | 'done' | 'move' | 'edit';
 
-const FIELDS = ['title', 'priority', 'minutes', 'start', 'due', 'notes', 'label', 'status', 'doneAt'] as const;
+const FIELDS = ['title', 'priority', 'minutes', 'start', 'due', 'notes', 'label', 'goal', 'status', 'doneAt'] as const;
 type Field = typeof FIELDS[number];
 
 /** Fields an edit changes, in a stable order. */
@@ -89,7 +90,7 @@ export function draftOf(changes: Change[], refOf: Map<string, string>): { add: u
     if (!c.before) {
       // A repeat's due date is its first day, not a deadline.
       const w = c.repeat ? { ...when(a), deadline: false } : when(a);
-      add.push({ title: a.title, priority: a.priority, minutes: a.minutes, ...w, notes: a.notes, label: a.label ?? null, repeat: c.repeat ? ruleForModel(c.repeat) : null });
+      add.push({ title: a.title, priority: a.priority, minutes: a.minutes, ...w, notes: a.notes, label: a.label ?? null, goal: a.goal ?? null, repeat: c.repeat ? ruleForModel(c.repeat) : null });
       continue;
     }
     const ref = refOf.get(c.id);
@@ -101,6 +102,7 @@ export function draftOf(changes: Change[], refOf: Map<string, string>): { add: u
     if (f.includes('priority')) u.priority = a.priority;
     if (f.includes('minutes')) u.minutes = a.minutes;
     if (f.includes('label') && a.label) u.label = a.label;
+    if (f.includes('goal')) u.goal = a.goal ?? 'none';
     if (f.includes('start') && a.start == null) u.unschedule = true;
     else if (f.includes('start') || f.includes('due')) Object.assign(u, when(a));
     // Notes from the model are added to what's there, so send only the new part.
@@ -123,7 +125,7 @@ export function draftOf(changes: Change[], refOf: Map<string, string>): { add: u
  */
 export function commitChanges(
   changes: Change[], current: (id: string) => Task | undefined, now = Date.now(), labels: Label[] = [],
-  repeats: Repeat[] = [], newRepeatId?: () => string,
+  repeats: Repeat[] = [], newRepeatId?: () => string, goals: Goal[] = [],
 ): { puts: Task[]; removes: string[]; ops: RepeatOp[]; summary: string } {
   const puts: Task[] = [], removes: string[] = [], ops: RepeatOp[] = [];
   const added: Task[] = [], started: { r: Repeat; day: string }[] = [];
@@ -135,7 +137,7 @@ export function commitChanges(
     if (!c.before) {
       if (c.repeat) {
         const a = c.after, day = a.start != null ? ymd(a.start) : a.due ?? today;
-        const r = startRepeat({ ...a, label: a.label ?? null, rule: c.repeat, time: a.start != null ? timeOf(a.start) : null, from: day }, now, newRepeatId?.());
+        const r = startRepeat({ ...a, label: a.label ?? null, goal: a.goal ?? null, rule: c.repeat, time: a.start != null ? timeOf(a.start) : null, from: day }, now, newRepeatId?.());
         ops.push({ kind: 'set', repeat: r });
         started.push({ r, day });
         if (day <= today) puts.push({ ...a, id: occurrenceId(r.id, day), updatedAt: now });
@@ -165,7 +167,7 @@ export function commitChanges(
       if (c.repeat && r) {
         // Its time follows this one when this change moves it; what the task is follows it either way.
         const time = changedFields(c.before, c.after).includes('start') ? (next.start != null ? timeOf(next.start) : null) : r.time;
-        ops.push({ kind: 'set', repeat: { ...r, title: next.title, notes: next.notes, priority: next.priority, minutes: next.minutes, label: next.label ?? null, rule: c.repeat, time, updatedAt: now } });
+        ops.push({ kind: 'set', repeat: { ...r, title: next.title, notes: next.notes, priority: next.priority, minutes: next.minutes, label: next.label ?? null, goal: next.goal ?? null, rule: c.repeat, time, updatedAt: now } });
         if (!Object.keys(patch).length) updated++;
       } else if (r) {
         ops.push({ kind: 'stop', id: r.id });
@@ -176,7 +178,7 @@ export function commitChanges(
     puts.push(next);
     if (kindOf(c) === 'done') ticked++; else updated++;
   }
-  const parts = [summarize({ added, updated, ticked, now, labels })].filter(x => x !== NOTHING);
+  const parts = [summarize({ added, updated, ticked, now, labels, goals })].filter(x => x !== NOTHING);
   if (started.length === 1) parts.unshift(`${describeRepeat(started[0].r)} · from ${dayName(started[0].day, now)}`);
   else if (started.length) parts.unshift(`${started.length} repeating`);
   if (stopped) parts.push(stopped === 1 ? 'stopped repeating' : `${stopped} stopped repeating`);

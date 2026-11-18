@@ -53,7 +53,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
       )}
 
       {labels.length > 0 && (
-        <Opt label="Label" stack note="Its events take this label and its colour, unless you give a calendar below, or an event itself, another one.">
+        <Opt label="Section" stack note="Its events take this section and its colour, unless you give a calendar below, or an event itself, another one.">
           {({ labelId }) => <LabelPicker labelledBy={labelId} value={a.label} onChange={setLabel} />}
         </Opt>
       )}
@@ -78,7 +78,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
               {labels.length > 0 && (
                 <select className="csel" aria-label={`Label for ${c.name}`} value={labels.some(l => l.id === c.label) ? c.label ?? '' : ''}
                   onChange={e => changeCalendar(a.id, c.id, { label: e.target.value || null })}>
-                  <option value="">{acctLabel ? `Account’s: ${acctLabel.name}` : 'No label'}</option>
+                  <option value="">{acctLabel ? `Account’s: ${acctLabel.name}` : 'No section'}</option>
                   {labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               )}
@@ -86,7 +86,7 @@ function AccountCard({ a }: { a: GoogleAccount }) {
           ))}
           <li className="note">
             Off hides that calendar’s events and stops pulling it. Read-only calendars, like holidays, come in as tasks too.
-            {labels.length > 0 && ' A label here wins over the account’s, say a “Gym” calendar in a work account.'}
+            {labels.length > 0 && ' A section here wins over the account’s, say a “Gym” calendar in a work account.'}
           </li>
         </ul>
       ) : <p className="note">Your calendars show up here after the first pull.</p>)}

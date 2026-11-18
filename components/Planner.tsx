@@ -5,7 +5,7 @@ import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
 import { findSlot } from '@/lib/place';
-import { backToBacklog, backlogList, doneList, focus, isEvent } from '@/lib/select';
+import { backToBacklog, backlogList, doneList, focus, isEvent, type Rank } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
 import { atMinutes, ceil15, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
 import { VIEW_FOR_DAYS, viewDays, type CalView } from '@/lib/calview';
@@ -15,6 +15,7 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { resolveLabel, type Label } from '@/lib/labels';
+import { activeGoalOf, activeGoals, goalRanker, goalSection, type Goal, type GoalsFn } from '@/lib/goals';
 import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
@@ -28,6 +29,7 @@ import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
+import { useGoals } from './goalStore';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
@@ -39,10 +41,12 @@ import { Phone } from './Phone';
  * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
  * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
  */
-export type SheetKind = 'analytics' | 'review' | 'share' | 'settings';
+export type SheetKind = 'goals' | 'analytics' | 'review' | 'share' | 'settings';
 
-/** The matrix filter: one label ('' for no label) at one priority. */
-export interface Filter { label: string; priority: Priority }
+/** A cell of the matrix: one goal ('' for off-goal) at one priority. */
+export interface Cell { goal: string; priority: Priority }
+/** The matrix filter: a cell, or a whole goal's row (priority null). */
+export interface Filter { goal: string; priority: Priority | null }
 
 /** An open plan, as the matrix and the calendar show it before you apply it. */
 export interface PlanView {
@@ -101,8 +105,21 @@ export interface PlannerApi {
   schedule: (id: string) => void;
   unslot: (id: string) => void;
   place: (id: string, start: number) => void;
-  /** Change a backlog task's label and priority, as dropping it on a matrix cell does. */
-  moveToCell: (id: string, cell: Filter) => void;
+  /** Change a backlog task's goal and priority, as dropping it on a matrix cell does. */
+  moveToCell: (id: string, cell: Cell) => void;
+  /** Every goal, active ones first in your order (lib/goals.ts). */
+  goals: Goal[];
+  /** The ones you're working on, in your order. */
+  activeGoals: Goal[];
+  goalsLoaded: boolean;
+  /** Change your goals. Returns what undoes it. */
+  changeGoals: (fn: GoalsFn) => () => void;
+  /** The active goal a task moves, or null for off-goal work. */
+  goalOf: (t: Task) => Goal | null;
+  /** Any goal by id, achieved and dropped ones too. */
+  goalById: (id: string | null | undefined) => Goal | null;
+  /** Give tasks a goal (null takes them off-goal); a goal brings its section. */
+  setGoal: (ids: string[], goal: string | null) => void;
   chat: Chat;
   /** How you talk: the mic's language, your words, what it mishears (lib/voice.ts). */
   voice: VoiceApi;
@@ -165,7 +182,7 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(settings|share|analytics|review)(?:\/([a-z]+))?$/;
+const SHEET_HASH = /^#(goals|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -176,6 +193,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const dismissToast = useCallback(() => setToast(null), []);
   const slipLog = useSlips(repo);
   const repeats = useRepeats(repo, toast);
+  const goals = useGoals(repo, toast);
   const voice = useVoiceProfile(repo, toast);
   const { record: recordSlips, note: noteSlips } = slipLog;
   const { get: getRepeat, read: readRepeats, change: changeRepeats } = repeats;
@@ -227,7 +245,13 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const sources = useMemo(() => sourceIndex(accounts), [accounts]);
   const srcOf = useCallback((t: Task) => sourceOf(sources, t.externalId), [sources]);
   const labelIndex = useMemo(() => new Map(prefs.labels.map(l => [l.id, l])), [prefs.labels]);
-  const labelOf = useCallback((t: Task) => resolveLabel(t, labelIndex, srcOf(t)), [labelIndex, srcOf]);
+  const goalIndex = useMemo(() => new Map(goals.list.map(g => [g.id, g])), [goals.list]);
+  const liveGoals = useMemo(() => activeGoals(goals.list), [goals.list]);
+  const rank = useMemo(() => goalRanker(goals.list), [goals.list]);
+  const goalOf = useCallback((t: Task) => activeGoalOf(t, goalIndex), [goalIndex]);
+  const goalById = useCallback((id: string | null | undefined) => (id ? goalIndex.get(id) ?? null : null), [goalIndex]);
+  // A task on a goal is in that goal's section; otherwise its own label, or a Google event's calendar's or account's.
+  const labelOf = useCallback((t: Task) => resolveLabel({ label: goalSection(t, goalIndex) ?? t.label }, labelIndex, srcOf(t)), [goalIndex, labelIndex, srcOf]);
   const isOff = useCallback((t: Task) => { const src = srcOf(t); return !!src?.calendar && !src.calendar.pull; }, [srcOf]);
   const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
   const repeatIndex = useMemo(() => new Map(repeats.list.map(r => [r.id, r])), [repeats.list]);
@@ -349,17 +373,30 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     setPickedState(null);
   }, [store, undoable]);
 
-  const moveToCell = useCallback((id: string, cell: Filter) => {
+  /** What a task becomes on a goal: the goal, and its section when it has one. */
+  const onGoal = useCallback((goal: string | null): Partial<Task> => {
+    const g = goal ? goalIndex.get(goal) : undefined;
+    return g ? { goal: g.id, ...(g.section ? { label: g.section } : {}) } : { goal: null };
+  }, [goalIndex]);
+
+  const moveToCell = useCallback((id: string, cell: Cell) => {
     const t = store.get(id);
     if (!t) return;
     const patch: Partial<Task> = { priority: cell.priority };
-    // Only a change of row sets the label, so a Google event keeps taking its calendar's.
-    if ((labelOf(t)?.id ?? '') !== cell.label) patch.label = cell.label || null;
+    // Only a change of row changes the goal.
+    if ((goalOf(t)?.id ?? '') !== cell.goal) Object.assign(patch, onGoal(cell.goal || null));
     if (t.start != null) patch.start = null;
-    if (patch.priority === t.priority && !('label' in patch) && !('start' in patch)) return;
-    const name = prefs.labels.find(l => l.id === cell.label)?.name ?? 'No label';
-    undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${name} · ${PRI[cell.priority]}`, store.patch(id, patch));
-  }, [store, labelOf, prefs.labels, undoable]);
+    if (patch.priority === t.priority && !('goal' in patch) && !('start' in patch)) return;
+    const name = goalIndex.get(cell.goal)?.title ?? 'Off-goal';
+    undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${shortTitle(name, 30)} · ${PRI[cell.priority]}`, store.patch(id, patch));
+  }, [store, goalOf, onGoal, goalIndex, undoable]);
+
+  const setGoal = useCallback((ids: string[], goal: string | null) => {
+    const list = ids.map(id => store.get(id)).filter((t): t is Task => !!t).map(t => ({ ...t, ...onGoal(goal) }));
+    if (!list.length) return;
+    const name = goal ? goalIndex.get(goal)?.title ?? 'a goal' : null;
+    undoable(name ? `${list.length === 1 ? 'On' : `${list.length} tasks on`} ${shortTitle(name, 34)}` : `${list.length === 1 ? 'Off-goal' : `${list.length} tasks off-goal`}`, store.write(list));
+  }, [store, onGoal, goalIndex, undoable]);
 
   // A slot that came and went without a tick sends its task back to the backlog, on top of the stack, an hour after it
   // ended (BACKLOG_GRACE), so there's time to tick it off first. Checked every minute and on every change, so a task
@@ -393,7 +430,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
   const chatRepeats = useMemo(() => ({ list: repeats.list, repeatOf, apply: repeats.apply }), [repeats.list, repeatOf, repeats.apply]);
-  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, repeats: chatRepeats, voice });
+  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, goals: goals.list, repeats: chatRepeats, voice });
 
   const plan = useMemo<PlanView>(() => {
     const out: PlanView = { ticks: new Set(), moves: new Set(), added: [], proposed: [] };
@@ -423,8 +460,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     onDrop: (id: string, dayKey: string, min: number) => place(id, atMinutes(fromYmd(dayKey), Math.max(0, min))),
     onDropBacklog: id => unslot(id),
     onDropCell: (id, cell) => {
-      const [label, p] = cell.split('|');
-      moveToCell(id, { label, priority: Number(p) as Priority });
+      const [goal, p] = cell.split('|');
+      moveToCell(id, { goal, priority: Number(p) as Priority });
     },
     // Rows tick off with their check-and-strike; a block just goes.
     onDropZone: (id, zone, kind) => {
@@ -668,13 +705,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     return label?.color ?? a.color;
   }, [prefs.colorBy, labelIndex]);
 
-  const derived = useMemo(() => lists(store.tasks, now, isOff), [store.tasks, now, isOff]);
+  const derived = useMemo(() => lists(store.tasks, now, isOff, rank), [store.tasks, now, isOff, rank]);
 
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
+    goals: goals.list, activeGoals: liveGoals, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, goalById, setGoal,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,
     repeats: repeats.list, repeatOf, applyRepeats: repeats.apply, upcomingOn: upcomingDay, deletedText, busyTasks,
@@ -701,16 +739,16 @@ function Ghost({ id, x, y }: { id: string; x: number; y: number }) {
 }
 
 /** Now, Next, the backlog and Done, shared by phone and laptop. Google events are calendar items, not tasks to do. */
-function lists(all: Task[], now: number, isOff: (t: Task) => boolean) {
+function lists(all: Task[], now: number, isOff: (t: Task) => boolean, rank?: Rank) {
   const live = all.filter(t => !isOff(t));
   const mine = live.filter(t => !isEvent(t));
-  const f = focus(mine, now);
+  const f = focus(mine, now, rank);
   // Free until the next thing on the calendar today, or busy in a meeting right now.
   const dayEnd = startOfDay(now).getTime() + 864e5;
   const sched = live.filter(t => t.status === 'open' && t.start != null).sort((a, b) => (a.start as number) - (b.start as number));
   const busy = sched.find(t => isEvent(t) && (t.start as number) <= now && (t.start as number) + t.minutes * 60000 > now) ?? null;
   const freeUntil = f.now && !f.live ? sched.find(t => (t.start as number) > now && (t.start as number) < dayEnd) ?? null : null;
-  return { focus: f, busy, freeUntil, backlog: backlogList(mine), done: doneList(mine).slice(0, 50) };
+  return { focus: f, busy, freeUntil, backlog: backlogList(mine, rank), done: doneList(mine).slice(0, 50) };
 }
 
 export type Lists = ReturnType<typeof lists>;

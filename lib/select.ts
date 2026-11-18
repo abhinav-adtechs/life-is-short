@@ -1,11 +1,24 @@
 import type { Task } from './model';
 import { MIN, addDays, endOf, startOfDay, weekStart } from './time';
 
-/** Backlog order: priority, then due date (sooner first), then `order`. */
-export const byBacklog = (a: Task, b: Task) =>
-  (a.priority - b.priority) || (a.due || '9999').localeCompare(b.due || '9999') || ((a.order || 0) - (b.order || 0));
+/** Where a task sits among your goals: 0 for your top goal, 1 for the next…, OFF_GOAL for off-goal work (lib/goals.ts). */
+export type Rank = (t: Task) => number;
+export const OFF_GOAL = 1000;
+const flat: Rank = () => 0;
 
-export const backlogList = (tasks: Task[]) => tasks.filter(t => t.status === 'open' && t.start == null).sort(byBacklog);
+/**
+ * Backlog order: priority; then, at the same priority, work on a goal before off-goal work; then due date (sooner
+ * first), then your goals' ranking, then `order`. Without a ranking, just priority, due date and `order`.
+ */
+export const byBacklogWith = (rank: Rank) => (a: Task, b: Task) => {
+  const ra = rank(a), rb = rank(b);
+  return (a.priority - b.priority) || (Number(ra >= OFF_GOAL) - Number(rb >= OFF_GOAL))
+    || (a.due || '9999').localeCompare(b.due || '9999') || (ra - rb) || ((a.order || 0) - (b.order || 0));
+};
+
+export const byBacklog = byBacklogWith(flat);
+
+export const backlogList = (tasks: Task[], rank: Rank = flat) => tasks.filter(t => t.status === 'open' && t.start == null).sort(byBacklogWith(rank));
 
 /** Scheduled, still open, and already over. A Google Calendar event is a meeting that keeps Google's time, so it's never missed. */
 export const missedList = (tasks: Task[], now: number) =>
@@ -43,13 +56,13 @@ export interface Focus {
 }
 
 /**
- * Now = the open task scheduled over the current time, else the first backlog task.
+ * Now = the open task scheduled over the current time, else the first backlog task (in your goals' order, with `rank`).
  * Next = the next scheduled task today, else the next backlog task.
  */
-export function focus(tasks: Task[], now: number): Focus {
+export function focus(tasks: Task[], now: number, rank: Rank = flat): Focus {
   const sched = tasks.filter(t => t.status === 'open' && t.start != null).sort((a, b) => (a.start as number) - (b.start as number));
   const live = sched.find(t => (t.start as number) <= now && endOf(t) > now) || null;
-  const bl = backlogList(tasks);
+  const bl = backlogList(tasks, rank);
   const cur = live || bl[0] || null;
   const dayEnd = addDays(startOfDay(now), 1).getTime();
   const next = sched.find(t => (t.start as number) > now && (t.start as number) < dayEnd && t.id !== cur?.id)
