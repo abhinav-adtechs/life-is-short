@@ -196,7 +196,9 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
   for (const t of tasks) {
     if (t.goal !== goal.id) continue;
     const o = occurrenceOf(t.id);
-    if (o && reps.has(o.repeat)) series.set(o.repeat, [...(series.get(o.repeat) ?? []), t]);
+    // One of a repeat's tasks makes the repeat's step only on the goal the repeat is on: one left on a goal the repeat
+    // moved off (a done one, say) is a task of its own there, so the series shows on one chart.
+    if (o && reps.get(o.repeat)?.goal === goal.id) series.set(o.repeat, [...(series.get(o.repeat) ?? []), t]);
     else mine.push(t);
   }
   // A repeat on this goal with nothing of it made yet still gets its step.

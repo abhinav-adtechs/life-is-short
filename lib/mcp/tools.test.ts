@@ -3,7 +3,7 @@ import type { Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { normalizeRepeats, startRepeat, occurrence, REPEATS_KEY } from '../repeat';
 import { SLIPS_KEY } from '../slips';
-import { TaskError, changeGoals, completeTask, createTask, deleteTask, getGoal, getTask, listGoals, listTasks, refsFor, reopenTask, updateTask, type Ctx } from './tools';
+import { TaskError, changeGoals, completeTask, createTask, cutByLimits, deleteTask, getGoal, getTask, listGoals, listTasks, refsFor, reopenTask, updateTask, type Ctx } from './tools';
 import { normalizeGoals } from '../goals';
 import { LOG_KEY, normalizeLog } from '../flow';
 
@@ -407,6 +407,248 @@ describe('building goals and their charts', () => {
     const get = old.repo.getSetting.bind(old.repo);
     old.repo.getSetting = async <T,>(k: string) => { if (k === LOG_KEY) throw new Error('mcp_setting: mcp: setting not available'); return get<T>(k); };
     await expect(completeTask(ctx(old), 'deck')).resolves.toMatchObject({ status: 'done' });
+  });
+
+  it('moves an existing goal under a parent, for one of its key results, and back to the top', async () => {
+    const RUN = { id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 };
+    const m = seed({ goals: [EXIT, RUN] });
+    m.rows.set('long', task('long', { goal: 'grun', label: 'home' }));
+    const out = await changeGoals(ctx(m), { ops: [{ op: 'move_goal', goal: 'Run a half marathon', parent: 'goal:gexit', for_result: 'kr:k2', after: 'deck' }] });
+    expect(out.skipped).toEqual([]);
+    expect(out.changed).toEqual(['“Run a half marathon” is under “Give Sam an exit” now, for “Paid”, after “deck”']);
+    expect(goalsIn(m).find(g => g.id === 'grun')).toMatchObject({ parent: 'gexit', parentKr: 'k2', section: 'work' });
+    expect(goalsIn(m).find(g => g.id === 'gexit')!.plan!.links).toContainEqual({ from: 'deck', to: 'goal:grun' });
+    // The goals it touched, as list_goals shows them: the moved one under its new parent, in its section.
+    expect(out.goals.find(g => g.id === 'grun')).toMatchObject({ parent: 'gexit', parent_kr: 'k2', section: 'Work', rank: null });
+    expect((await listGoals(ctx(m))).goals.map(g => [g.id, g.rank])).toEqual([['gexit', 1], ['grun', null]]);
+    // Its tasks came along.
+    expect((await getGoal(ctx(m), { goal: 'grun' })).open_tasks).toBe(1);
+
+    const back = await changeGoals(ctx(m), { ops: [{ op: 'move_goal', goal: 'grun', parent: 'none', rank: 1, section: 'Home life' }] });
+    expect(back.changed).toEqual(['“Run a half marathon” is a top goal now, in “Home life”, ranked 1']);
+    expect((await listGoals(ctx(m))).goals.map(g => [g.id, g.rank, g.section])).toEqual([['grun', 1, 'Home life'], ['gexit', 2, 'Work']]);
+    expect(goalsIn(m).find(g => g.id === 'gexit')!.plan!.links).not.toContainEqual({ from: 'deck', to: 'goal:grun' });
+  });
+
+  it('lists a goal as touched when only its repeating steps changed', async () => {
+    const m = seed();
+    // NOW is a Wednesday: a step every Friday makes no task today, only the repeat.
+    const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [{ op: 'add_step', title: 'Investor update', repeat: { freq: 'week', days: ['fri'] } }] });
+    expect(m.store[REPEATS_KEY]).toHaveLength(1);
+    expect(out.goals.map(g => g.id)).toEqual(['gexit']);
+  });
+
+  it('takes sections by name, and says which exist', async () => {
+    const m = seed();
+    await changeGoals(ctx(m), { ops: [{ op: 'add_goal', title: 'Fix the roof', section: 'Home life' }, { op: 'edit_goal', goal: 'gexit', section: 'none' }] });
+    expect(goalsIn(m).map(g => [g.title, g.section])).toEqual([['Give Sam an exit', null], ['Fix the roof', 'home']]);
+    await expect(changeGoals(ctx(m), { ops: [{ op: 'add_goal', title: 'X', section: 'Garden' }] })).rejects.toThrow(/no project called "Garden".*Work, Home life/);
+  });
+
+  it('deletes a goal for good: its open tasks go off-goal, or with with_tasks are deleted, never Google’s', async () => {
+    const m = seed();
+    m.rows.set('gt', task('gt', { goal: 'gexit', externalId: 'gtask:list:1' }));
+    m.rows.set('was', task('was', { goal: 'gexit', status: 'done', doneAt: NOW - H }));
+    const out = await changeGoals(ctx(m), { ops: [{ op: 'delete_goal', goal: 'gexit', with_tasks: true }] });
+    expect(out.changed).toEqual(['Deleted “Give Sam an exit”; 2 open tasks deleted; 1 open task off-goal now (1 from Google, which can’t be deleted here)']);
+    expect(out.goals).toEqual([]);
+    expect(goalsIn(m)).toEqual([]);
+    expect(m.rows.has('lawyer')).toBe(false);
+    expect(m.rows.has('deck')).toBe(false);
+    expect(m.rows.get('gt')!.goal).toBeNull();
+    // Done work stays, as the record of it.
+    expect(m.rows.get('was')!.goal).toBe('gexit');
+    expect((await listGoals(ctx(m))).goals).toEqual([]);
+  });
+
+  describe('gaps found using it from Claude', () => {
+    const RUN = { id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 };
+
+    it('1. edit_goal moves an existing goal under a parent, or to the top with null, by add_goal’s rules', async () => {
+      const m = seed({ goals: [EXIT, RUN] });
+      const out = await changeGoals(ctx(m), { ops: [{ op: 'edit_goal', goal: 'grun', parent: 'gexit', for_result: 'kr:k2' }] });
+      expect(out.skipped).toEqual([]);
+      expect(out.changed).toEqual(['“Run a half marathon” is under “Give Sam an exit” now, for “Paid”']);
+      expect(goalsIn(m).find(g => g.id === 'grun')).toMatchObject({ parent: 'gexit', parentKr: 'k2', section: 'work' });
+      // Refused with the reason, and the rest of that operation left alone.
+      const bad = await changeGoals(ctx(m), { ops: [
+        { op: 'edit_goal', goal: 'gexit', parent: 'grun', title: 'Renamed' },
+        { op: 'edit_goal', goal: 'grun', parent: 'Become an astronaut' },
+      ] });
+      expect(bad.changed).toEqual([]);
+      expect(bad.skipped).toEqual([
+        'Couldn’t change the goal: “Run a half marathon” is under “Give Sam an exit”, so “Give Sam an exit” can’t go under it.',
+        'Couldn’t change the goal: there’s no goal Become an astronaut to put it under.',
+      ]);
+      expect(goalsIn(m).find(g => g.id === 'gexit')!.title).toBe('Give Sam an exit');
+      const top = await changeGoals(ctx(m), { ops: [{ op: 'edit_goal', goal: 'grun', parent: null, title: 'Run a marathon' }] });
+      expect(top.changed).toEqual(['“Run a half marathon” is a top goal now', '“Run a half marathon” is now “Run a marathon”']);
+      expect(goalsIn(m).find(g => g.id === 'grun')!.parent).toBeUndefined();
+    });
+
+    it('2. sets a goal’s section by label name or id, and its sub-goals and their tasks take it', async () => {
+      const m = seed({ goals: [] });
+      const out = await changeGoals(ctx(m), { ops: [
+        { op: 'add_goal', title: 'Fix the roof', section: 'Home life', key: 'roof' },
+        { op: 'add_goal', title: 'Get quotes', parent: 'roof', key: 'quotes' },
+        { op: 'add_step', goal: 'quotes', title: 'Call three roofers' },
+        { op: 'add_goal', title: 'Ship v2', section: 'work' },
+      ] });
+      expect(out.skipped).toEqual([]);
+      expect(out.changed).toContain('New goal “Fix the roof”, in “Home life”');
+      expect(goalsIn(m).map(g => [g.title, g.section])).toEqual([['Fix the roof', 'home'], ['Get quotes', 'home'], ['Ship v2', 'work']]);
+      expect([...m.rows.values()].find(t => t.title === 'Call three roofers')!.label).toBe('home');
+      expect((await createTask(ctx(m), { title: 'Buy a ladder', goal: 'Get quotes' })).project).toBe('Home life');
+      // A top goal's new section carries down to its sub-goals, and to the tasks made on them.
+      await changeGoals(ctx(m), { ops: [{ op: 'edit_goal', goal: 'Fix the roof', section: 'Work' }] });
+      expect(goalsIn(m).map(g => g.section)).toEqual(['work', 'work', 'work']);
+      expect((await createTask(ctx(m), { title: 'Pick a roofer', goal: 'Get quotes' })).project).toBe('Work');
+      await expect(changeGoals(ctx(m), { ops: [{ op: 'edit_goal', goal: 'Ship v2', section: 'Garden' }] })).rejects.toThrow(/no project called "Garden".*Work, Home life/);
+    });
+
+    it('3. edit_goal ranks a goal among the open ones beside it', async () => {
+      const m = seed({ goals: [EXIT, RUN, { ...RUN, id: 'gold', title: 'Old', status: 'dropped', closedAt: 1 }] });
+      const out = await changeGoals(ctx(m), { ops: [{ op: 'edit_goal', goal: 'grun', rank: 1 }] });
+      expect(out.changed).toEqual(['“Run a half marathon” ranked 1']);
+      expect((await listGoals(ctx(m))).goals.map(g => [g.id, g.rank])).toEqual([['grun', 1], ['gexit', 2]]);
+      const again = await changeGoals(ctx(m), { ops: [{ op: 'edit_goal', goal: 'grun', rank: 1 }, { op: 'edit_goal', goal: 'gold', rank: 1 }] });
+      expect(again.skipped).toEqual(['“Run a half marathon” is already ranked 1.', '“Old” isn’t ranked: it’s dropped, and only open goals have a rank.']);
+    });
+
+    it('4. add_step takes a due date, checked as create_task checks one', async () => {
+      const m = seed();
+      const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [
+        { op: 'add_step', title: 'File the forms', due: '2026-12-01' },
+        { op: 'add_step', title: 'Weekly check-in', due: '2026-12-01', repeat: { freq: 'week', days: ['fri'] } },
+      ] });
+      expect(out.changed[0]).toBe('“Give Sam an exit”: step “File the forms”, due 2026-12-01');
+      expect([...m.rows.values()].find(t => t.title === 'File the forms')!.due).toBe('2026-12-01');
+      expect(out.skipped).toEqual(['“Weekly check-in” repeats, so each one is due on its own day; its due date was left out.']);
+      await expect(changeGoals(ctx(m), { goal: 'gexit', ops: [{ op: 'add_step', title: 'X', due: '2026-02-30' }] })).rejects.toThrow(/due must be a date like 2026-11-12, not "2026-02-30"/);
+    });
+
+    it('5. never moves a task by linking it to a step on another goal, and keeps its arrows', async () => {
+      const m = seed({ goals: [EXIT, RUN] });
+      m.rows.set('shoes', task('shoes', { goal: 'grun', label: 'home' }));
+      m.rows.set('route', task('route', { goal: 'grun', label: 'home' }));
+      await changeGoals(ctx(m), { ops: [{ op: 'link', from: 'shoes', to: 'route' }] });
+      const out = await changeGoals(ctx(m), { ops: [{ op: 'link', from: 'shoes', to: 'deck' }, { op: 'add_step', goal: 'gexit', title: 'Brief Sam', after: 'route' }] });
+      const refusal = (t: string) => `“${t}” is on “Run a half marathon”, not on “Give Sam an exit”, so it can’t have an arrow there: arrows only join steps on the same goal, and drawing one doesn’t move a task. Put it on “Give Sam an exit” with move_step first if it belongs there.`;
+      expect(out.skipped).toEqual([refusal('shoes'), refusal('route')]);
+      expect(out.changed).toEqual(['“Give Sam an exit”: step “Brief Sam”']);
+      expect(m.rows.get('shoes')).toMatchObject({ goal: 'grun', label: 'home' });
+      expect(m.rows.get('route')).toMatchObject({ goal: 'grun', label: 'home' });
+      expect(goalsIn(m).find(g => g.id === 'grun')!.plan!.links).toEqual([{ from: 'shoes', to: 'route' }]);
+      expect(goalsIn(m).find(g => g.id === 'gexit')!.plan!.links).toEqual([{ from: 'lawyer', to: 'deck' }]);
+      // Moving it is its own operation, which says its arrows stay behind.
+      const moved = await changeGoals(ctx(m), { ops: [{ op: 'move_step', ref: 'shoes', goal: 'gexit', after: 'deck' }] });
+      expect(moved.changed).toEqual(['“shoes” moved to “Give Sam an exit” after “deck”']);
+      expect(moved.skipped).toEqual(['“shoes”’s 1 arrow on “Run a half marathon” doesn’t come with it: arrows only join steps on the same goal.']);
+    });
+
+    // A daily repeat on the exit, with today's one open and yesterday's done.
+    const repeating = () => {
+      const r = startRepeat({ title: 'Update Sam', notes: '', priority: 2, minutes: 30, label: 'work', goal: 'gexit', raw: '', rule: { freq: 'day', every: 1, days: [], monthDay: null }, time: null, from: '2026-11-09' }, NOW - 2 * 864e5, 'rupd');
+      const open = occurrence(r, '2026-11-11', NOW), was: Task = { ...occurrence(r, '2026-11-10', NOW), status: 'done', doneAt: NOW - 864e5 };
+      const m = seed({ goals: [EXIT, RUN], [REPEATS_KEY]: [r] });
+      m.rows.set(open.id, open);
+      m.rows.set(was.id, was);
+      return { m, open, was };
+    };
+
+    it('6. moves a repeating task’s open occurrences with its series, so it shows on one chart', async () => {
+      const { m, open, was } = repeating();
+      expect((await getGoal(ctx(m), { goal: 'gexit' })).flow.steps.map(x => x.id)).toContain('rep:rupd');
+      const out = await changeGoals(ctx(m), { ops: [{ op: 'move_step', ref: 'rep:rupd', goal: 'grun' }] });
+      expect(out.changed).toEqual(['“Update Sam” moved to “Run a half marathon”']);
+      expect(normalizeRepeats(m.store[REPEATS_KEY])[0]).toMatchObject({ goal: 'grun', label: 'home' });
+      expect(m.rows.get(open.id)).toMatchObject({ goal: 'grun', label: 'home' });
+      // The done one stays on the goal it was done for, as a task of its own there.
+      expect(m.rows.get(was.id)!.goal).toBe('gexit');
+      const exitSteps = (await getGoal(ctx(m), { goal: 'gexit' })).flow.steps.map(x => x.id);
+      expect(exitSteps).not.toContain('rep:rupd');
+      expect(exitSteps).toContain(was.id);
+      expect((await getGoal(ctx(m), { goal: 'grun' })).flow.steps.find(x => x.id === 'rep:rupd')).toMatchObject({ title: 'Update Sam' });
+    });
+
+    it('6. takes a repeating task’s open occurrences off its goal with it', async () => {
+      const { m, open } = repeating();
+      await changeGoals(ctx(m), { ops: [{ op: 'remove_step', ref: 'rep:rupd' }] });
+      expect(normalizeRepeats(m.store[REPEATS_KEY])[0].goal ?? null).toBeNull();
+      expect(m.rows.get(open.id)!.goal).toBeNull();
+      expect((await getGoal(ctx(m), { goal: 'gexit' })).flow.steps.map(x => x.id)).not.toContain('rep:rupd');
+    });
+
+    it('7. lists what an operation can’t use: a field it doesn’t take, a value it can’t read, a key it doesn’t know', async () => {
+      const m = seed();
+      const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [
+        { op: 'add_wait', title: 'Sam signs', minutes: 30 },
+        { op: 'edit_goal', goal: 'gexit', by: 'next friday', colour: 'red' },
+        { op: 'edit_step', ref: 'kr:k1', priority: 'urgent' },
+      ] });
+      expect(out.skipped).toEqual([
+        'Operation 1: add_wait doesn’t take “minutes”, so it was left out; it takes goal, title, text, holds, key.',
+        'Operation 2: edit_goal couldn’t use "next friday" for “by”, so it was left out.',
+        'Operation 2: edit_goal doesn’t take “colour”, so it was left out; it takes goal, title, by, section, status, parent, for_result, rank.',
+        'Couldn’t change the goal: there was nothing to change; it already looks like that.',
+        '“Shares transferred” is a key result, so it has no length or priority; priority left out.',
+      ]);
+      expect(out.changed).toEqual(['“Give Sam an exit”: waiting on “Sam signs”']);
+    });
+
+    it('7. lists a section or due date on an operation that doesn’t take one, rather than checking it', async () => {
+      const out = await changeGoals(ctx(seed()), { goal: 'gexit', ops: [{ op: 'add_wait', title: 'Sam signs', section: 'Garden', due: '2026-02-30' }] });
+      expect(out.skipped).toEqual([
+        'Operation 1: add_wait doesn’t take “section”, so it was left out; it takes goal, title, text, holds, key.',
+        'Operation 1: add_wait doesn’t take “due”, so it was left out; it takes goal, title, text, holds, key.',
+      ]);
+      expect(out.changed).toEqual(['“Give Sam an exit”: waiting on “Sam signs”']);
+    });
+
+    it('7. says when an operation changes nothing, or can’t find a step it names', async () => {
+      const m = seed();
+      const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [
+        { op: 'edit_goal', goal: 'gexit', title: 'Give Sam an exit' },
+        { op: 'link', from: 'lawyer', to: 'deck' },
+        { op: 'add_step', title: 'Draft the email', before: 'nowhere', beside: 'nobody' },
+        { op: 'add_wait', title: 'A reply', holds: 'nothing' },
+        { op: 'add_result', text: 'Board approves', under: 'Nope' },
+        { op: 'edit_result', ref: 'kr:k1', text: 'Shares transferred' },
+        { op: 'move_step', ref: 'deck', goal: 'gexit' },
+      ] });
+      expect(out.skipped).toEqual([
+        'Couldn’t change the goal: there was nothing to change; it already looks like that.',
+        '“deck” already waits on “lawyer”.',
+        'No step nowhere for “Draft the email” to lead to.',
+        'No step nobody for “Draft the email” to run alongside.',
+        'No step nothing for “A reply” to hold up.',
+        'Couldn’t add the key result: “Give Sam an exit” has no key result “Nope” to put it under.',
+        'Couldn’t change the key result: there was nothing to change; it already looks like that.',
+        'Couldn’t move the step: “deck” is on “Give Sam an exit” already.',
+      ]);
+      expect(out.changed).toEqual(['“Give Sam an exit”: step “Draft the email”', '“Give Sam an exit”: waiting on “A reply”']);
+    });
+
+    it('7. refuses what the app’s limits would cut or move, instead of losing it', async () => {
+      const OLD = { ...RUN, id: 'gold', title: 'Launch v1', status: 'achieved', closedAt: 1 };
+      const deep = { ...EXIT, results: [{ id: 'k1', text: 'Shares transferred', done: false, results: [{ id: 'k1a', text: 'Board approves', done: false, results: [{ id: 'k1b', text: 'Minutes signed', done: false }] }] }] };
+      const m = seed({ goals: [deep, OLD] });
+      const out = await changeGoals(ctx(m), { ops: [
+        { op: 'add_goal', title: 'Write the docs', parent: 'gold' },
+        { op: 'add_goal', title: 'Legal side', parent: 'gexit', for_result: 'Nope' },
+        { op: 'add_result', goal: 'gexit', text: 'Notarised', under: 'kr:k1b' },
+      ] });
+      expect(out.changed).toEqual([]);
+      expect(out.skipped).toEqual([
+        'Couldn’t add the goal: “Launch v1” is achieved; bring it back first.',
+        'Couldn’t add the goal: “Give Sam an exit” has no key result “Nope”.',
+        'Couldn’t add the key result: key results go 3 levels deep at most.',
+      ]);
+      expect(goalsIn(m).map(g => g.id)).toEqual(['gexit', 'gold']);
+      // And should keeping goals in shape ever cut something anyway, that's said too.
+      const tops = Array.from({ length: 9 }, (_, i) => ({ ...RUN, id: `g${i}`, title: `Goal ${i}` })) as Parameters<typeof cutByLimits>[0];
+      expect(cutByLimits(tops, normalizeGoals(tops))).toEqual(['“Goal 8” is dropped: it was past the most top goals at once.']);
+    });
   });
 
   it('names key results by "kr:<id>", and by goal where two goals share an id', () => {

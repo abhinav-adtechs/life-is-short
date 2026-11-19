@@ -96,8 +96,8 @@ the one on the calendar at this minute, else the top of the backlog. When adding
 moves, if any. Use list_tasks to find tasks and their ids before changing them; get_task has the notes.
 Each goal has a flow chart: its steps (tasks, things it waits on, sub-goals and its key results as milestones) and arrows
 saying what has to be done before what. To plan or change how a goal gets done, read it with get_goal and change it with
-change_goals, using the step ids get_goal shows; you can add goals, sub-goals, key results, steps, waiting steps and arrows
-in one call. Say what you're about to change before you change a goal's structure, and ask before deleting anything.
+change_goals, using the step ids get_goal shows; in one call you can add goals, sub-goals, key results, steps, waiting steps
+and arrows, and move, reorder, rename, close or delete any of them (move_goal puts a goal under another, or back to the top). Say what you're about to change before you change a goal's structure, and ask before deleting anything.
 Prefer complete_task over delete_task for anything the user did. Items from Google Calendar or Google Tasks are read-only apart
 from their priority, project, notes and status. ${TIME_NOTE}`;
 
@@ -122,7 +122,7 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: fals
 
 export function buildServer(auth: AuthInfo): McpServer {
   const c: Ctx = { repo: connectionRepo(auth.token), tz: zoneOr(auth.extra?.tz as string | undefined) };
-  const server = new McpServer({ name: 'life-is-short', title: 'Life is short', version: '0.1.0' }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: 'life-is-short', title: 'Life is short', version: '0.2.0' }, { instructions: INSTRUCTIONS });
 
   server.registerTool('list_tasks', {
     title: 'List tasks',
@@ -195,54 +195,67 @@ export function buildServer(auth: AuthInfo): McpServer {
   const ref = (what: string) => z.string().min(1).max(200).describe(what);
   const STEP = 'A step: a task id, a waiting step id (w…), a key result ("kr:<id>"), a repeating task ("rep:<id>"), a sub-goal ("goal:<id>"), '
     + 'its title, or the key you gave something added earlier in this call.';
+  // Any other field reaches change_goals and is listed under skipped, instead of being dropped unseen. It's spelled as one
+  // branch per JSON type, so it reads as "any value" in every client rather than as a schema that says nothing.
+  const anyValue = z.unknown().meta({ oneOf: ['string', 'number', 'boolean', 'null', 'array', 'object'].map(type => ({ type })) })
+    .describe('A field the operation doesn’t take: listed under skipped, with what it does take.');
   const op = z.object({
-    op: z.enum(['add_goal', 'edit_goal', 'add_result', 'edit_result', 'remove_result', 'add_step', 'add_wait', 'link', 'unlink', 'edit_step', 'remove_step', 'move_step'])
-      .describe('What to do; the fields each one uses are in the tool description.'),
+    op: z.enum([
+      'add_goal', 'edit_goal', 'move_goal', 'delete_goal', 'add_result', 'edit_result', 'move_result', 'remove_result',
+      'add_step', 'add_wait', 'link', 'unlink', 'edit_step', 'remove_step', 'move_step',
+    ]).describe('What to do; the fields each one uses are in the tool description.'),
     goal: ref('The goal it’s on (id or title, or the key of a goal added earlier in this call). Defaults to the call’s goal.').optional(),
     ref: ref(STEP).optional(),
     from: ref(`For link/unlink: the step that has to be done first. ${STEP}`).optional(),
     to: ref('For link/unlink: the step that waits for it.').optional(),
     title: z.string().min(1).max(160).describe('A goal’s, step’s or waiting step’s title: short, without the schedule.').optional(),
     text: z.string().min(1).max(120).describe('A key result’s text: what has to be true, e.g. "Term sheet signed".').optional(),
-    under: ref('For add_result: the key result it goes under.').optional(),
-    parent: ref('For add_goal: the goal it’s a sub-goal of.').optional(),
-    for_result: ref('For add_goal with a parent: the parent’s key result this sub-goal serves.').optional(),
+    under: ref('For add_result and move_result: the key result it goes under; for move_result, null (or "none") moves it to the top.').nullable().optional(),
+    parent: ref('For add_goal, edit_goal and move_goal: the goal it’s a sub-goal of; for edit_goal and move_goal, null (or "none") makes it a top goal.').nullable().optional(),
+    for_result: ref('For add_goal, edit_goal and move_goal with a parent: the parent’s key result this sub-goal serves; null for the parent as a whole.').nullable().optional(),
+    section: z.string().min(1).max(40).nullable().describe('For add_goal, edit_goal and move_goal to the top: a top goal’s section (a label name or id, e.g. "Work"), or null for none. A sub-goal is always in its top goal’s section; tasks on a goal take it as their project.').optional(),
+    rank: z.number().int().min(1).max(1000).describe('For edit_goal, move_goal, add_goal and move_result: its place among the open goals (or key results) beside it, 1 first. A top goal’s rank is its priority.').optional(),
+    due: date('For add_step: a deadline (YYYY-MM-DD), as in create_task; null for none.').nullable().optional(),
     results: z.array(z.string().min(1).max(120)).max(8).describe('For add_goal: its key results, as texts.').optional(),
     by: orNull('For add_goal/edit_goal: YYYY-MM-DD to get it done by, or null for none.').optional(),
-    after: ref('For add_step/move_step: the step it follows (an arrow from that step to this one).').optional(),
+    after: ref('For add_step, move_step and move_goal: the step it follows on the chart it goes onto (an arrow from that step to this one).').optional(),
     before: ref('For add_step: the step it leads to.').optional(),
     beside: ref('For add_step: a step it runs alongside (same arrows in and out).').optional(),
     holds: ref('For add_wait: the step it holds up.').optional(),
     minutes: minutes.optional(),
     priority: priority.optional(),
     done: z.boolean().describe('For edit_step/edit_result: tick it off (true) or reopen it (false). For a waiting step, true means it came through.').optional(),
-    delete: z.boolean().describe('For remove_step: delete the task outright instead of taking it off the goal. Only when the user says delete.').optional(),
+    delete: z.boolean().describe('For remove_step: delete the task outright instead of taking it off the goal, or a sub-goal instead of dropping it. Only when the user says delete.').optional(),
+    with_tasks: z.boolean().describe('For delete_goal: delete its open tasks too and stop its repeating tasks, instead of making them off-goal. Only when the user says so.').optional(),
     status: z.enum(['active', 'achieved', 'dropped']).describe('For edit_goal.').optional(),
     repeat: z.object({
       freq: z.enum(['day', 'week', 'month']), every: z.number().int().min(1).max(52).optional(),
       days: z.array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).optional(), monthday: z.number().int().min(1).max(31).nullable().optional(),
       until: orNull('YYYY-MM-DD it stops after').optional(), times: z.number().int().min(1).max(999).nullable().optional().describe('How many times in all'),
       per: z.number().int().min(1).max(7).nullable().optional().describe('How many times a week (or month)'),
-    }).describe('For add_step: makes it a repeating task.').optional(),
+    }).describe('For add_step: makes it a repeating task. For edit_step on a repeating task ("rep:<id>"): changes how it repeats.').optional(),
     key: z.string().min(1).max(40).describe('A name for what this adds, so later operations in the same call can refer to it.').optional(),
-  });
+  }).catchall(anyValue);
 
   server.registerTool('change_goals', {
     title: 'Change goals and their charts',
     description: 'Build or change the user’s goals and their flow charts, the way the app’s own chart builder does, in one call '
       + 'of up to 40 operations applied in order (add something before linking it). An arrow from A to B means B can only start '
       + 'once A is done; steps without arrows between them run in parallel. Operations:\n'
-      + '- add_goal {title, results, by, parent, for_result, key}: a goal, or a sub-goal under parent (serving one of its key results)\n'
-      + '- edit_goal {goal, title, by, status}\n'
+      + '- add_goal {title, results, by, section, parent, for_result, rank, key}: a goal, or a sub-goal under parent (serving one of its key results)\n'
+      + '- edit_goal {goal, title, by, section, status, parent, for_result, rank}: rename it, change its date or a top goal’s section; status achieved, dropped, or active to bring it back; parent moves it under another goal (null: to the top), with everything under it; rank reorders it\n'
+      + '- move_goal {goal, parent, for_result, rank, after}: move an existing goal, with everything under it, under another goal (for one of its key results, or for it as a whole with for_result null), or to the top with parent null; rank reorders it among the goals beside it\n'
+      + '- delete_goal {goal, with_tasks}: delete a goal and its sub-goals for good (status dropped keeps them). Its open tasks go off-goal, or with with_tasks are deleted and its repeating tasks stop; done tasks stay. Ask first.\n'
       + '- add_result {goal, text, under, key}: a key result ("done when"), optionally under another\n'
-      + '- edit_result {ref, text, done}; remove_result {ref}\n'
-      + '- add_step {goal, title, minutes, priority, after, before, beside, repeat, key}: a new task on the goal\n'
+      + '- edit_result {ref, text, done}; move_result {ref, under, rank}: under another key result of the same goal, or to the top with under null; remove_result {ref}: with what’s under it\n'
+      + '- add_step {goal, title, minutes, priority, due, after, before, beside, repeat, key}: a new task on the goal\n'
       + '- add_wait {goal, title, holds, key}: something outside the user’s control the plan waits on (a reply, a signature)\n'
-      + '- link {from, to}; unlink {from, to}\n'
-      + '- edit_step {ref, title, minutes, priority, done}: rename, resize, tick off or reopen any step\n'
-      + '- remove_step {ref, delete}: take a step off the chart (a task goes off the goal; delete true deletes it)\n'
-      + '- move_step {ref, goal, after}: put an existing task on this goal\n'
-      + 'Use the ids get_goal and list_goals show, or titles. Returns what changed, what was skipped and why, and the goals it '
+      + '- link {from, to}; unlink {from, to}: both steps on the same goal. An arrow never joins two goals and never moves a task; move_step does that\n'
+      + '- edit_step {ref, title, minutes, priority, done, repeat}: rename, resize, tick off or reopen any step; repeat changes how a repeating task repeats\n'
+      + '- remove_step {ref, delete}: take a step off the chart (a task goes off the goal, delete true deletes it; a sub-goal is dropped, delete true deletes it)\n'
+      + '- move_step {ref, goal, after}: put an existing task, repeating task, waiting step or sub-goal on this goal\n'
+      + 'Use the ids get_goal and list_goals show, or titles. Anything an operation can’t do, including a field it doesn’t take, is listed '
+      + 'under skipped with the reason; nothing is dropped silently. Returns what changed, what was skipped and why, and the goals it '
       + 'touched with their charts. The open app shows the change when its window next comes to the front.',
     inputSchema: z.object({
       goal: goal.describe('The goal operations without their own "goal" are about (id or title).').optional(),
