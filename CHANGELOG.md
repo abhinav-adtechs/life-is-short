@@ -8,13 +8,27 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 - Claude builds your goals and their flow charts: `change_goals` takes the chart builder's operations (goals, sub-goals, key results, steps, waiting steps, arrows, edits, moves, removals; up to 40 in one call), and `get_goal` shows one goal in full with its chart as Mermaid and its history. `supabase/migrations/0011_connector_goals.sql` lets a connection write goals and the charts' history.
 - A task Claude adds, finishes, reopens, renames or moves on a goal goes in that goal's chart history, as in the app.
+- Everything about a goal can be changed by saying so, through Claude or the planner's chat and chart bar. `move_goal` moves an existing goal, with its sub-goals, under another goal (serving one of its key results, or the goal as a whole) or back to the top, and reorders goals by rank. `delete_goal` deletes a goal and its sub-goals for good; their open tasks go off-goal, or are deleted too with `with_tasks` (never Google's), and done ones stay. `move_result` moves, nests and reorders key results. `edit_goal` sets a top goal's section (by name through Claude), `edit_step` changes how a repeating step repeats, and `move_step` moves a waiting step or a sub-goal to another goal too.
 - MIT `LICENSE`, `CONTRIBUTING.md`, this changelog and `docs/ARCHITECTURE.md`.
 - A project banner and a README with features, architecture, configuration and project structure up front.
 
 ### Changed
 
 - The chart builder looks a step named by its title up on the operation's own goal when no chart is in focus.
+- The chart builder finds an achieved or dropped goal by its title too, so it can be brought back or deleted by name.
+- `change_goals` lists a goal as touched when only its repeating steps changed.
 - Goal fields in Claude's tool schemas (rank, progress, a key result's parent) are bounded, so clients that read one type per field take them.
+
+### Fixed
+
+- `change_goals` → `edit_goal` ignored `parent` without a word. It now moves an existing goal under a parent (and one of its key results, with `for_result`) or to the top with `parent: null`, by the same rules as `add_goal`, and takes `rank` to reorder it.
+- Goal sections: `add_goal` and `edit_goal` take `section` by label name or id, checked like a task's project. Sub-goals take their top goal's, and a task made on a goal takes the nearest section up the tree as its project.
+- `add_step` takes `due` (YYYY-MM-DD), checked as `create_task` checks it.
+- `link` between steps on two goals moved the task onto the other goal and lost its arrows. Arrows only join steps on one goal now, and drawing one never moves a task (that's refused with the reason; `move_step` moves it).
+- `move_step` on a repeating task (`rep:<id>`) left its open task on the old goal, so it showed on both charts. Its open tasks move with it now, taking it off a goal takes them off too, and a chart shows a repeat's step only on the goal the repeat is on.
+- Nothing an operation can't do is dropped silently: a field it doesn't take (unknown keys included), a value it can't read, a step it can't find, a change that changes nothing, a limit that would cut it (a goal too deep or under a closed one, a key result too deep) or a title cut to fit is listed under `skipped` with the reason.
+- Bringing a goal back through the chart builder when 8 top goals were already open silently dropped another; it's refused now, with the reason.
+- Removing a key result as a step left the arrows to the key results under it on the chart.
 
 ### Security
 
