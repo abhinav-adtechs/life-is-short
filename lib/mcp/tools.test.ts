@@ -418,3 +418,79 @@ describe('building goals and their charts', () => {
     expect(refsFor(normalizeGoals([EXIT]), [], []).results.get('kr:k1')).toEqual({ goal: 'gexit', id: 'k1' });
   });
 });
+
+describe('get_goal with depth', () => {
+  // Close 1Cr: three threads; the capital raisers thread has people with no tasks yet; FinTech Yatra has two steps in order.
+  const G = (id: string, title: string, parent: string | null, extra: Record<string, unknown> = {}) => ({
+    id, title, section: 'work', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1, ...(parent ? { parent } : {}), ...extra,
+  });
+  const GOALS = [
+    G('g1cr', 'Close 1Cr', null),
+    G('gcap', 'Reach out to 20 capital raisers and syndicates', 'g1cr'),
+    G('gutpal', 'Utpal', 'gcap'), G('grakesh', 'Rakesh', 'gcap'), G('gishan', 'Ishan', 'gcap'),
+    G('gang', 'Reach out to 20 angels and VCs', 'g1cr'),
+    G('gfty', 'FinTech Yatra', 'gang', { plan: { links: [{ from: 'ttam', to: 'tcall' }], waits: [] } }),
+    G('gfound', 'Reach out to founders for advice', 'g1cr'),
+  ];
+  const seed = () => memRepo([
+    task('tcapid', { goal: 'gcap', title: 'Identify the rest of the 20 capital raisers and syndicates' }),
+    task('ttam', { goal: 'gfty', title: 'Prepare and send industry outlook and TAM doc to FinTech Yatra' }),
+    task('tcall', { goal: 'gfty', title: 'Call FinTech Yatra' }),
+    task('tangid', { goal: 'gang', title: 'Identify the rest of the 20 angels and VCs' }),
+    task('tfound', { goal: 'gfound', title: 'Identify founders to ask for advice' }),
+  ], { prefs: LABELS, goals: GOALS });
+
+  it('shows the goal’s own chart alone by default, as before', async () => {
+    const m = seed();
+    const one = await getGoal(ctx(m), { goal: 'Close 1Cr' });
+    expect(one.flow.steps.map(s => s.id)).toEqual(['goal:gcap', 'goal:gang', 'goal:gfound']);
+    expect(one.flow.steps.every(s => !('flow' in s))).toBe(true);
+    expect(one.mermaid).not.toContain('subgraph');
+    expect(await getGoal(ctx(m), { goal: 'Close 1Cr', depth: 1 })).toEqual(one);
+    // The same chart list_goals shows for it.
+    expect((await listGoals(ctx(m))).goals.find(g => g.id === 'g1cr')!.flow).toEqual(one.flow);
+  });
+
+  it('inlines each sub-goal’s steps and arrows under it, as many levels as asked', async () => {
+    const two = await getGoal(ctx(seed()), { goal: 'g1cr', depth: 2 });
+    const cap = two.flow.steps.find(s => s.id === 'goal:gcap')!;
+    expect(cap).toMatchObject({ kind: 'goal', title: 'Reach out to 20 capital raisers and syndicates' });
+    expect(cap.flow!.steps.map(s => s.id).sort()).toEqual(['goal:gishan', 'goal:grakesh', 'goal:gutpal', 'tcapid']);
+    // Two levels: FinTech Yatra is a step on the angels thread, without its own chart yet.
+    const fty2 = two.flow.steps.find(s => s.id === 'goal:gang')!.flow!.steps.find(s => s.id === 'goal:gfty')!;
+    expect(fty2.flow).toBeUndefined();
+
+    const three = await getGoal(ctx(seed()), { goal: 'g1cr', depth: 3 });
+    const fty = three.flow.steps.find(s => s.id === 'goal:gang')!.flow!.steps.find(s => s.id === 'goal:gfty')!;
+    expect(fty.flow).toEqual({
+      steps: expect.arrayContaining([
+        expect.objectContaining({ id: 'ttam', kind: 'task', state: 'ready', title: 'Prepare and send industry outlook and TAM doc to FinTech Yatra' }),
+        expect.objectContaining({ id: 'tcall', kind: 'task', state: 'blocked', needs: ['ttam'] }),
+      ]),
+      arrows: [{ from: 'ttam', to: 'tcall' }],
+      critical_path: ['ttam', 'tcall'],
+    });
+    expect(fty.flow!.steps).toHaveLength(2);
+    // A person with no tasks yet: an empty chart.
+    expect(three.flow.steps.find(s => s.id === 'goal:gcap')!.flow!.steps.find(s => s.id === 'goal:gutpal')!.flow).toEqual({ steps: [], arrows: [], critical_path: [] });
+    // The rest of what get_goal says is the same at any depth.
+    const { flow: _a, mermaid: _b, ...rest } = three;
+    const { flow: _c, mermaid: _d, ...rest1 } = await getGoal(ctx(seed()), { goal: 'g1cr' });
+    expect(rest).toEqual(rest1);
+    // Past the deepest level there's nothing more; a depth out of range is brought into it.
+    expect(await getGoal(ctx(seed()), { goal: 'g1cr', depth: 5 })).toEqual(three);
+    expect(await getGoal(ctx(seed()), { goal: 'g1cr', depth: 99 })).toEqual(three);
+    expect(await getGoal(ctx(seed()), { goal: 'g1cr', depth: 0 })).toEqual(await getGoal(ctx(seed()), { goal: 'g1cr' }));
+  });
+
+  it('draws a subgraph per sub-goal with steps in the Mermaid', async () => {
+    const { mermaid } = await getGoal(ctx(seed()), { goal: 'g1cr', depth: 3 });
+    expect(mermaid).toMatch(/^flowchart LR/);
+    for (const id of ['gcap', 'gang', 'gfty', 'gfound']) expect(mermaid).toContain(`subgraph sg_${id} [" "]`);
+    expect(mermaid).not.toContain('sg_gutpal');
+    expect(mermaid).toContain('goal --> n_goal_gcap');
+    expect(mermaid).toContain('n_goal_gcap --> n_gcap__goal_gutpal');
+    expect(mermaid).toContain('n_gang__goal_gfty --> n_gfty__ttam');
+    expect(mermaid).toContain('n_gfty__ttam --> n_gfty__tcall');
+  });
+});
