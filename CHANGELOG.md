@@ -16,6 +16,10 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 - The chart builder looks a step named by its title up on the operation's own goal when no chart is in focus.
 - Goal fields in Claude's tool schemas (rank, progress, a key result's parent) are bounded, so clients that read one type per field take them.
 
+### Security
+
+- Next.js 16.4.6, which fixes a known vulnerability in 16.4.3 (`next build` stopped to warn about it).
+
 ## [0.4.0] - 2026-11-11 — Connect Claude
 
 ### Added
