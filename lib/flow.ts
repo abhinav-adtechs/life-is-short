@@ -12,8 +12,8 @@ import { DAY_MS, endOf } from './time';
  * "waiting on" one (something outside your control, like a reply or a signature) and the goal's key results, as
  * milestones the steps lead to. Steps sit in columns by how many steps come before them, so the chart lays itself out.
  *
- * What's stored is only the arrows and the waiting steps, on the goal (lib/goals.ts). The tasks and key results are the
- * planner's own, so the chart is always up to date.
+ * What's stored is only the arrows, the waiting steps and where you've moved steps by hand, on the goal
+ * (lib/goals.ts). The tasks and key results are the planner's own, so the chart is always up to date.
  */
 
 /** Something you're waiting on that holds steps up: a reply, a signature, someone else's work. */
@@ -26,10 +26,16 @@ export interface Wait { id: string; title: string; done: boolean; created: numbe
  */
 export interface Link { from: string; to: string; auto?: true }
 
-export interface Plan { links: Link[]; waits: Wait[] }
+/** Where you put a step by hand: its top-left corner on the chart. Steps without one are laid out for you. */
+export interface Pos { x: number; y: number }
+
+export interface Plan { links: Link[]; waits: Wait[]; pos?: Record<string, Pos> }
 
 export const EMPTY_PLAN: Plan = { links: [], waits: [] };
 export const MAX_LINKS = 400;
+export const MAX_POS = 400;
+/** How far out a step can go, either way. */
+export const POS_MAX = 20000;
 export const MAX_WAITS = 60;
 export const WAIT_TITLE_MAX = 120;
 
@@ -40,7 +46,10 @@ export const newWaitId = () => 'w' + Date.now().toString(36) + Math.random().toS
 const NODE_ID = /^(?:kr:|goal:)?[A-Za-z0-9_@:.-]{1,80}$/;
 const WAIT_ID = /^w[A-Za-z0-9]{1,40}$/;
 
-/** A stored plan, cleaned up: well-formed waits, one copy of each arrow, no arrow to itself, and none that closes a loop. */
+/**
+ * A stored plan, cleaned up: well-formed waits, one copy of each arrow, no arrow to itself, none that closes a loop, and
+ * positions in whole pixels on the chart.
+ */
 export function normalizePlan(raw: unknown): Plan {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const waits: Wait[] = [];
@@ -63,8 +72,20 @@ export function normalizePlan(raw: unknown): Plan {
     if (links.some(e => e.from === from && e.to === to) || wouldLoop(links, from, to)) continue;
     links.push({ from, to });
   }
-  return { links, waits };
+  const pos: Record<string, Pos> = {};
+  const rawPos = (o.pos && typeof o.pos === 'object' && !Array.isArray(o.pos) ? o.pos : {}) as Record<string, unknown>;
+  const at = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(POS_MAX, Math.max(0, Math.round(v))) : null);
+  for (const [id, v] of Object.entries(rawPos)) {
+    const p = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+    const x = at(p.x), y = at(p.y);
+    if (!NODE_ID.test(id) || x == null || y == null || Object.keys(pos).length >= MAX_POS) continue;
+    pos[id] = { x, y };
+  }
+  return { links, waits, ...(Object.keys(pos).length ? { pos } : {}) };
 }
+
+/** Whether a plan holds anything worth keeping. */
+export const planHasAny = (p: Plan) => p.links.length > 0 || p.waits.length > 0 || !!(p.pos && Object.keys(p.pos).length);
 
 export const planOf = (g: Pick<Goal, 'plan'>): Plan => g.plan ?? EMPTY_PLAN;
 
@@ -316,9 +337,19 @@ export function blockedTasks(goals: Goal[], tasks: Task[], now: number): Set<str
 export const withLink = (p: Plan, l: Link): Plan =>
   p.links.some(e => e.from === l.from && e.to === l.to) || wouldLoop(p.links, l.from, l.to) ? p : { ...p, links: [...p.links, l] };
 export const withoutLink = (p: Plan, l: Link): Plan => ({ ...p, links: p.links.filter(e => !(e.from === l.from && e.to === l.to)) });
-/** Take a step off the chart: its arrows go, and a waiting step goes with them. */
+/** Take a step off the chart: its arrows go, and a waiting step goes with them, and where you'd put it. */
 // Arrows the goal's structure draws aren't stored, so there's nothing to take off for those.
-export const withoutStep = (p: Plan, id: string): Plan => ({ links: p.links.filter(e => e.from !== id && e.to !== id), waits: p.waits.filter(w => w.id !== id) });
+export const withoutStep = (p: Plan, id: string): Plan =>
+  withPos({ links: p.links.filter(e => e.from !== id && e.to !== id), waits: p.waits.filter(w => w.id !== id), ...(p.pos ? { pos: p.pos } : {}) }, id, null);
+/** Put a step at a place on the chart, or (null) let it be laid out again. */
+export const withPos = (p: Plan, id: string, at: Pos | null): Plan => {
+  const { [id]: _, ...rest } = p.pos ?? {};
+  const pos = at ? { ...rest, [id]: { x: Math.min(POS_MAX, Math.max(0, Math.round(at.x))), y: Math.min(POS_MAX, Math.max(0, Math.round(at.y))) } } : rest;
+  const { pos: __, ...base } = p;
+  return Object.keys(pos).length ? { ...base, pos } : base;
+};
+/** Every step laid out for you again. */
+export const withoutPos = (p: Plan): Plan => { const { pos: _, ...base } = p; return base; };
 export const withWait = (p: Plan, w: Wait): Plan => ({ ...p, waits: [...p.waits.filter(x => x.id !== w.id), w] });
 export const patchWait = (p: Plan, id: string, patch: Partial<Omit<Wait, 'id'>>): Plan => ({ ...p, waits: p.waits.map(w => (w.id === id ? { ...w, ...patch } : w)) });
 

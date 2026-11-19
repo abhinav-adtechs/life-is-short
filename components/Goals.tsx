@@ -162,7 +162,7 @@ function GoalForm({ goal, sub, onSave, onCancel }: {
 
 /* ---------- one goal ---------- */
 
-function daysLeft(by: string, now: number) {
+export function daysLeft(by: string, now: number) {
   const d = Math.round((fromYmd(by).getTime() - startOfDay(now).getTime()) / DAY_MS);
   return d < 0 ? { text: `${-d} day${d === -1 ? '' : 's'} over`, hot: true } : d === 0 ? { text: 'today', hot: true } : { text: `${d} day${d === 1 ? '' : 's'} left`, hot: d <= 7 };
 }

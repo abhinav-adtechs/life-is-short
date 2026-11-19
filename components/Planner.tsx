@@ -477,9 +477,12 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     lengthOf: id => store.get(id)?.minutes ?? 30,
     onDrop: (id: string, dayKey: string, min: number) => place(id, atMinutes(fromYmd(dayKey), Math.max(0, min))),
     onDropBacklog: id => unslot(id),
+    // A goal's card is "<goal>|*" (keep the priority); a priority chip is "*|<priority>" (keep the goal).
     onDropCell: (id, cell) => {
-      const [goal, p] = cell.split('|');
-      moveToCell(id, { goal, priority: Number(p) as Priority });
+      const [g, p] = cell.split('|');
+      const t = store.get(id);
+      if (!t) return;
+      moveToCell(id, { goal: g === '*' ? rootGoalOf(t)?.id ?? '' : g, priority: p === '*' ? t.priority : (Number(p) as Priority) });
     },
     // Rows tick off with their check-and-strike; a block just goes.
     onDropZone: (id, zone, kind) => {

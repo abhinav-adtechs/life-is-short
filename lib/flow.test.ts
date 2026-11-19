@@ -3,7 +3,7 @@ import type { Task } from './model';
 import { normalizeGoals, type Goal } from './goals';
 import {
   RECENT_DONE, blockedTasks, buildFlow, coalesce, describeEntry, goalNode, krNode, logFromWrites, normalizeLog, normalizePlan, parallelLinks, toJson,
-  toMermaid, withLink, withWait, withoutLink, withoutStep, wouldLoop, type Plan,
+  toMermaid, withLink, withPos, withWait, withoutLink, withoutPos, withoutStep, wouldLoop, type Plan,
 } from './flow';
 
 const at = (d: number, h: number) => new Date(2026, 10, d, h).getTime();
@@ -279,5 +279,28 @@ describe('sub-goals and key results under key results', () => {
     expect(j.steps.find(s => s.id === 'goal:gboard')).toMatchObject({ kind: 'goal', minutes: 60 });
     expect(j.arrows).toContainEqual({ from: 'kr:k1a', to: 'kr:k1', structure: true });
     expect(j.arrows).toContainEqual({ from: 'call', to: 'goal:gboard' });
+  });
+});
+
+describe('steps moved by hand', () => {
+  it('keeps where you put a step, in whole pixels on the chart, and drops junk', () => {
+    const p = normalizePlan({ links: [], waits: [], pos: { a: { x: 10.6, y: 20.2 }, b: { x: -5, y: 1e9 }, 'bad id!': { x: 1, y: 1 }, c: { x: 'no', y: 2 }, d: null } });
+    expect(p.pos).toEqual({ a: { x: 11, y: 20 }, b: { x: 0, y: 20000 } });
+    expect(normalizePlan({ links: [], waits: [], pos: [1, 2] }).pos).toBeUndefined();
+    // A plan with only positions is still kept on its goal.
+    expect(normalizeGoals([{ id: 'g1', title: 'G', plan: { pos: { a: { x: 1, y: 2 } } } }])[0].plan).toEqual({ links: [], waits: [], pos: { a: { x: 1, y: 2 } } });
+  });
+
+  it('moves a step, lets it go back to the layout, and forgets it when it goes', () => {
+    let p = withPos(plan, 'spa', { x: 400, y: 120 });
+    expect(p.pos).toEqual({ spa: { x: 400, y: 120 } });
+    p = withPos(p, 'sign', { x: 600.4, y: 120 });
+    expect(withPos(p, 'spa', null).pos).toEqual({ sign: { x: 600, y: 120 } });
+    expect(withoutStep(p, 'spa').pos).toEqual({ sign: { x: 600, y: 120 } });
+    expect(withoutStep(p, 'spa').links.some(l => l.from === 'spa' || l.to === 'spa')).toBe(false);
+    expect(withoutPos(p).pos).toBeUndefined();
+    expect('pos' in withPos(withPos(plan, 'spa', { x: 1, y: 1 }), 'spa', null)).toBe(false);
+    // Other changes keep the positions.
+    expect(withLink(p, { from: 'lawyer', to: 'sign' }).pos).toEqual(p.pos);
   });
 });

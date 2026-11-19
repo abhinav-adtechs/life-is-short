@@ -56,12 +56,12 @@ A list of tasks says what's busy. It doesn't say what matters. So Life is short 
 - **Specific enough to finish.** "Give Sam a clean exit", not "Fundraising". Each goal says what **done** means (*Share transfer signed*, *Money in the bank*), lines you tick as they come true, and, if you like, a date to get it done by.
 - **In a section.** Goals sit in the parts of your life you name: your company, a side project, Personal, Helping others. A task on a goal takes its section and its colour.
 - **Ranked.** Your top goal first. The order breaks ties in the backlog.
-- **Broken down, OKR style.** A goal can have **sub-goals**, and they can have their own, a few levels down. A sub-goal can serve the goal as a whole or one of its **key results**, and key results can have key results under them. Type them as an indented outline (Tab indents a line under the one above), or add them in place with **+ Key result** and **+ Sub-goal**. A key result is done once everything under it is, and each goal shows how far along it is, counting its key results and the sub-goals that serve them. The matrix keeps one row per top goal: a sub-goal's tasks sit in its top goal's row, in its section, and its time counts towards it. Closing a goal closes what's under it; bringing a sub-goal back brings back the goals above it.
+- **Broken down, OKR style.** A goal can have **sub-goals**, and they can have their own, a few levels down. A sub-goal can serve the goal as a whole or one of its **key results**, and key results can have key results under them. Type them as an indented outline (Tab indents a line under the one above), or add them in place with **+ Key result** and **+ Sub-goal**. A key result is done once everything under it is, and each goal shows how far along it is, counting its key results and the sub-goals that serve them. The main page keeps one card per top goal: a sub-goal's tasks sit in its top goal's card, in its section, and its time counts towards it. Closing a goal closes what's under it; bringing a sub-goal back brings back the goals above it.
 - **Every task moves a goal, or it's off-goal.** The AI puts each thing you dump on the goal it moves, strictly: loosely related doesn't count. Errands, admin and favours land **off-goal**, which is fine, as long as you know. Change it on any task, drag it to another goal's row, or type a `#tag` naming the goal.
 - **Time on goals, all week.** Tick something off, or sit through a meeting that's on a goal, and the time counts towards it. The header says what share of your week went to goals; **Goals** shows each one's time, what's planned, what's open and what's ticked; the review breaks it down by day, week or month and says which goal got nothing.
 - **Achieved, dropped, brought back.** Closing a goal moves its open tasks off-goal; the time you spent on it stays in your reviews.
 
-**Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The matrix is your goals down the side and **Urgent · Important · Later** across the top, plus the time each goal got this week. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
+**Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The main page is **a card per goal**, most important first: how far along it is, its deadline, its time this week, and the tasks that move it in the order to do them, then an **Off-goal** card. Each task wears its priority as a pill (click it to change it: **Urgent → Important → Later**), and a row of chips shows one priority across every goal. Drag a task onto another goal's card to move it there, or onto a priority chip to change its priority. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
 
 ### Every goal as a flow chart
 
@@ -71,8 +71,13 @@ Open **Goals → Flow chart** (or click "Moves ‹goal›" on the Next task) and
 - **An arrow means "finish this first"** (finish-to-start). Steps with no arrow between them are **parallel**.
 - **Standard shapes.** The goal is a *terminator* (pill), tasks are *process* boxes, **Waiting on** steps (a reply, a signature, someone else's work) use the D-shaped *delay*, sub-goals are *predefined process* boxes with doubled sides, and the goal's "Done when" lines are pointed **milestones** on the right.
 - **The goal's structure, drawn for you.** A key result under another leads to it, and a sub-goal leads to the key result it serves, as dotted arrows you don't have to draw. A sub-goal is one step, as long as the open work on it and under it, with its progress; a step after it waits until it's achieved. Double-click it to open its own chart; a trail at the top takes you back up.
-- **Live.** Every task on the goal is a step, so the chart is always current: **Done**, **Ready** or **Blocked**, with the **critical path** (the chain with the most work left) in your accent colour. A blocked task never comes up as your **Next task** and wears a *Blocked* tag in the matrix.
-- **An editor that keeps up with you.** Drag from a step's dot to the step after it, or click the dot and then the step. Select a step and press **Tab** for the next step or **Enter** for a parallel one, and type its title straight away. Arrow keys move around, **Delete** removes an arrow, **⌘Z** undoes. The side panel edits a step: its title, length and priority, what it needs first and what it unblocks, and something to wait on. Loops are refused.
+- **Live.** Every task on the goal is a step, so the chart is always current: **Done**, **Ready** or **Blocked**, with the **critical path** (the chain with the most work left) in your accent colour. A blocked task never comes up as your **Next task** and wears a *Blocked* tag on the main page.
+- **An editor that keeps up with you.**
+  - **Drag a step anywhere**; it stays where you put it (on a phone, hold it first). **Tidy up** lays the chart out again.
+  - **Add in one click**: the palette beside the chart has a **Step**, **Waiting on**, **Sub-goal** and **Key result**. Click one to add it next to the selected step, or drag it onto the chart: onto a step to go with it, or onto an empty spot to put it there. Each step also has a **+** for the next step and one for a parallel step, and double-clicking an empty spot adds a step there.
+  - **Draw arrows** by dragging from a step's dot to the step after it, or by clicking the dot and then the step. Loops are refused.
+  - **Keys**: **Tab** adds the next step and **Enter** a parallel one, and you type the title straight away. Arrow keys move to the nearest step that way. **Delete** removes the selected arrow, or asks before deleting the selected step (Delete or Enter again to confirm, Esc to keep it). **⌘Z** undoes.
+  - The side panel edits a step: its title, length and priority, what it needs first and what it unblocks, and something to wait on.
 - **History.** Every step added, linked, finished, renamed or resolved is logged, so you can see how the plan changed. Download it, or the chart itself as **JSON** or as a **Mermaid** flowchart for GitHub, Notion or any docs tool. Claude's `list_goals` returns each goal's chart too.
 
 The arrows and waiting steps are kept on the goal in your synced settings; the history under `goal-log`. Nothing new to migrate.
@@ -267,20 +272,20 @@ Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the
   <img alt="Three phone screens: the Next task above the Priority matrix, the day's timeline with a suggested slot, and Night train" src="docs/images/phone.png" width="100%">
 </p>
 
-**On your phone** it's focused: the Next task on top with Done and Schedule, then the goal matrix or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. Press and hold a task to drag it onto **Done** or the **trash**. How the day and week are going, how much went to goals, Goals, Analytics, Share and Settings are in the `•••` menu.
+**On your phone** it's focused: the Next task on top with Done and Schedule, then your goal cards or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. Press and hold a task to drag it onto **Done** or the **trash**. How the day and week are going, how much went to goals, Goals, Analytics, Share and Settings are in the `•••` menu.
 
-**On your laptop** it opens up into a full planner: the Next task and the goal matrix on the left, a calendar that fits your day on the right, and the chat bar floating over it.
+**On your laptop** it opens up into a full planner: the Next task and your goal cards on the left, a calendar that fits your day on the right, and the chat bar floating over it.
 
-- **The matrix is your backlog:** a row per goal and one for off-goal, a column per priority, each cell a count that darkens as it fills, and this week's time on each goal. Click a goal to see its tasks, or a cell to filter to it; what you filter out fades on the calendar. Drag a task onto another cell to change its goal or priority.
-- **One divider, sized your way.** Drag it and the calendar shows 1, 2, 3, 5 or 7 days, settling on the nearest. Arrow keys step it, a double-click resets it. Give the matrix the room and it opens into the full grid of tasks.
+- **Your goals are your backlog:** a card per goal and one for off-goal, each with its progress, deadline, time this week and next few tasks, **+ Task** to add one in place and **Flow chart** to plan it out. The **All · Urgent · Important · Later** chips show one priority across every goal. Drag a task onto another card to change its goal, or onto a chip to change its priority.
+- **One divider, sized your way.** Drag it and the calendar shows 1, 2, 3, 5 or 7 days, settling on the nearest. Arrow keys step it, a double-click resets it. Give the goals the room and their cards sit side by side.
 - **The calendar fits your day:** your hours fill the height, with one tap for anything earlier or later, and a live wave (or line) at the current time.
-- **Drag** a task from the matrix onto any time. Drag it back to unschedule it.
+- **Drag** a task from its goal's card onto any time. Drag it back to unschedule it.
 - **Drop it on Done or the trash.** While you drag a task, two targets rise where the chat bar sits: **Done** ticks it off, the **trash** deletes it. Both come with Undo.
 - **Drag the edge** of a block to make it longer or shorter.
 - **Click, then click.** Pick a task, then click a time slot, or take the next free one.
 - **The chat bar** (`⌘K` to speak, `⇧⌘K` to type) grows into a panel: the plan comes back as a list of changes to tick on or off before you apply them, and History keeps every past chat with its Undo.
 - **Analytics, Share and Settings** slide in from the side, so the planner stays in view.
-- **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the matrix, `Esc` closes anything.
+- **Keyboard-friendly:** `E` edits, `Enter` opens a block, `Delete` sends it back to the backlog, `Esc` closes anything.
 
 </details>
 

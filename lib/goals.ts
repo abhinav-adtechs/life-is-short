@@ -1,5 +1,5 @@
 import type { Task } from './model';
-import { normalizePlan, type Plan } from './flow';
+import { normalizePlan, planHasAny, type Plan } from './flow';
 import { OFF_GOAL, isEvent } from './select';
 import { endOf } from './time';
 
@@ -104,7 +104,7 @@ export function normalizeGoals(raw: unknown): Goal[] {
       results: cleanResults(o.results, 1, new Set(), { n: 0 }),
       by: typeof o.by === 'string' && DAY.test(o.by) ? o.by : null,
       status,
-      ...(o.plan ? (p => (p.links.length || p.waits.length ? { plan: p } : {}))(normalizePlan(o.plan)) : {}),
+      ...(o.plan ? (p => (planHasAny(p) ? { plan: p } : {}))(normalizePlan(o.plan)) : {}),
       created: num(o.created, 0),
       closedAt: status === 'active' ? null : num(o.closedAt, num(o.updatedAt, 0)),
       updatedAt: num(o.updatedAt, 0),

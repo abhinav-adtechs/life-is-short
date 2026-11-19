@@ -85,8 +85,8 @@ export function Phone() {
       </header>
       <div className="ph-scroll" inert={covered}>
         {picked ? <SchedulingCard /> : <NextCard phone />}
-        <div className="tabs" role="tablist" aria-label="Matrix or calendar">
-          <button type="button" role="tab" aria-selected={phoneTab === 'matrix'} onClick={() => setPhoneTab('matrix')}>Matrix <span className="muted num">{backlog.length}</span></button>
+        <div className="tabs" role="tablist" aria-label="Goals or calendar">
+          <button type="button" role="tab" aria-selected={phoneTab === 'matrix'} onClick={() => setPhoneTab('matrix')}>Goals <span className="muted num">{backlog.length}</span></button>
           <button type="button" role="tab" aria-selected={phoneTab === 'calendar'} onClick={() => setPhoneTab('calendar')}>Calendar</button>
         </div>
         {phoneTab === 'matrix' ? <PhoneMatrix /> : <PhoneCalendar />}
