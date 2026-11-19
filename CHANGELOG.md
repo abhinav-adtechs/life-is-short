@@ -6,8 +6,15 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- Claude builds your goals and their flow charts: `change_goals` takes the chart builder's operations (goals, sub-goals, key results, steps, waiting steps, arrows, edits, moves, removals; up to 40 in one call), and `get_goal` shows one goal in full with its chart as Mermaid and its history. `supabase/migrations/0011_connector_goals.sql` lets a connection write goals and the charts' history.
+- A task Claude adds, finishes, reopens, renames or moves on a goal goes in that goal's chart history, as in the app.
 - MIT `LICENSE`, `CONTRIBUTING.md`, this changelog and `docs/ARCHITECTURE.md`.
 - A project banner and a README with features, architecture, configuration and project structure up front.
+
+### Changed
+
+- The chart builder looks a step named by its title up on the operation's own goal when no chart is in focus.
+- Goal fields in Claude's tool schemas (rank, progress, a key result's parent) are bounded, so clients that read one type per field take them.
 
 ## [0.4.0] - 2026-11-11 — Connect Claude
 

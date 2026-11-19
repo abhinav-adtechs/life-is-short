@@ -83,7 +83,7 @@ Open **Goals → Flow chart** (or click "Moves ‹goal›" on the Next task) and
   - **Say what to change.** The bar at the top of every chart takes it in words, typed or spoken (the mic, or **⌘K**): *"after the lawyer call, get the board's approval; signing waits on it and on the buyer's funds"*, *"add a sub-goal for 'board approves': brief every director"*, *"tick off the SPA, and drop the press release"*. The AI turns it into changes (steps, arrows, waiting steps, key results, sub-goals, repeating steps, renames, ticks and removals), they're made at once, and the bar says what changed, and what it couldn't do and why. One **Undo** takes it all back.
   - **Keys**: **Tab** adds the next step and **Enter** a parallel one, and you type the title straight away. Arrow keys move to the nearest step that way. **Delete** removes the selected arrow, or asks before deleting the selected step (Delete or Enter again to confirm, Esc to keep it). **⌘Z** undoes.
   - The side panel edits a step: its title, length and priority, what it needs first and what it unblocks, and something to wait on.
-- **History.** Every step added, linked, finished, renamed or resolved is logged, so you can see how the plan changed. Download it, or the chart itself as **JSON** or as a **Mermaid** flowchart for GitHub, Notion or any docs tool. Claude's `list_goals` returns each goal's chart too.
+- **History.** Every step added, linked, finished, renamed or resolved is logged, so you can see how the plan changed. Download it, or the chart itself as **JSON** or as a **Mermaid** flowchart for GitHub, Notion or any docs tool. Claude reads each goal's chart (`list_goals`, `get_goal`) and builds them too (`change_goals`).
 
 The arrows and waiting steps are kept on the goal in your synced settings; the history under `goal-log`. Nothing new to migrate.
 
@@ -364,6 +364,8 @@ Claude sends you to your planner to sign in (the PIN and a code, Face ID or a pa
 | tool | what it does |
 |---|---|
 | `list_goals` | Your goals, most important first, each followed by its sub-goals: its parent and the key result it serves, what done means (nested key results, with what's ticked), how far along it is, the date, the section, how many tasks are open and done on each, and its flow chart (steps, what each needs first, what's blocked, the critical path). *Read-only.* |
+| `get_goal` | One goal in full: everything `list_goals` shows for it, its chart as a **Mermaid** flowchart Claude can draw for you, and what happened to the chart lately. *Read-only.* |
+| `change_goals` | **Build or change goals and their flow charts**, with the chart builder's own operations, up to 40 in one call: goals, sub-goals for a key result, key results, steps (one-off or repeating), "waiting on" steps, arrows, edits, ticks, moves and removals. Says what changed, what it couldn't do and why, and returns the charts it touched. *Marked destructive*, since it can take steps off or delete them. |
 | `list_tasks` | Open, done or all; by goal, project, due date, time on the calendar or words in the title and notes. Ranked like the backlog, paged with a cursor. *Read-only.* |
 | `get_task` | One task with its notes, what you said when you added it, and its repeat. *Read-only.* |
 | `create_task` | Title, description, due date, priority, goal, project, status, and a time on the calendar or not. |
@@ -371,7 +373,16 @@ Claude sends you to your planner to sign in (the PIN and a code, Face ID or a pa
 | `complete_task`, `reopen_task` | Tick it off, or open it again. |
 | `delete_task` | Gone for good. *Marked destructive*, so Claude asks first. |
 
-Every tool has a JSON schema for its input and output and answers with compact JSON: ids, titles, status, priority, goal, project, due date, scheduled time and when it last changed, in your time zone. A **project** is a section (Work, Personal…); a task on a goal takes the goal's. Goals themselves are set in the planner; Claude reads them. A change to a repeating task carries on to the ones to come, a missed slot Claude moves still counts in your review, and Google items stay Google's: Claude can tick them off or re-prioritise them, not rename, move or delete them.
+Every tool has a JSON schema for its input and output and answers with compact JSON: ids, titles, status, priority, goal, project, due date, scheduled time and when it last changed, in your time zone. A **project** is a section (Work, Personal…); a task on a goal takes the goal's. A change to a repeating task carries on to the ones to come, a missed slot Claude moves still counts in your review, and Google items stay Google's: Claude can tick them off or re-prioritise them, not rename, move or delete them.
+
+**Plan through Claude.** Ask it in your own words, and it builds the chart with `change_goals`, the same operations as the bar on every chart:
+
+- *"Make a goal to close the seed round by March: done when the term sheet is signed and the money's in the bank. Steps: finish the deck, send it to five investors, then wait on the lead investor's reply before the term sheet."*
+- *"On the seed round, add due diligence as a sub-goal for 'money in the bank', with building the data room as its first step."*
+- *"What's blocking the exit? Draw me its chart."* (`get_goal`'s Mermaid, drawn in the conversation)
+- *"I sent the deck: tick it off, and push the board update after the investor call."*
+
+Claude says what it's about to change before it changes a goal's shape, and asks before deleting. Every change goes in the chart's history, and the planner shows it the next time its window comes to the front. To undo one, ask Claude to put it back or change it on the chart.
 
 **Locked down like the rest.** It's OAuth 2.1 as the [MCP authorization spec](https://modelcontextprotocol.io/specification) asks (discovery, dynamic client registration, PKCE, tokens bound to `/mcp`), with your own sign-in as the consent screen. The database holds only hashes of the tokens, and its connector functions answer only this app's server. An access token lasts an hour, a refresh token 30 days and is replaced each time it's used, and a token that turns up twice ends the connection. Claude never sees your Google account, chat history, shares or anything about signing in. More in [`docs/security.md`](docs/security.md#connecting-claude).
 
@@ -382,7 +393,7 @@ Every tool has a JSON schema for its input and output and answers with compact J
 
 It's part of the app, so it runs wherever the app runs. It needs Supabase (tasks kept only in a browser can't be reached from a server) and a server key:
 
-1. Run `supabase/migrations/0009_connectors.sql`, then `0010_goals.sql`, in the Supabase SQL editor (on the backup too).
+1. Run `supabase/migrations/0009_connectors.sql`, then `0010_goals.sql` and `0011_connector_goals.sql`, in the Supabase SQL editor (on the backup too).
 2. Make a key, and give the database its sha256:
 
    ```sh
