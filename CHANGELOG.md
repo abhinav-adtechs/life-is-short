@@ -21,6 +21,12 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Fixed
 
+- `change_goals` → `edit_goal` ignored `parent` without a word. It now moves an existing goal under a parent (and one of its key results, with `for_result`) or to the top with `parent: null`, by the same rules as `add_goal`, and takes `rank` to reorder it.
+- Goal sections: `add_goal` and `edit_goal` take `section` by label name or id, checked like a task's project. Sub-goals take their top goal's, and a task made on a goal takes the nearest section up the tree as its project.
+- `add_step` takes `due` (YYYY-MM-DD), checked as `create_task` checks it.
+- `link` between steps on two goals moved the task onto the other goal and lost its arrows. Arrows only join steps on one goal now, and drawing one never moves a task (that's refused with the reason; `move_step` moves it).
+- `move_step` on a repeating task (`rep:<id>`) left its open task on the old goal, so it showed on both charts. Its open tasks move with it now, taking it off a goal takes them off too, and a chart shows a repeat's step only on the goal the repeat is on.
+- Nothing an operation can't do is dropped silently: a field it doesn't take (unknown keys included), a value it can't read, a step it can't find, a change that changes nothing, a limit that would cut it (a goal too deep or under a closed one, a key result too deep) or a title cut to fit is listed under `skipped` with the reason.
 - Bringing a goal back through the chart builder when 8 top goals were already open silently dropped another; it's refused now, with the reason.
 - Removing a key result as a step left the arrows to the key results under it on the chart.
 

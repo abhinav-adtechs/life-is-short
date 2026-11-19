@@ -325,10 +325,13 @@ export function activeGoalOf(t: Pick<Task, 'goal'>, index: Map<string, Goal>): G
   return g && g.status === 'active' ? g : null;
 }
 
-/** The section a task takes from its goal (a sub-goal's top goal), or null when its own (or its calendar's) applies. */
+/** A goal's section: its own, or failing that the nearest goal's above it that has one. Null when none up the tree does. */
+export const sectionFor = (index: Map<string, Goal>, g: Goal): string | null => [g, ...ancestorsOf(index, g)].find(x => x.section)?.section ?? null;
+
+/** The section a task takes from its goal (see sectionFor), or null when its own (or its calendar's) applies. */
 export function goalSection(t: Pick<Task, 'goal'>, index: Map<string, Goal>): string | null {
   const g = t.goal ? index.get(t.goal) : undefined;
-  return g ? rootOf(index, g).section ?? null : null;
+  return g ? sectionFor(index, g) : null;
 }
 
 /** Time for one goal ('' is off-goal) over a span. */
@@ -492,6 +495,32 @@ export const reparentGoal = (id: string, parent: string | null, parentKr: string
   if ((g.parent ?? null) === (p?.id ?? null)) return next;
   return [...next.filter(x => x.id !== id), moved];
 };
+
+/**
+ * Why a new goal can't go under `parent` (null: be a top goal), or null when it can: no more than MAX_GOALS in all,
+ * MAX_ACTIVE open top goals, or MAX_GOAL_DEPTH levels of sub-goals, and not open under a goal that's achieved or dropped.
+ */
+export function cantAddGoal(goals: Goal[], parent: string | null): string | null {
+  if (goals.length >= MAX_GOALS) return `${MAX_GOALS} goals in all is the most; delete some first`;
+  if (!parent) return topGoals(goals).length >= MAX_ACTIVE ? `${MAX_ACTIVE} goals at once is the most; achieve or drop one first` : null;
+  const index = new Map(goals.map(g => [g.id, g]));
+  const p = index.get(parent);
+  if (!p) return 'there’s no goal to put it under';
+  if (ancestorsOf(index, p).length + 1 > MAX_GOAL_DEPTH) return `that would put sub-goals more than ${MAX_GOAL_DEPTH} levels deep`;
+  if (p.status !== 'active') return `“${p.title}” is ${p.status}; bring it back first`;
+  return null;
+}
+
+/** Why a new key result can't go under `under` (null: the top of the goal), or null when it can: the same limits normalizeGoals keeps. */
+export function cantAddResult(g: Goal, under: string | null): string | null {
+  const all = flatResults(g.results);
+  if (all.length >= MAX_ALL_RESULTS) return `${MAX_ALL_RESULTS} key results on one goal is the most`;
+  const to = under ? all.find(x => x.kr.id === under) : null;
+  if (under && !to) return 'there’s no key result to put it under';
+  if (to && to.depth + 1 > MAX_KR_DEPTH - 1) return `key results go ${MAX_KR_DEPTH} levels deep at most`;
+  if ((to ? to.kr.results ?? [] : g.results).length >= MAX_RESULTS) return `${MAX_RESULTS} key results in one place is the most`;
+  return null;
+}
 
 /** Why a key result can't go under `under` (null: the top of its goal), or null when it can. */
 export function cantMoveResult(g: Goal, id: string, under: string | null): string | null {

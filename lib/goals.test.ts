@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import {
-  MAX_ACTIVE, MAX_GOAL_DEPTH, MAX_RESULTS, activeGoalOf, addGoal, addResult, ancestorsOf, cantMoveGoal, cantMoveResult, descendantsOf, findResult,
+  MAX_ACTIVE, MAX_GOAL_DEPTH, MAX_KR_DEPTH, MAX_RESULTS, activeGoalOf, addGoal, addResult, ancestorsOf, cantAddGoal, cantAddResult, cantMoveGoal,
+  cantMoveResult, descendantsOf, findResult, sectionFor,
   flatResults, goalNamed, goalProgress, goalRanker, goalSection, goalTree, heightOf, makeGoal, mergeResults, moveGoal, moveResult, normalizeGoals,
   onGoalShare, openResults, outlineOf, parseOutline, patchGoal, patchResult, pickGoal, rankGoal, removeGoal, reparentGoal, resultDone, resultPath,
   resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal,
@@ -506,5 +507,43 @@ describe('moving goals and key results', () => {
     expect(cantMoveResult(exit, 'k9', null)).toMatch(/no such/);
     const crowded = goal('gc', 'Crowded', { results: Array.from({ length: MAX_RESULTS }, (_, i) => ({ id: `r${i}`, text: `R${i}`, done: false, ...(i ? {} : { results: [{ id: 'rin', text: 'In', done: false }] }) })) });
     expect(cantMoveResult(crowded, 'rin', null)).toMatch(`${MAX_RESULTS} key results`);
+  });
+});
+
+describe('sections up the tree, and what a new goal or key result can join', () => {
+  it('takes a goal’s own section, else the nearest goal’s above it that has one (fix 2)', () => {
+    // As stored before normalizeGoals: sections missing on the way up.
+    const top = goal('gtop', 'Top', { section: 'sj' });
+    const mid = goal('gmid', 'Middle', { parent: 'gtop', section: null });
+    const low = goal('glow', 'Low', { parent: 'gmid', section: null });
+    const own = goal('gown', 'Own', { parent: 'gmid', section: 'personal' });
+    const index = new Map([top, mid, low, own].map(g => [g.id, g]));
+    expect(sectionFor(index, low)).toBe('sj');
+    expect(sectionFor(index, own)).toBe('personal');
+    expect(sectionFor(index, goal('gnone', 'None'))).toBeNull();
+    expect(goalSection({ goal: 'glow' }, index)).toBe('sj');
+    expect(goalSection({ goal: null }, index)).toBeNull();
+  });
+
+  it('refuses a new goal past the limits, under a closed goal or too deep, instead of letting normalizeGoals move it (fix 7)', () => {
+    const chain = Array.from({ length: MAX_GOAL_DEPTH + 1 }, (_, i) => goal(`c${i}`, `Level ${i}`, i ? { parent: `c${i - 1}` } : {}));
+    expect(cantAddGoal(chain, `c${MAX_GOAL_DEPTH - 1}`)).toBeNull();
+    expect(cantAddGoal(chain, `c${MAX_GOAL_DEPTH}`)).toMatch(/levels deep/);
+    // What normalizeGoals would have done with it: made it a top goal.
+    const deep = goal('gdeep', 'Too deep', { parent: `c${MAX_GOAL_DEPTH}` });
+    expect(normalizeGoals([...chain, deep]).find(g => g.id === 'gdeep')!.parent).toBeUndefined();
+    expect(cantAddGoal(GOALS, 'gold')).toMatch(/“Launch v1” is achieved; bring it back first/);
+    expect(cantAddGoal(GOALS, 'gnope')).toMatch(/no goal/);
+    expect(cantAddGoal([...GOALS, ...Array.from({ length: MAX_ACTIVE - 2 }, (_, i) => goal(`t${i}`, `Top ${i}`))], null)).toMatch(`${MAX_ACTIVE} goals at once`);
+  });
+
+  it('refuses a key result past the limits normalizeGoals keeps (fix 7)', () => {
+    const nested = goal('gk', 'Nested', { results: [{ id: 'a', text: 'A', done: false, results: [{ id: 'b', text: 'B', done: false, results: [{ id: 'c', text: 'C', done: false }] }] }] });
+    expect(cantAddResult(nested, 'b')).toBeNull();
+    expect(cantAddResult(nested, 'c')).toMatch(`${MAX_KR_DEPTH} levels deep`);
+    expect(cantAddResult(nested, 'zz')).toMatch(/no key result/);
+    const full = goal('gf', 'Full', { results: Array.from({ length: MAX_RESULTS }, (_, i) => ({ id: `r${i}`, text: `R${i}`, done: false })) });
+    expect(cantAddResult(full, null)).toMatch(`${MAX_RESULTS} key results in one place`);
+    expect(cantAddResult(full, 'r0')).toBeNull();
   });
 });

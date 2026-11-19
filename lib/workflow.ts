@@ -1,12 +1,14 @@
 import type { Priority, Task } from './model';
 import { newId } from './model';
 import {
-  MAX_ACTIVE, addGoal, addResult, cantMoveGoal, cantMoveResult, descendantsOf, findResult, flatResults, goalTree, makeGoal, moveResult, newGoalId,
-  newResultId, patchGoal, patchResult, rankGoal, removeGoal, reparentGoal, rootOf, setGoalStatus, topGoals,
+  GOAL_TITLE_MAX, MAX_ACTIVE, RESULT_MAX, addGoal, addResult, cantAddGoal, cantAddResult, cantMoveGoal, cantMoveResult, descendantsOf, findResult,
+  flatResults, goalTree, makeGoal, moveResult, newGoalId, newResultId, patchGoal, patchResult, rankGoal, removeGoal, reparentGoal, rootOf, sectionFor,
+  setGoalStatus, topGoals,
   type Goal, type KeyResult,
 } from './goals';
 import {
-  goalNode, krNode, newWaitId, parallelLinks, patchWait, planOf, repeatNode, withLink, withWait, withoutLink, withoutStep, wouldLoop,
+  MAX_LINKS, MAX_WAITS, WAIT_TITLE_MAX, goalNode, krNode, newWaitId, parallelLinks, patchWait, planOf, repeatNode, withLink, withWait, withoutLink,
+  withoutStep, wouldLoop,
   type LogEntry, type Plan,
 } from './flow';
 import { describeRule, newRepeatId, occurrence, occurrenceOf, occursOn, repeatsDone, startRepeat, toRule, type Repeat, type RepeatOp } from './repeat';
@@ -50,6 +52,8 @@ export interface WorkflowOp {
   rank?: number;
   /** For delete_goal: delete its open tasks too, and stop its repeats. */
   with_tasks?: boolean;
+  /** For add_step: a deadline, YYYY-MM-DD; null for none. */
+  due?: string | null;
 }
 
 /** What the refs in the prompt stand for. */
@@ -93,7 +97,48 @@ export function normalizeOps(raw: unknown): WorkflowOp[] {
     const rank = Math.round(Number(o.rank));
     if (o.rank != null && Number.isFinite(rank) && rank >= 1) op.rank = Math.min(rank, 1000);
     if (o.with_tasks === true) op.with_tasks = true;
+    if (typeof o.due === 'string' && DAY.test(o.due) && ymd(fromYmd(o.due).getTime()) === o.due) op.due = o.due;
+    else if (o.due === null) op.due = null;
     out.push(op);
+  }
+  return out;
+}
+
+/** The fields each operation reads. Anything else on it does nothing. */
+export const OP_FIELDS: Record<WorkflowOpKind, readonly (keyof WorkflowOp)[]> = {
+  add_goal: ['title', 'results', 'by', 'section', 'parent', 'for_result', 'rank', 'key'],
+  edit_goal: ['goal', 'title', 'by', 'section', 'status', 'parent', 'for_result', 'rank'],
+  move_goal: ['goal', 'parent', 'for_result', 'rank', 'after', 'section'],
+  delete_goal: ['goal', 'with_tasks'],
+  add_result: ['goal', 'text', 'title', 'under', 'key'],
+  edit_result: ['goal', 'ref', 'text', 'title', 'done'],
+  move_result: ['goal', 'ref', 'under', 'rank'],
+  remove_result: ['goal', 'ref'],
+  add_step: ['goal', 'title', 'minutes', 'priority', 'due', 'after', 'before', 'beside', 'repeat', 'key'],
+  add_wait: ['goal', 'title', 'text', 'holds', 'key'],
+  link: ['goal', 'from', 'to'],
+  unlink: ['goal', 'from', 'to'],
+  edit_step: ['goal', 'ref', 'title', 'minutes', 'priority', 'done', 'repeat'],
+  remove_step: ['goal', 'ref', 'delete'],
+  move_step: ['goal', 'ref', 'after'],
+};
+
+/**
+ * What in one operation, as sent, would do nothing: a kind the chart builder doesn't know, a field its kind doesn't
+ * read, or a value it can't read (a date that isn't one, an empty title). Each with the reason, to list as skipped.
+ */
+export function opIssues(raw: unknown): string[] {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const kind = o.op as WorkflowOpKind;
+  if (!KINDS.includes(kind)) return [`“${String(o.op ?? '')}” isn’t an operation the chart builder knows, so it was left out.`];
+  const op = (normalizeOps([o])[0] ?? {}) as unknown as Record<string, unknown>;
+  const takes = OP_FIELDS[kind] as readonly string[];
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'op' || v === undefined) continue;
+    if (!takes.includes(k)) out.push(`${kind} doesn’t take “${k}”, so it was left out; it takes ${takes.join(', ')}.`);
+    // A flag left false is the default, not a value lost.
+    else if (!(k in op) && v !== false) out.push(`${kind} couldn’t use ${JSON.stringify(v)?.slice(0, 60)} for “${k}”, so it was left out.`);
   }
   return out;
 }
@@ -315,7 +360,8 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
     if (!id) return null;
     return goalOf(id) ?? goals.find(g => g.status === 'active' && norm(g.title) === norm(id)) ?? goals.find(g => norm(g.title) === norm(id)) ?? null;
   };
-  const sectionOf = (g: Goal) => rootOf(new Map(goals.map(x => [x.id, x])), g).section;
+  /** A goal's section: its own, or the nearest goal's above it. */
+  const sectionOf = (g: Goal) => sectionFor(new Map(goals.map(x => [x.id, x])), g);
   const plan = (gid: string, f: (p: Plan) => Plan) => { goals = goals.map(g => (g.id === gid ? { ...g, plan: f(planOf(g)), updatedAt: now } : g)); };
   const note = (e: Omit<LogEntry, 'at'>) => log.push({ at: now, ...e });
 
@@ -357,20 +403,40 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
   };
   const refOf = (tid: string) => [...refs.tasks].find(([, id]) => id === tid)?.[0] ?? null;
 
-  /** Put a task on a goal, in its top goal's section. */
+  /** Put a task on a goal, in its section (its own, or the nearest goal's above it). */
   const onGoal = (t: Task, g: Goal) => { const sec = sectionOf(g); write({ ...t, goal: g.id, ...(sec ? { label: sec } : {}), updatedAt: now }); };
+  /** Text cut to fit, saying so when it had to be. */
+  const fit = (s: string, max: number, what: string) => {
+    if (s.length > max) skipped.push(`${short(s)} was cut to ${max} characters, the most ${what} can be.`);
+    return s.slice(0, max);
+  };
+  /** How many arrows a step has on a goal's chart. */
+  const arrowsOf = (gid: string | null, node: string) => (gid ? planOf(goalOf(gid) ?? { plan: undefined }).links.filter(l => l.from === node || l.to === node).length : 0);
+  /** Say that a step's arrows on the goal it left don't come with it. */
+  const leftBehind = (n: Node, from: string | null, gone: boolean) => {
+    const k = arrowsOf(from, n.node);
+    if (!k || !from) return;
+    const one = k === 1;
+    skipped.push(`${short(n.title)}’s ${plural(k, 'arrow')} on ${short((goalOf(from) as Goal).title)} ${gone ? (one ? 'was taken off' : 'were taken off') : (one ? 'doesn’t come with it' : 'don’t come with it')}: arrows only join steps on the same goal.`);
+  };
 
-  /** An arrow on a goal's chart. Both ends have to be on it; a task that isn't comes onto it. */
+  /**
+   * An arrow on a goal's chart. Both ends have to be on it: an arrow never joins steps on two goals, and drawing one
+   * never moves a task onto the chart (move_step does that).
+   */
   const link = (g: Goal, a: Node, b: Node): boolean => {
     for (const n of [a, b]) {
       if (n.goal === g.id) continue;
-      if (n.kind === 'task') { const t = task(n.id); if (t) { onGoal(t, g); n.goal = g.id; continue; } }
-      skipped.push(`${short(n.title)} isn’t on ${short(g.title)}, so it can’t have an arrow there.`);
+      const on = goalOf(n.goal);
+      if (n.kind === 'task' || n.kind === 'series') {
+        skipped.push(`${short(n.title)} is ${on ? `on ${short(on.title)}` : 'off-goal'}, not on ${short(g.title)}, so it can’t have an arrow there: arrows only join steps on the same goal, and drawing one doesn’t move a task. Put it on ${short(g.title)} with move_step first if it belongs there.`);
+      } else skipped.push(`${short(n.title)} isn’t on ${short(g.title)}, so it can’t have an arrow there.`);
       return false;
     }
     const cur = planOf(goalOf(g.id) as Goal);
-    if (cur.links.some(l => l.from === a.node && l.to === b.node)) return true;
+    if (cur.links.some(l => l.from === a.node && l.to === b.node)) { skipped.push(`${short(b.title)} already waits on ${short(a.title)}.`); return false; }
     if (wouldLoop(cur.links, a.node, b.node)) { skipped.push(`${short(b.title)} after ${short(a.title)} would make a loop.`); return false; }
+    if (cur.links.length >= MAX_LINKS) { skipped.push(`${short(g.title)} has ${MAX_LINKS} arrows, the most a chart can hold, so ${short(b.title)} can’t wait on ${short(a.title)}.`); return false; }
     plan(g.id, p => withLink(p, { from: a.node, to: b.node }));
     note({ goal: g.id, op: 'link', step: b.node, title: b.title, from: a.node, fromTitle: a.title });
     return true;
@@ -379,6 +445,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
   /** The goal a step named by its title is looked for on first: the operation's own goal, else the one in focus. */
   const scope = (op: WorkflowOp) => (op.goal ? findGoal(op.goal)?.id : null) ?? opts.focus ?? null;
   const sectionName = (id: string | null) => (id ? `“${st.labels?.get(id) ?? id}”` : 'no section');
+  const subSection = (title: string) => `${short(title)} is a sub-goal, so it’s in its top goal’s section; change that goal’s, or move it to the top.`;
 
   /** Why bringing a goal back would go past MAX_ACTIVE top goals (it brings its top goal back too), or null. */
   const cantRevive = (g: Goal) => {
@@ -397,44 +464,67 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
   };
 
   /**
-   * Put a goal under another (`to`: its id, null for the top, undefined to stay where it is), serving the key result
-   * the operation names, at its rank among the goals beside it, and after a step on its new parent's chart.
+   * Put a goal under another (`to`: its id; null: the top; undefined: where it is), serving the key result `forResult`
+   * names (null: the parent as a whole; undefined: the one it serves, or none once it moves), with add_goal's rules and
+   * the depth and loop limits. The words for what changed (none when nothing did), or null when it couldn't, said why.
    */
-  const placeGoal = (op: WorkflowOp, g: Goal, to: string | null | undefined, miss: (what: string) => void) => {
+  const regoal = (g: Goal, to: string | null | undefined, forResult: string | null | undefined, miss: (what: string) => void): string[] | null => {
     const from = g.parent ?? null;
     const dest = to === undefined ? from : to;
     const moving = dest !== from;
     const parent = goalOf(dest);
     let kr: string | null = moving ? null : g.parentKr ?? null, krTitle = '';
-    if (op.for_result === null) kr = null;
-    else if (op.for_result) {
-      const n = parent ? resolve(op.for_result, parent.id) : null;
-      if (!parent || !n || n.kind !== 'kr' || n.goal !== parent.id) { miss(parent ? `${short(parent.title)} has no key result “${op.for_result}”` : 'a top goal doesn’t serve a key result'); return; }
+    if (forResult === null) kr = null;
+    else if (forResult) {
+      const n = parent ? resolve(forResult, parent.id) : null;
+      if (!parent || !n || n.kind !== 'kr' || n.goal !== parent.id) { miss(parent ? `${short(parent.title)} has no key result “${forResult}”` : 'a top goal doesn’t serve a key result'); return null; }
       kr = n.id; krTitle = n.title;
     }
     const why = cantMoveGoal(goals, g.id, dest);
-    if (why) { miss(why); return; }
-    const said: string[] = [];
-    if (moving || kr !== (g.parentKr ?? null)) {
-      goals = reparentGoal(g.id, dest, kr, now)(goals);
-      if (moving && from && goalOf(from)) { plan(from, p => withoutStep(p, goalNode(g))); note({ goal: from, op: 'remove', step: goalNode(g), title: g.title }); }
-      if (moving && parent) note({ goal: parent.id, op: 'add', step: goalNode(g), title: g.title });
-      said.push(!parent ? 'is a top goal now' : moving ? `is under ${short(parent.title)} now${kr ? `, for ${short(krTitle)}` : ''}` : kr ? `serves ${short(krTitle)} now` : `serves ${short(parent.title)} as a whole now`);
+    if (why) { miss(why); return null; }
+    if (!moving && kr === (g.parentKr ?? null)) return [];
+    if (moving && from && goalOf(from)) {
+      leftBehind({ kind: 'goal', goal: from, node: goalNode(g), id: g.id, title: g.title }, from, true);
+      plan(from, p => withoutStep(p, goalNode(g)));
+      note({ goal: from, op: 'remove', step: goalNode(g), title: g.title });
     }
-    if (op.section !== undefined && !parent) {
-      goals = patchGoal(g.id, { section: op.section }, now)(goals);
-      said.push(`in ${sectionName(op.section)}`);
+    goals = reparentGoal(g.id, dest, kr, now)(goals);
+    if (moving && parent) note({ goal: parent.id, op: 'add', step: goalNode(g), title: g.title });
+    return [!parent ? 'is a top goal now' : moving ? `is under ${short(parent.title)} now${kr ? `, for ${short(krTitle)}` : ''}` : kr ? `serves ${short(krTitle)} now` : `serves ${short(parent.title)} as a whole now`];
+  };
+
+  /** Rank an open goal among the open goals beside it. The words for where it went, or null when it couldn't (said why). */
+  const rankIt = (gid: string, rank: number): string | null => {
+    const g = goalOf(gid) as Goal;
+    if (g.status !== 'active') { skipped.push(`${short(g.title)} isn’t ranked: it’s ${g.status}, and only open goals have a rank.`); return null; }
+    const place = () => goals.filter(x => x.status === 'active' && (x.parent ?? null) === (g.parent ?? null)).findIndex(x => x.id === gid) + 1;
+    const was = place();
+    goals = rankGoal(gid, rank)(goals);
+    const at = place();
+    if (at === was) { skipped.push(`${short(g.title)} is already ranked ${at}${rank > at ? `, the last of the goals beside it` : ''}.`); return null; }
+    return `ranked ${at}`;
+  };
+
+  /** A sub-goal after a step on its parent's chart. Adds the words to `said`. */
+  const afterOnParent = (gid: string, ref: string | undefined, said: string[]) => {
+    if (!ref) return;
+    const g = goalOf(gid) as Goal, parent = goalOf(g.parent ?? null);
+    if (!parent) { skipped.push(`${short(g.title)} is a top goal, so it isn’t a step on any chart to follow “${ref}”.`); return; }
+    const after = resolve(ref, parent.id);
+    if (!after) { skipped.push(`No step ${ref} for ${short(g.title)} to follow.`); return; }
+    if (link(parent, after, { kind: 'goal', goal: parent.id, node: goalNode(g), id: g.id, title: g.title })) said.push(`after ${short(after.title)}`);
+  };
+
+  /** A repeating task's series onto a goal (null: off-goal), with its open tasks, so it shows on one chart. */
+  const moveSeries = (r: Repeat, g: Goal | null) => {
+    const sec = g ? sectionOf(g) : null;
+    const next = { ...r, goal: g?.id ?? null, ...(sec ? { label: sec } : {}), updatedAt: now };
+    repeatOps.push({ kind: 'set', repeat: next });
+    repeats.set(r.id, next);
+    for (const t of [...writes.values(), ...st.tasks.filter(x => !writes.has(x.id))]) {
+      if (t.status !== 'open' || removes.has(t.id) || occurrenceOf(t.id)?.repeat !== r.id) continue;
+      if (g) onGoal(t, g); else write({ ...t, goal: null, updatedAt: now });
     }
-    if (op.rank) {
-      const was = goals;
-      goals = rankGoal(g.id, op.rank)(goals);
-      if (goals !== was || g.status === 'active') said.push(`ranked ${Math.min(op.rank, goals.filter(x => x.status === 'active' && (x.parent ?? null) === dest).length)}`);
-      else said.push('not ranked: only open goals have a rank');
-    }
-    const after = parent && op.after ? resolve(op.after, parent.id) : null;
-    if (op.after && !after) skipped.push(`No step ${op.after} for ${short(g.title)} to follow.`);
-    if (parent && after && link(goalOf(parent.id) as Goal, after, { kind: 'goal', goal: parent.id, node: goalNode(g), id: g.id, title: g.title })) said.push(`after ${short(after.title)}`);
-    lines.push(`${short(g.title)} ${said.join(', ') || 'stays where it is'}`);
   };
 
   /** Delete a goal and the goals under it for good. Open tasks go off-goal, or with `withTasks`, go too (not Google's). */
@@ -467,36 +557,56 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
     ].filter(Boolean).join('; '));
   };
 
+  /** Where `to` names a goal to go under: its id, null for the top, undefined for staying put; false when there's no such goal. */
+  const parentOf = (v: string | null | undefined): string | null | undefined | false => (v === undefined || v === null ? v : findGoal(v)?.id ?? false);
+
   for (const op of ops) {
     const miss = (what: string) => skipped.push(`Couldn’t ${DOING[op.op]}: ${what}.`);
+    const l0 = lines.length, s0 = skipped.length;
     switch (op.op) {
       case 'add_goal': {
         if (!op.title) { miss('it has no title'); break; }
         const parent = op.parent ? findGoal(op.parent) : null;
         if (op.parent && !parent) { miss(`there’s no goal ${op.parent} to put it under`); break; }
-        if (!parent && goals.filter(g => g.status === 'active' && !g.parent).length >= MAX_ACTIVE) { miss(`${MAX_ACTIVE} goals at once is the most; achieve or drop one first`); break; }
-        const kr = parent && op.for_result ? resolve(op.for_result, parent.id) : null;
+        const why = cantAddGoal(goals, parent?.id ?? null);
+        if (why) { miss(why); break; }
+        let kr: Node | null = null;
+        if (op.for_result && !parent) skipped.push(`${short(op.title)} is a top goal, so it serves no key result; for_result was left out.`);
+        else if (op.for_result && parent) {
+          kr = resolve(op.for_result, parent.id);
+          if (!kr || kr.kind !== 'kr' || kr.goal !== parent.id) { miss(`${short(parent.title)} has no key result “${op.for_result}”`); break; }
+        }
+        if (parent && op.section !== undefined) skipped.push(subSection(op.title));
         const g = makeGoal({
-          title: op.title, section: parent ? sectionOf(parent) : op.section ?? null, results: op.results ?? [], by: op.by ?? null,
-          parent: parent?.id ?? null, parentKr: kr?.kind === 'kr' ? kr.id : null,
+          title: fit(op.title, GOAL_TITLE_MAX, 'a goal’s title'), section: parent ? sectionOf(parent) : op.section ?? null, results: op.results ?? [], by: op.by ?? null,
+          parent: parent?.id ?? null, parentKr: kr?.id ?? null,
         }, now, ids.goal());
         goals = addGoal(g)(goals);
         if (op.key) goalKeys.set(op.key, g.id);
         goalKeys.set(g.title, g.id);
         if (parent) note({ goal: parent.id, op: 'add', step: goalNode(g), title: g.title });
         if (op.rank) goals = rankGoal(g.id, op.rank)(goals);
-        lines.push(`${parent ? `New sub-goal ${short(g.title)} under ${short(parent.title)}${kr ? `, for ${short(kr.title)}` : ''}` : `New goal ${short(g.title)}`}${op.rank ? `, ranked ${goals.filter(x => x.status === 'active' && (x.parent ?? null) === (parent?.id ?? null)).findIndex(x => x.id === g.id) + 1}` : ''}`);
+        lines.push(`${parent ? `New sub-goal ${short(g.title)} under ${short(parent.title)}${kr ? `, for ${short(kr.title)}` : ''}` : `New goal ${short(g.title)}`}${op.section !== undefined && !parent ? `, in ${sectionName(op.section)}` : ''}${op.rank ? `, ranked ${goals.filter(x => x.status === 'active' && (x.parent ?? null) === (parent?.id ?? null)).findIndex(x => x.id === g.id) + 1}` : ''}`);
         break;
       }
       case 'edit_goal': {
         const g = findGoal(op.goal);
         if (!g) { miss(`there’s no goal ${op.goal ?? ''}`); break; }
+        // Where it sits first, so a section or a rank applies where it ends up. One that can't move changes nothing.
+        if (op.parent !== undefined || op.for_result !== undefined) {
+          const to = parentOf(op.parent);
+          if (to === false) { miss(`there’s no goal ${op.parent} to put it under`); break; }
+          const said = regoal(g, to, op.for_result, miss);
+          if (!said) break;
+          if (said.length) lines.push(`${short(g.title)} ${said.join(', ')}`);
+        }
+        const cur = goalOf(g.id) as Goal;
         const patch: Partial<Goal> = {};
-        if (op.title) patch.title = op.title.slice(0, 80);
-        if (op.by !== undefined) patch.by = op.by;
+        if (op.title && op.title !== cur.title) patch.title = fit(op.title, GOAL_TITLE_MAX, 'a goal’s title');
+        if (op.by !== undefined && op.by !== cur.by) patch.by = op.by;
         if (op.section !== undefined) {
-          if (g.parent) skipped.push(`${short(g.title)} is a sub-goal, so it’s in its top goal’s section; change that goal’s, or move it to the top.`);
-          else patch.section = op.section;
+          if (cur.parent) skipped.push(subSection(cur.title));
+          else if (op.section !== cur.section) patch.section = op.section;
         }
         if (Object.keys(patch).length) {
           goals = patchGoal(g.id, patch, now)(goals);
@@ -505,20 +615,30 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
             'section' in patch ? `, in ${sectionName(patch.section ?? null)}` : '',
           ].join('')}`);
         }
-        if (op.status && op.status !== g.status) {
-          const why = op.status === 'active' ? cantRevive(g) : null;
+        if (op.status) {
+          const now_ = goalOf(g.id) as Goal;
+          const why = op.status === now_.status ? `it’s ${op.status} already` : op.status === 'active' ? cantRevive(now_) : null;
           if (why) miss(why);
           else { goals = setGoalStatus(g.id, op.status, now)(goals); lines.push(`${short(g.title)}: ${op.status}`); }
         }
+        if (op.rank) { const r = rankIt(g.id, op.rank); if (r) lines.push(`${short(g.title)} ${r}`); }
         break;
       }
       case 'move_goal': {
         const g = findGoal(op.goal);
         if (!g) { miss(`there’s no goal ${op.goal ?? ''}`); break; }
-        let to: string | null | undefined;
-        if (op.parent === null) to = null;
-        else if (op.parent) { const p = findGoal(op.parent); if (!p) { miss(`there’s no goal ${op.parent} to put it under`); break; } to = p.id; }
-        placeGoal(op, g, to, miss);
+        const to = parentOf(op.parent);
+        if (to === false) { miss(`there’s no goal ${op.parent} to put it under`); break; }
+        const said = regoal(g, to, op.for_result, miss);
+        if (!said) break;
+        if (op.section !== undefined) {
+          const cur = goalOf(g.id) as Goal;
+          if (cur.parent) skipped.push(subSection(cur.title));
+          else if (op.section !== cur.section) { goals = patchGoal(g.id, { section: op.section }, now)(goals); said.push(`in ${sectionName(op.section)}`); }
+        }
+        if (op.rank) { const r = rankIt(g.id, op.rank); if (r) said.push(r); }
+        afterOnParent(g.id, op.after, said);
+        if (said.length) lines.push(`${short(g.title)} ${said.join(', ')}`);
         break;
       }
       case 'delete_goal': {
@@ -529,27 +649,37 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
       }
       case 'add_result': {
         const g = findGoal(op.goal);
-        const text = op.text ?? op.title;
-        if (!g || !text) { miss(!g ? `there’s no goal ${op.goal ?? ''}` : 'it has no text'); break; }
-        const under = op.under ? resolve(op.under, g.id) : null;
+        const raw = op.text ?? op.title;
+        if (!g || !raw) { miss(!g ? `there’s no goal ${op.goal ?? ''}` : 'it has no text'); break; }
+        let under: Node | null = null;
+        if (op.under) {
+          under = resolve(op.under, g.id);
+          if (!under || under.kind !== 'kr' || under.goal !== g.id) { miss(`${short(g.title)} has no key result “${op.under}” to put it under`); break; }
+        }
+        const why = cantAddResult(goalOf(g.id) as Goal, under?.id ?? null);
+        if (why) { miss(why); break; }
+        const text = fit(raw, RESULT_MAX, 'a key result');
         const id = ids.kr();
-        goals = addResult(g.id, under?.kind === 'kr' && under.goal === g.id ? under.id : null, text, now, id)(goals);
+        goals = addResult(g.id, under?.id ?? null, text, now, id)(goals);
         const n: Node = { kind: 'kr', goal: g.id, node: `kr:${id}`, id, title: text };
         if (op.key) keys.set(op.key, n);
         note({ goal: g.id, op: 'add', step: n.node, title: text });
-        lines.push(`${short(g.title)}: key result ${short(text)}${under?.kind === 'kr' ? ` under ${short(under.title)}` : ''}`);
+        lines.push(`${short(g.title)}: key result ${short(text)}${under ? ` under ${short(under.title)}` : ''}`);
         break;
       }
       case 'edit_result': case 'remove_result': {
         const n = resolve(op.ref, scope(op));
         if (!n || n.kind !== 'kr' || !n.goal) { miss(`there’s no key result “${op.ref ?? ''}”`); break; }
         if (op.op === 'remove_result') { dropResult(n.goal, n.id, n.title); break; }
+        const kr = findResult((goalOf(n.goal) as Goal).results, n.id) as KeyResult;
         const patch: { text?: string; done?: boolean } = {};
-        if (op.text ?? op.title) patch.text = (op.text ?? op.title as string).slice(0, 120);
-        if (op.done !== undefined) patch.done = op.done;
+        const raw = op.text ?? op.title;
+        if (raw) { const text = fit(raw, RESULT_MAX, 'a key result'); if (text !== kr.text) patch.text = text; }
+        if (op.done !== undefined && op.done !== kr.done) patch.done = op.done;
+        if (!Object.keys(patch).length) break;
         goals = patchResult(n.goal, n.id, patch, now)(goals);
-        if (op.done !== undefined) note({ goal: n.goal, op: op.done ? 'tick' : 'untick', step: n.node, title: n.title });
-        lines.push(`Key result ${short(n.title)}${patch.text ? ` is now ${short(patch.text)}` : ''}${op.done !== undefined ? (op.done ? ' ticked' : ' unticked') : ''}`);
+        if (patch.done !== undefined) note({ goal: n.goal, op: patch.done ? 'tick' : 'untick', step: n.node, title: n.title });
+        lines.push(`Key result ${short(n.title)}${patch.text ? ` is now ${short(patch.text)}` : ''}${patch.done !== undefined ? (patch.done ? ' ticked' : ' unticked') : ''}`);
         break;
       }
       case 'move_result': {
@@ -567,7 +697,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         const why = cantMoveResult(g, n.id, under);
         if (why) { miss(why); break; }
         const moving = under !== (now_?.parent ?? null);
-        if (!moving && !op.rank) { lines.push(`Key result ${short(n.title)} stays where it is`); break; }
+        if (!moving && !op.rank) break;
         goals = moveResult(g.id, n.id, under, op.rank ?? null, now)(goals);
         // Where it landed among the ones beside it, for a rank past the end.
         const there = (l: KeyResult[]) => (under ? findResult(l, under)?.results ?? [] : l);
@@ -579,9 +709,12 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
       case 'add_step': {
         const g = findGoal(op.goal);
         if (!g || !op.title) { miss(!g ? `there’s no goal ${op.goal ?? ''}` : 'it has no title'); break; }
+        const rule = op.repeat ? toRule(op.repeat) : null;
+        if (op.repeat && !rule) { miss('that isn’t a repeat: it needs freq day, week or month'); break; }
+        if (rule && op.due) skipped.push(`${short(op.title)} repeats, so each one is due on its own day; its due date was left out.`);
         const sec = sectionOf(g);
         const base = { title: op.title, priority: op.priority ?? 2 as Priority, minutes: op.minutes ?? 30 };
-        const rule = op.repeat ? toRule(op.repeat) : null;
+        const due = !rule ? op.due ?? null : null;
         let n: Node;
         if (rule) {
           const r = startRepeat({ ...base, notes: '', label: sec ?? null, goal: g.id, raw: op.title, rule, time: null, from: today }, now, ids.repeat());
@@ -591,7 +724,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
           n = { kind: 'series', goal: g.id, node: repeatNode(r), id: r.id, title: r.title };
         } else {
           const t: Task = {
-            id: ids.task(), ...base, raw: op.title, notes: '', start: null, due: null, status: 'open', created: now, order: now, doneAt: null,
+            id: ids.task(), ...base, raw: op.title, notes: '', start: null, due, status: 'open', created: now, order: now, doneAt: null,
             goal: g.id, label: sec ?? null, updatedAt: now,
           };
           write(t);
@@ -601,25 +734,30 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         keys.set(n.title, n);
         const after = op.after ? resolve(op.after, g.id) : null, before = op.before ? resolve(op.before, g.id) : null, beside = op.beside ? resolve(op.beside, g.id) : null;
         if (op.after && !after) skipped.push(`No step ${op.after} for ${short(n.title)} to follow.`);
-        if (after) link(g, after, n);
-        if (before) link(g, n, before);
-        if (beside) for (const l of parallelLinks(planOf(goalOf(g.id) as Goal), beside.node, n.node)) plan(g.id, p => withLink(p, l));
-        lines.push(`${short(g.title)}: ${rule ? 'repeating ' : ''}step ${short(n.title)}${rule ? ` (${describeRule(rule)})` : ''}${after ? ` after ${short(after.title)}` : ''}${before ? `, before ${short(before.title)}` : ''}${beside ? ` alongside ${short(beside.title)}` : ''}`);
+        if (op.before && !before) skipped.push(`No step ${op.before} for ${short(n.title)} to lead to.`);
+        if (op.beside && !beside) skipped.push(`No step ${op.beside} for ${short(n.title)} to run alongside.`);
+        const afterOk = after ? link(g, after, n) : false, beforeOk = before ? link(g, n, before) : false;
+        let besideOk = false;
+        if (beside && beside.goal !== g.id) skipped.push(`${short(beside.title)} isn’t on ${short(g.title)}, so ${short(n.title)} can’t run alongside it there.`);
+        else if (beside) { for (const l of parallelLinks(planOf(goalOf(g.id) as Goal), beside.node, n.node)) plan(g.id, p => withLink(p, l)); besideOk = true; }
+        lines.push(`${short(g.title)}: ${rule ? 'repeating ' : ''}step ${short(n.title)}${rule ? ` (${describeRule(rule)})` : ''}${afterOk && after ? ` after ${short(after.title)}` : ''}${beforeOk && before ? `, before ${short(before.title)}` : ''}${besideOk && beside ? ` alongside ${short(beside.title)}` : ''}${due ? `, due ${due}` : ''}`);
         break;
       }
       case 'add_wait': {
         const g = findGoal(op.goal);
-        const title = op.title ?? op.text;
-        if (!g || !title) { miss(!g ? `there’s no goal ${op.goal ?? ''}` : 'it has no title'); break; }
-        const w = { id: ids.wait(), title: title.slice(0, 120), done: false, created: now, doneAt: null };
+        const raw = op.title ?? op.text;
+        if (!g || !raw) { miss(!g ? `there’s no goal ${op.goal ?? ''}` : 'it has no title'); break; }
+        if (planOf(goalOf(g.id) as Goal).waits.length >= MAX_WAITS) { miss(`${short(g.title)} waits on ${MAX_WAITS} things already, the most a chart can hold`); break; }
+        const w = { id: ids.wait(), title: fit(raw, WAIT_TITLE_MAX, 'what a chart waits on'), done: false, created: now, doneAt: null };
         plan(g.id, p => withWait(p, w));
         note({ goal: g.id, op: 'wait', step: w.id, title: w.title });
         const n: Node = { kind: 'wait', goal: g.id, node: w.id, id: w.id, title: w.title };
         if (op.key) keys.set(op.key, n);
         keys.set(w.title, n);
         const holds = op.holds ? resolve(op.holds, g.id) : null;
-        if (holds) link(g, n, holds);
-        lines.push(`${short(g.title)}: waiting on ${short(w.title)}${holds ? `, before ${short(holds.title)}` : ''}`);
+        if (op.holds && !holds) skipped.push(`No step ${op.holds} for ${short(w.title)} to hold up.`);
+        const held = holds ? link(g, n, holds) : false;
+        lines.push(`${short(g.title)}: waiting on ${short(w.title)}${held && holds ? `, before ${short(holds.title)}` : ''}`);
         break;
       }
       case 'link': case 'unlink': {
@@ -638,27 +776,41 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
       case 'edit_step': {
         const n = resolve(op.ref, scope(op));
         if (!n) { miss(`there’s no step “${op.ref ?? ''}”`); break; }
-        const title = op.title?.slice(0, 160);
-        let done = op.done;
         const said: string[] = [];
+        // What this kind of step has: a waiting step, key result or sub-goal has no length or priority.
+        const sized = n.kind === 'task' || n.kind === 'series';
+        if (!sized && (op.minutes || op.priority)) skipped.push(`${short(n.title)} is ${n.kind === 'wait' ? 'something the chart waits on' : n.kind === 'kr' ? 'a key result' : 'a sub-goal'}, so it has no length or priority; ${[op.minutes ? 'minutes' : '', op.priority ? 'priority' : ''].filter(Boolean).join(' and ')} left out.`);
+        if (op.repeat && n.kind !== 'series') skipped.push(`${short(n.title)} isn’t a repeating task: add a repeating step for that.`);
+        const max = n.kind === 'kr' ? RESULT_MAX : n.kind === 'goal' ? GOAL_TITLE_MAX : n.kind === 'wait' ? WAIT_TITLE_MAX : 160;
+        const title = op.title ? fit(op.title, max, n.kind === 'kr' ? 'a key result' : n.kind === 'goal' ? 'a goal’s title' : n.kind === 'wait' ? 'what a chart waits on' : 'a task’s title') : undefined;
+        const renamed = !!title && title !== n.title;
         if (n.kind === 'task') {
           const t = task(n.id) as Task;
           const patch: Partial<Task> = {};
-          if (title) patch.title = title;
-          if (op.minutes) patch.minutes = op.minutes;
-          if (op.priority) patch.priority = op.priority;
-          if (done !== undefined) Object.assign(patch, { status: done ? 'done' : 'open', doneAt: done ? now : null });
-          write({ ...t, ...patch, updatedAt: now });
+          if (renamed) patch.title = title;
+          if (op.minutes && op.minutes !== t.minutes) { patch.minutes = op.minutes; said.push(`${op.minutes} min`); }
+          if (op.priority && op.priority !== t.priority) { patch.priority = op.priority; said.push(['urgent', 'important', 'later'][op.priority - 1]); }
+          if (op.done !== undefined && (op.done ? 'done' : 'open') !== t.status) { Object.assign(patch, { status: op.done ? 'done' : 'open', doneAt: op.done ? now : null }); said.push(op.done ? 'done' : 'reopened'); }
+          if (Object.keys(patch).length) write({ ...t, ...patch, updatedAt: now });
         } else if (n.kind === 'wait' && n.goal) {
-          plan(n.goal, p => patchWait(p, n.id, { ...(title ? { title } : {}), ...(done !== undefined ? { done: done, doneAt: done ? now : null } : {}) }));
-          if (done !== undefined) note({ goal: n.goal, op: done ? 'resolve' : 'unresolve', step: n.id, title: n.title });
+          const w = planOf(goalOf(n.goal) as Goal).waits.find(x => x.id === n.id);
+          const done = op.done !== undefined && op.done !== w?.done ? op.done : undefined;
+          if (renamed || done !== undefined) plan(n.goal, p => patchWait(p, n.id, { ...(renamed ? { title } : {}), ...(done !== undefined ? { done, doneAt: done ? now : null } : {}) }));
+          if (done !== undefined) { note({ goal: n.goal, op: done ? 'resolve' : 'unresolve', step: n.id, title: n.title }); said.push(done ? 'done' : 'reopened'); }
         } else if (n.kind === 'kr' && n.goal) {
-          goals = patchResult(n.goal, n.id, { ...(title ? { text: title.slice(0, 120) } : {}), ...(done !== undefined ? { done: done } : {}) }, now)(goals);
+          const kr = findResult((goalOf(n.goal) as Goal).results, n.id) as KeyResult;
+          const done = op.done !== undefined && op.done !== kr.done ? op.done : undefined;
+          if (renamed || done !== undefined) goals = patchResult(n.goal, n.id, { ...(renamed ? { text: title } : {}), ...(done !== undefined ? { done } : {}) }, now)(goals);
+          if (done !== undefined) said.push(done ? 'done' : 'reopened');
         } else if (n.kind === 'goal') {
-          if (title) goals = patchGoal(n.id, { title: title.slice(0, 80) }, now)(goals);
-          const why = done === false ? cantRevive(goalOf(n.id) as Goal) : null;
-          if (why) { miss(why); done = undefined; }
-          if (done !== undefined) goals = setGoalStatus(n.id, done ? 'achieved' : 'active', now)(goals);
+          const g = goalOf(n.id) as Goal;
+          if (renamed) goals = patchGoal(n.id, { title }, now)(goals);
+          const want = op.done === undefined ? undefined : op.done ? 'achieved' : 'active';
+          if (want && want !== g.status) {
+            const why = want === 'active' ? cantRevive(g) : null;
+            if (why) miss(why);
+            else { goals = setGoalStatus(n.id, want, now)(goals); said.push(op.done ? 'done' : 'reopened'); }
+          }
         } else if (n.kind === 'series') {
           const r = repeats.get(n.id) as Repeat;
           const rule = op.repeat ? toRule(op.repeat) : null;
@@ -667,21 +819,23 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
             // Every week on no day in particular is the day it's on; every month, the date.
             if (rule.freq === 'week' && !rule.days.length && !rule.per) rule.days = r.rule.freq === 'week' && r.rule.days.length ? r.rule.days : [fromYmd(today).getDay()];
             if (rule.freq === 'month' && rule.monthDay == null && !rule.per) rule.monthDay = r.rule.monthDay ?? +today.slice(8, 10);
-            said.push(describeRule(rule).replace(/^./, c => c.toLowerCase()));
           }
-          const next = { ...r, ...(title ? { title } : {}), ...(op.minutes ? { minutes: op.minutes } : {}), ...(op.priority ? { priority: op.priority } : {}), ...(rule ? { rule } : {}), updatedAt: now };
-          if (title || op.minutes || op.priority || rule) { repeatOps.push({ kind: 'set', repeat: next }); repeats.set(r.id, next); }
-          // Ticking a repeating task ticks the one that's open.
+          const newRule = rule && JSON.stringify(rule) !== JSON.stringify(r.rule) ? rule : null;
+          const minutes = op.minutes && op.minutes !== r.minutes ? op.minutes : undefined, priority = op.priority && op.priority !== r.priority ? op.priority : undefined;
+          if (newRule) said.push(describeRule(newRule).replace(/^./, c => c.toLowerCase()));
+          if (minutes) said.push(`${minutes} min`);
+          if (priority) said.push(['urgent', 'important', 'later'][priority - 1]);
+          const next = { ...r, ...(renamed ? { title } : {}), ...(minutes ? { minutes } : {}), ...(priority ? { priority } : {}), ...(newRule ? { rule: newRule } : {}), updatedAt: now };
+          if (renamed || minutes || priority || newRule) { repeatOps.push({ kind: 'set', repeat: next }); repeats.set(r.id, next); }
+          // Ticking a repeating task ticks the one that's open; the series as a whole can't be reopened.
           const open = [...taskBy.values()].filter(t => t.status === 'open' && occurrenceOf(t.id)?.repeat === r.id).sort((x, y) => y.id.localeCompare(x.id))[0];
-          if (done && open) write({ ...open, ...(title ? { title } : {}), status: 'done', doneAt: now, updatedAt: now });
-          else if (open && title) write({ ...open, title, updatedAt: now });
+          if (op.done && !open) skipped.push(`${short(n.title)} has no open one to tick off right now.`);
+          if (op.done === false) skipped.push(`${short(n.title)} repeats, so it can’t be reopened as a whole; reopen the one you mean by its own id.`);
+          if (op.done && open) { write({ ...open, ...(renamed ? { title } : {}), status: 'done', doneAt: now, updatedAt: now }); said.push('done'); }
+          else if (open && renamed) write({ ...open, title: title as string, updatedAt: now });
         }
-        if (op.repeat && n.kind !== 'series') skipped.push(`${short(n.title)} isn’t a repeating task: add a repeating step for that.`);
-        if (title && title !== n.title) said.push(`is now ${short(title)}`);
-        if (done !== undefined) said.push(done ? 'done' : 'reopened');
-        if (op.minutes) said.push(`${op.minutes} min`);
-        if (op.priority) said.push(['urgent', 'important', 'later'][op.priority - 1]);
-        lines.push(`${short(n.title)} ${said.join(', ') || 'unchanged'}`);
+        if (renamed) said.unshift(`is now ${short(title as string)}`);
+        if (said.length) lines.push(`${short(n.title)} ${said.join(', ')}`);
         break;
       }
       case 'remove_step': {
@@ -699,7 +853,8 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         else if (n.kind === 'goal') { goals = setGoalStatus(n.id, 'dropped', now)(goals); lines.push(`Sub-goal ${short(n.title)} dropped`); }
         else if (n.kind === 'series') {
           const r = repeats.get(n.id) as Repeat;
-          if (op.delete) repeatOps.push({ kind: 'stop', id: r.id }); else repeatOps.push({ kind: 'set', repeat: { ...r, goal: null, updatedAt: now } });
+          // Off its goal with its open tasks, or it would still show on the chart through them.
+          if (op.delete) repeatOps.push({ kind: 'stop', id: r.id }); else moveSeries(r, null);
           lines.push(op.delete ? `${short(n.title)} stopped repeating` : `${short(n.title)} taken off its goal`);
         }
         if (n.goal) note({ goal: n.goal, op: 'remove', step: n.node, title: n.title });
@@ -708,26 +863,40 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
       case 'move_step': {
         const n = resolve(op.ref, opts.focus), g = findGoal(op.goal);
         if (!n || !g) { miss(!n ? `there’s no step “${op.ref ?? ''}”` : `there’s no goal ${op.goal ?? ''}`); break; }
-        if (n.kind === 'goal') { placeGoal(op, goalOf(n.id) as Goal, g.id, miss); break; }
-        if (n.kind === 'task') onGoal(task(n.id) as Task, g);
-        else if (n.kind === 'series') { const r = repeats.get(n.id) as Repeat; repeatOps.push({ kind: 'set', repeat: { ...r, goal: g.id, updatedAt: now } }); }
-        else if (n.kind === 'wait' && n.goal) {
-          if (n.goal === g.id) { miss(`${short(n.title)} is on ${short(g.title)} already`); break; }
-          const w = planOf(goalOf(n.goal) as Goal).waits.find(x => x.id === n.id);
-          if (!w) { miss(`there’s no step “${op.ref ?? ''}”`); break; }
-          plan(n.goal, p => withoutStep(p, n.id));
-          note({ goal: n.goal, op: 'remove', step: n.id, title: n.title });
-          plan(g.id, p => withWait(p, w));
-          note({ goal: g.id, op: 'wait', step: w.id, title: w.title });
-        } else { miss(`${short(n.title)} is a key result: it belongs to its goal (move_result moves it there)`); break; }
+        if (n.kind === 'goal') {
+          const said = regoal(goalOf(n.id) as Goal, g.id, undefined, miss);
+          if (!said) break;
+          afterOnParent(n.id, op.after, said);
+          if (said.length) lines.push(`${short(n.title)} ${said.join(', ')}`);
+          break;
+        }
+        if (n.kind === 'kr') { miss(`${short(n.title)} is a key result: it belongs to its goal (move_result moves it there)`); break; }
+        const moving = n.goal !== g.id;
+        if (!moving && !op.after) { miss(`${short(n.title)} is on ${short(g.title)} already`); break; }
+        if (moving) {
+          if (n.kind === 'task') { leftBehind(n, n.goal, false); onGoal(task(n.id) as Task, g); }
+          else if (n.kind === 'series') { leftBehind(n, n.goal, false); moveSeries(repeats.get(n.id) as Repeat, g); }
+          else if (n.kind === 'wait' && n.goal) {
+            const w = planOf(goalOf(n.goal) as Goal).waits.find(x => x.id === n.id);
+            if (!w) { miss(`there’s no step “${op.ref ?? ''}”`); break; }
+            leftBehind(n, n.goal, true);
+            plan(n.goal, p => withoutStep(p, n.id));
+            note({ goal: n.goal, op: 'remove', step: n.id, title: n.title });
+            plan(g.id, p => withWait(p, w));
+            note({ goal: g.id, op: 'wait', step: w.id, title: w.title });
+          }
+        }
         const moved: Node = { ...n, goal: g.id };
         if (op.ref) keys.set(op.ref, moved);
         const after = op.after ? resolve(op.after, g.id) : null;
-        if (after) link(g, after, moved);
-        lines.push(`${short(n.title)} moved to ${short(g.title)}${after ? ` after ${short(after.title)}` : ''}`);
+        if (op.after && !after) skipped.push(`No step ${op.after} for ${short(n.title)} to follow.`);
+        const afterOk = after ? link(g, after, moved) : false;
+        if (moving || afterOk) lines.push(`${short(n.title)} ${moving ? `moved to ${short(g.title)}` : `on ${short(g.title)}`}${afterOk && after ? ` after ${short(after.title)}` : ''}`);
         break;
       }
     }
+    // An operation that changed nothing and gave no reason gets one, so nothing is dropped without a word.
+    if (lines.length === l0 && skipped.length === s0) miss('there was nothing to change; it already looks like that');
   }
   return { goals, writes: [...writes.values()].filter(t => !removes.has(t.id)), removes: [...removes], repeatOps, log, lines, skipped };
 }

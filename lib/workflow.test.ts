@@ -78,9 +78,10 @@ describe('applying it', () => {
     expect(out.skipped).toEqual([]);
   });
 
-  it('defaults to the chart you’re on, finds steps by name, and brings an off-goal task in', () => {
+  it('defaults to the chart you’re on and finds steps by name, but never pulls an off-goal task onto it by linking', () => {
     const out = applyWorkflow(normalizeOps([{ op: 'link', from: 'Book a haircut', to: 'Sign it' }, { op: 'add_wait', title: 'Sam’s signature', holds: 'T3' }]), st, refs(), { focus: 'gexit', ids: ids() });
-    expect(out.writes).toMatchObject([{ id: 'hair', goal: 'gexit', label: 'sj' }]);
+    expect(out.writes).toEqual([]);
+    expect(out.skipped).toEqual(['“Book a haircut” is off-goal, not on “Give Sam an exit”, so it can’t have an arrow there: arrows only join steps on the same goal, and drawing one doesn’t move a task. Put it on “Give Sam an exit” with move_step first if it belongs there.']);
     expect(out.goals[0].plan?.waits.map(w => w.title)).toEqual(['Buyer’s funds', 'Sam’s signature']);
     expect(out.goals[0].plan?.links).toContainEqual({ from: 'wnew1', to: 'sign' });
   });
@@ -177,7 +178,8 @@ describe('moving, reordering and deleting', () => {
 
   it('moves an existing goal under another, off its old parent’s chart, after a step on the new one', () => {
     const out = apply([{ op: 'move_goal', goal: 'glegal', parent: 'grun', after: 'S2' }]);
-    expect(out.skipped).toEqual([]);
+    // Its arrow on the exit's chart can't come along, and says so.
+    expect(out.skipped).toEqual(['“Close the lawyer’s side”’s 1 arrow on “Give Sam an exit” was taken off: arrows only join steps on the same goal.']);
     const g = byId(out.goals);
     expect(g.get('glegal')).toMatchObject({ parent: 'grun', section: 'me' });
     expect(g.get('glegal')!.parentKr).toBeUndefined();
@@ -212,7 +214,7 @@ describe('moving, reordering and deleting', () => {
   it('moves a sub-goal by dragging it, as a step, onto another goal’s chart', () => {
     const out = apply([{ op: 'move_step', ref: 'glegal', goal: 'grun' }]);
     expect(byId(out.goals).get('glegal')!.parent).toBe('grun');
-    expect(out.skipped).toEqual([]);
+    expect(out.skipped).toEqual(['“Close the lawyer’s side”’s 1 arrow on “Give Sam an exit” was taken off: arrows only join steps on the same goal.']);
   });
 
   it('refuses moves that would loop, go too deep, overfill the top or hide an open goal', () => {

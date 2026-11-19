@@ -2,9 +2,9 @@ import { newId, type Priority, type Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
-import { GOALS_KEY, activeGoals, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
+import { GOALS_KEY, activeGoals, findResult, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
 import { LOG_KEY, MAX_LOG, buildFlow, coalesce, describeEntry, logFromWrites, normalizeLog, planOf, toJson, toMermaid, type LogEntry } from '../flow';
-import { applyWorkflow, normalizeOps, recordedIds, type WorkflowOp, type WorkflowRefs } from '../workflow';
+import { OP_FIELDS, applyWorkflow, normalizeOps, opIssues, recordedIds, type WorkflowOp, type WorkflowOpKind, type WorkflowRefs } from '../workflow';
 import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type Repeat, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
@@ -539,6 +539,28 @@ export interface ChangeOutput {
   goals: GoalSummary[];
 }
 
+/**
+ * What keeping the goals in shape (normalizeGoals) took out of a change: the chart builder checks its limits first, so
+ * this should say nothing, but if it ever has to cut something, it's said rather than lost.
+ */
+export function cutByLimits(changed: Goal[], kept: Goal[]): string[] {
+  const out: string[] = [];
+  const byId = new Map(kept.map(g => [g.id, g]));
+  for (const g of changed) {
+    const k = byId.get(g.id);
+    const q = `“${g.title}”`;
+    if (!k) { out.push(`${q} couldn’t be kept: it’s past what the app holds.`); continue; }
+    if ((k.parent ?? null) !== (g.parent ?? null)) out.push(`${q} couldn’t stay where it was put, so it’s ${k.parent ? `under “${byId.get(k.parent)?.title ?? k.parent}”` : 'a top goal'}.`);
+    else if ((k.parentKr ?? null) !== (g.parentKr ?? null)) out.push(`${q} serves its parent as a whole: the key result it was put under isn’t there.`);
+    if (k.status !== g.status) out.push(`${q} is ${k.status}: ${k.status === 'dropped' ? 'it was past the most top goals at once' : 'its parent is'}.`);
+    const lost = flatResults(g.results).filter(x => !findResult(k.results, x.kr.id));
+    if (lost.length) out.push(`${q} couldn’t keep ${lost.map(x => `“${x.kr.text}”`).join(', ')}: past how many key results a goal holds, or how deep.`);
+    const a = planOf(g), b = planOf(k);
+    if (b.waits.length < a.waits.length || b.links.length < a.links.length) out.push(`${q}’s chart couldn’t keep everything: past how many steps or arrows a chart holds.`);
+  }
+  return out;
+}
+
 const googleOwned = (t: Task | undefined) => !!t && (isEvent(t) || !!t.externalId?.startsWith('gtask:'));
 
 /**
@@ -559,14 +581,19 @@ export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }):
     for (const k of ['parent', 'for_result', 'under', 'section'] as const) if (typeof x[k] === 'string' && (x[k] as string).trim().toLowerCase() === 'none') x[k] = null;
     // Priorities as the other tools take them; a section by its name, as the app shows it.
     if (typeof x.priority === 'string' && x.priority in PRI) x.priority = PRI[x.priority as PriorityName];
-    if (typeof x.section === 'string') x.section = labelFor(labels, x.section);
+    // Checked only where the operation uses it: anywhere else it's listed as a field it doesn't take.
+    const takes = (k: keyof WorkflowOp) => (OP_FIELDS[x.op as WorkflowOpKind] ?? []).includes(k);
+    if (typeof x.section === 'string' && takes('section')) x.section = labelFor(labels, x.section);
+    // A deadline as create_task takes one.
+    if (typeof x.due === 'string' && takes('due')) x.due = dayOrThrow(x.due, 'due');
     return x;
   });
   const ops = normalizeOps(raw);
   if (!ops.length) throw new TaskError('No operations to apply. Each needs an "op" the chart builder knows (add_goal, add_step, link…).', 'invalid');
+  // Whatever an operation carries that it can't use, said up front: a field it doesn't take, a value it can't read.
+  const skipped: string[] = raw.flatMap((x, i) => opIssues(x).map(m => `Operation ${i + 1}: ${m}`));
   const byId = new Map(tasks.map(t => [t.id, t]));
   // Google keeps a pulled item's title, length and very being: renaming or deleting it here would be undone by the next pull.
-  const skipped: string[] = [];
   const allowed = ops.filter((op: WorkflowOp) => {
     const t = op.ref ? byId.get(op.ref) : undefined;
     if (!googleOwned(t)) return true;
@@ -580,6 +607,7 @@ export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }):
   const out = applyWorkflow(allowed, { goals, tasks, repeats, now, labels: new Map(labels.map(l => [l.id, l.name])) }, refs, { focus, ids: recordedIds() });
 
   const nextGoals = normalizeGoals(out.goals);
+  skipped.push(...cutByLimits(out.goals, nextGoals));
   if (JSON.stringify(nextGoals) !== JSON.stringify(goals)) await c.repo.setSetting(GOALS_KEY, nextGoals);
   if (out.repeatOps.length) await c.repo.setSetting(REPEATS_KEY, applyOps(await repeatsOf(c), out.repeatOps));
   const changes: Change[] = [
