@@ -547,7 +547,7 @@ const googleOwned = (t: Task | undefined) => !!t && (isEvent(t) || !!t.externalI
  * the chart history.
  */
 export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }): Promise<ChangeOutput> {
-  const { tasks, byLabel, goals } = await load(c);
+  const { tasks, labels, byLabel, goals } = await load(c);
   const now = clock(c);
   const repeats = await repeatsOf(c);
   const focus = f.goal ? findGoal(goals, f.goal).id : null;
@@ -555,8 +555,11 @@ export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }):
   const raw = (Array.isArray(f.ops) ? f.ops : []).map(o => {
     const x = { ...(o && typeof o === 'object' ? o as Record<string, unknown> : {}) };
     for (const k of REF_FIELDS) if (typeof x[k] === 'string') x[k] = (x[k] as string).replace(/^goal:/, '');
-    // Priorities as the other tools take them.
+    // "none" for no parent (a top goal), no key result in particular, the top of the key results, no section.
+    for (const k of ['parent', 'for_result', 'under', 'section'] as const) if (typeof x[k] === 'string' && (x[k] as string).trim().toLowerCase() === 'none') x[k] = null;
+    // Priorities as the other tools take them; a section by its name, as the app shows it.
     if (typeof x.priority === 'string' && x.priority in PRI) x.priority = PRI[x.priority as PriorityName];
+    if (typeof x.section === 'string') x.section = labelFor(labels, x.section);
     return x;
   });
   const ops = normalizeOps(raw);
@@ -574,7 +577,7 @@ export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }):
     return true;
   });
   const refs = refsFor(goals, tasks, repeats);
-  const out = applyWorkflow(allowed, { goals, tasks, repeats, now }, refs, { focus, ids: recordedIds() });
+  const out = applyWorkflow(allowed, { goals, tasks, repeats, now, labels: new Map(labels.map(l => [l.id, l.name])) }, refs, { focus, ids: recordedIds() });
 
   const nextGoals = normalizeGoals(out.goals);
   if (JSON.stringify(nextGoals) !== JSON.stringify(goals)) await c.repo.setSetting(GOALS_KEY, nextGoals);
@@ -589,6 +592,10 @@ export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }):
   const before = new Map(goals.map(g => [g.id, JSON.stringify(g)]));
   const touched = new Set(nextGoals.filter(g => before.get(g.id) !== JSON.stringify(g)).map(g => g.id));
   for (const ch of changes) for (const t of [ch.before, ch.after]) if (t?.goal) touched.add(t.goal);
+  for (const op of out.repeatOps) {
+    const r = op.kind === 'set' ? op.repeat : repeats.find(x => x.id === op.id);
+    for (const gid of [r?.goal, repeats.find(x => x.id === r?.id)?.goal]) if (gid) touched.add(gid);
+  }
   // Described as they are now, so the ids of anything new are there to build on.
   const describe = goalSummarizer(nextGoals, await c.repo.list(), byLabel, await repeatsOf(c), clock(c));
   return {

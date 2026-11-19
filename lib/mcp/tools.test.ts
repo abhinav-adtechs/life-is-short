@@ -409,6 +409,58 @@ describe('building goals and their charts', () => {
     await expect(completeTask(ctx(old), 'deck')).resolves.toMatchObject({ status: 'done' });
   });
 
+  it('moves an existing goal under a parent, for one of its key results, and back to the top', async () => {
+    const RUN = { id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 };
+    const m = seed({ goals: [EXIT, RUN] });
+    m.rows.set('long', task('long', { goal: 'grun', label: 'home' }));
+    const out = await changeGoals(ctx(m), { ops: [{ op: 'move_goal', goal: 'Run a half marathon', parent: 'goal:gexit', for_result: 'kr:k2', after: 'deck' }] });
+    expect(out.skipped).toEqual([]);
+    expect(out.changed).toEqual(['“Run a half marathon” is under “Give Sam an exit” now, for “Paid”, after “deck”']);
+    expect(goalsIn(m).find(g => g.id === 'grun')).toMatchObject({ parent: 'gexit', parentKr: 'k2', section: 'work' });
+    expect(goalsIn(m).find(g => g.id === 'gexit')!.plan!.links).toContainEqual({ from: 'deck', to: 'goal:grun' });
+    // The goals it touched, as list_goals shows them: the moved one under its new parent, in its section.
+    expect(out.goals.find(g => g.id === 'grun')).toMatchObject({ parent: 'gexit', parent_kr: 'k2', section: 'Work', rank: null });
+    expect((await listGoals(ctx(m))).goals.map(g => [g.id, g.rank])).toEqual([['gexit', 1], ['grun', null]]);
+    // Its tasks came along.
+    expect((await getGoal(ctx(m), { goal: 'grun' })).open_tasks).toBe(1);
+
+    const back = await changeGoals(ctx(m), { ops: [{ op: 'move_goal', goal: 'grun', parent: 'none', rank: 1, section: 'Home life' }] });
+    expect(back.changed).toEqual(['“Run a half marathon” is a top goal now, in “Home life”, ranked 1']);
+    expect((await listGoals(ctx(m))).goals.map(g => [g.id, g.rank, g.section])).toEqual([['grun', 1, 'Home life'], ['gexit', 2, 'Work']]);
+    expect(goalsIn(m).find(g => g.id === 'gexit')!.plan!.links).not.toContainEqual({ from: 'deck', to: 'goal:grun' });
+  });
+
+  it('lists a goal as touched when only its repeating steps changed', async () => {
+    const m = seed();
+    // NOW is a Wednesday: a step every Friday makes no task today, only the repeat.
+    const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [{ op: 'add_step', title: 'Investor update', repeat: { freq: 'week', days: ['fri'] } }] });
+    expect(m.store[REPEATS_KEY]).toHaveLength(1);
+    expect(out.goals.map(g => g.id)).toEqual(['gexit']);
+  });
+
+  it('takes sections by name, and says which exist', async () => {
+    const m = seed();
+    await changeGoals(ctx(m), { ops: [{ op: 'add_goal', title: 'Fix the roof', section: 'Home life' }, { op: 'edit_goal', goal: 'gexit', section: 'none' }] });
+    expect(goalsIn(m).map(g => [g.title, g.section])).toEqual([['Give Sam an exit', null], ['Fix the roof', 'home']]);
+    await expect(changeGoals(ctx(m), { ops: [{ op: 'add_goal', title: 'X', section: 'Garden' }] })).rejects.toThrow(/no project called "Garden".*Work, Home life/);
+  });
+
+  it('deletes a goal for good: its open tasks go off-goal, or with with_tasks are deleted, never Google’s', async () => {
+    const m = seed();
+    m.rows.set('gt', task('gt', { goal: 'gexit', externalId: 'gtask:list:1' }));
+    m.rows.set('was', task('was', { goal: 'gexit', status: 'done', doneAt: NOW - H }));
+    const out = await changeGoals(ctx(m), { ops: [{ op: 'delete_goal', goal: 'gexit', with_tasks: true }] });
+    expect(out.changed).toEqual(['Deleted “Give Sam an exit”; 2 open tasks deleted; 1 open task off-goal now (1 from Google, which can’t be deleted here)']);
+    expect(out.goals).toEqual([]);
+    expect(goalsIn(m)).toEqual([]);
+    expect(m.rows.has('lawyer')).toBe(false);
+    expect(m.rows.has('deck')).toBe(false);
+    expect(m.rows.get('gt')!.goal).toBeNull();
+    // Done work stays, as the record of it.
+    expect(m.rows.get('was')!.goal).toBe('gexit');
+    expect((await listGoals(ctx(m))).goals).toEqual([]);
+  });
+
   it('names key results by "kr:<id>", and by goal where two goals share an id', () => {
     const twin = { ...EXIT, id: 'gtwin', title: 'Twin', plan: undefined };
     const refs = refsFor(normalizeGoals([EXIT, twin]), [], []);

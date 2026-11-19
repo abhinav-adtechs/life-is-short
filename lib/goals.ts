@@ -432,6 +432,100 @@ export const removeGoal = (id: string): GoalsFn => list => {
   return list.filter(g => !gone.has(g.id));
 };
 
+/** Put an active goal at a place among the active goals beside it (same parent): 1 first. Past the end is last. */
+export const rankGoal = (id: string, rank: number): GoalsFn => list => {
+  const g = list.find(x => x.id === id);
+  if (!g || g.status !== 'active') return list;
+  const same = (x: Goal) => x.status === 'active' && (x.parent ?? null) === (g.parent ?? null);
+  const live = list.filter(same);
+  const from = live.findIndex(x => x.id === id), to = Math.max(0, Math.min(live.length - 1, Math.round(rank) - 1));
+  if (from === to) return list;
+  live.splice(from, 1);
+  live.splice(to, 0, g);
+  let k = 0;
+  return list.map(x => (same(x) ? live[k++] : x));
+};
+
+/** How many levels of sub-goals hang under a goal: 0 with none. */
+export const heightOf = (goals: Goal[], id: string): number =>
+  childrenOf(goals, id).reduce((n, c) => Math.max(n, 1 + heightOf(goals, c.id)), 0);
+
+/**
+ * Why a goal can't go under `parent` (null: be a top goal), or null when it can. Not under itself or a goal under it;
+ * with everything under it, no deeper than MAX_GOAL_DEPTH; not open under a goal that's achieved or dropped; and as a
+ * top goal that's open, not past MAX_ACTIVE of them.
+ */
+export function cantMoveGoal(goals: Goal[], id: string, parent: string | null): string | null {
+  const index = new Map(goals.map(g => [g.id, g]));
+  const g = index.get(id);
+  if (!g) return 'there’s no such goal';
+  if ((g.parent ?? null) === parent) return null;
+  const q = (x: Goal) => `“${x.title}”`;
+  if (!parent) {
+    return g.status === 'active' && topGoals(goals).length >= MAX_ACTIVE ? `${MAX_ACTIVE} top goals at once is the most; achieve or drop one first` : null;
+  }
+  const p = index.get(parent);
+  if (!p) return 'there’s no goal to put it under';
+  if (p.id === g.id) return 'a goal can’t go under itself';
+  if (ancestorsOf(index, p).some(a => a.id === g.id)) return `${q(p)} is under ${q(g)}, so ${q(g)} can’t go under it`;
+  if (ancestorsOf(index, p).length + 1 + heightOf(goals, g.id) > MAX_GOAL_DEPTH) return `that would put sub-goals more than ${MAX_GOAL_DEPTH} levels deep`;
+  if (g.status === 'active' && p.status !== 'active') return `${q(p)} is ${p.status}; bring it back first`;
+  return null;
+}
+
+/**
+ * Move a goal under another goal (serving its key result `parentKr`, or the goal as a whole with null), or to the top
+ * with `parent` null. Everything under it comes along and takes its new top goal's section; a goal that changes
+ * parent goes last among the goals beside it there. Check it with cantMoveGoal first.
+ */
+export const reparentGoal = (id: string, parent: string | null, parentKr: string | null, now = Date.now()): GoalsFn => list => {
+  const g = list.find(x => x.id === id);
+  if (!g) return list;
+  const index = new Map(list.map(x => [x.id, x]));
+  const p = parent ? index.get(parent) : undefined;
+  const { parent: _, parentKr: __, ...rest } = g;
+  const kr = p && parentKr && findResult(p.results, parentKr) ? parentKr : null;
+  const section = p ? rootOf(index, p).section : g.section;
+  const moved: Goal = { ...rest, section, ...(p ? { parent: p.id, ...(kr ? { parentKr: kr } : {}) } : {}), updatedAt: now };
+  const under = new Set(descendantsOf(list, id).map(x => x.id));
+  const next = list.map(x => (x.id === id ? moved : under.has(x.id) ? { ...x, section, updatedAt: now } : x));
+  if ((g.parent ?? null) === (p?.id ?? null)) return next;
+  return [...next.filter(x => x.id !== id), moved];
+};
+
+/** Why a key result can't go under `under` (null: the top of its goal), or null when it can. */
+export function cantMoveResult(g: Goal, id: string, under: string | null): string | null {
+  const all = flatResults(g.results);
+  const hit = all.find(x => x.kr.id === id);
+  if (!hit) return 'there’s no such key result';
+  if ((hit.parent ?? null) === under) return null;
+  const height = (r: KeyResult): number => (r.results ?? []).reduce((n, c) => Math.max(n, 1 + height(c)), 0);
+  const to = under ? all.find(x => x.kr.id === under) : null;
+  if (under && !to) return 'there’s no key result to put it under';
+  if (to && (to.kr.id === id || findResult(hit.kr.results ?? [], to.kr.id))) return 'a key result can’t go under itself or one under it';
+  if ((to ? to.depth + 1 : 0) + height(hit.kr) > MAX_KR_DEPTH - 1) return `key results go ${MAX_KR_DEPTH} levels deep at most`;
+  if ((to ? to.kr.results ?? [] : g.results).length >= MAX_RESULTS) return `${MAX_RESULTS} key results in one place is the most`;
+  return null;
+}
+
+/**
+ * Move a key result, with what's under it, under another on the same goal (or to the top with `under` null), at
+ * `rank` among the ones there (1 first; null: last, or where it was if it stays put). Check it with cantMoveResult first.
+ */
+export const moveResult = (goal: string, id: string, under: string | null, rank: number | null, now = Date.now()): GoalsFn => list =>
+  list.map(g => {
+    if (g.id !== goal) return g;
+    const hit = flatResults(g.results).find(x => x.kr.id === id);
+    if (!hit) return g;
+    const stays = (hit.parent ?? null) === under;
+    const siblings = (l: KeyResult[]) => (under ? findResult(l, under)?.results ?? [] : l);
+    const at = rank != null ? Math.round(rank) - 1 : stays ? siblings(g.results).findIndex(r => r.id === id) : Infinity;
+    const without = mapResults(g.results, r => (r.id === id ? null : r));
+    const put = (l: KeyResult[]) => { const out = [...l]; out.splice(Math.max(0, Math.min(out.length, at)), 0, hit.kr); return out; };
+    const results = under ? mapResults(without, r => (r.id === under ? { ...r, results: put(r.results ?? []) } : r)) : put(without);
+    return { ...g, results, updatedAt: now };
+  });
+
 /** Add a key result under another (or at the top, with `under` null). */
 export const addResult = (goal: string, under: string | null, text: string, now = Date.now(), id = newResultId()): GoalsFn => list =>
   list.map(g => {

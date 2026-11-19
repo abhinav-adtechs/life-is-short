@@ -365,7 +365,7 @@ Claude sends you to your planner to sign in (the PIN and a code, Face ID or a pa
 |---|---|
 | `list_goals` | Your goals, most important first, each followed by its sub-goals: its parent and the key result it serves, what done means (nested key results, with what's ticked), how far along it is, the date, the section, how many tasks are open and done on each, and its flow chart (steps, what each needs first, what's blocked, the critical path). *Read-only.* |
 | `get_goal` | One goal in full: everything `list_goals` shows for it, its chart as a **Mermaid** flowchart Claude can draw for you, and what happened to the chart lately. *Read-only.* |
-| `change_goals` | **Build or change goals and their flow charts**, with the chart builder's own operations, up to 40 in one call: goals, sub-goals for a key result, key results, steps (one-off or repeating), "waiting on" steps, arrows, edits, ticks, moves and removals. Says what changed, what it couldn't do and why, and returns the charts it touched. *Marked destructive*, since it can take steps off or delete them. |
+| `change_goals` | **Build or change goals and their flow charts**, with the chart builder's own operations, up to 40 in one call: goals, sub-goals for a key result, key results, steps (one-off or repeating), "waiting on" steps, arrows, edits, ticks, moves and removals. It covers everything about a goal: move an existing goal under another (or one of its key results) or back to the top, reorder goals, set a goal's section, move and nest key results, change how a repeating step repeats, move a step, waiting step or sub-goal to another goal, and drop or delete a goal (its open tasks go off-goal, or go with it if you say so). Says what changed, what it couldn't do and why, and returns the charts it touched. *Marked destructive*, since it can take steps off or delete them. |
 | `list_tasks` | Open, done or all; by goal, project, due date, time on the calendar or words in the title and notes. Ranked like the backlog, paged with a cursor. *Read-only.* |
 | `get_task` | One task with its notes, what you said when you added it, and its repeat. *Read-only.* |
 | `create_task` | Title, description, due date, priority, goal, project, status, and a time on the calendar or not. |
@@ -381,6 +381,8 @@ Every tool has a JSON schema for its input and output and answers with compact J
 - *"On the seed round, add due diligence as a sub-goal for 'money in the bank', with building the data room as its first step."*
 - *"What's blocking the exit? Draw me its chart."* (`get_goal`'s Mermaid, drawn in the conversation)
 - *"I sent the deck: tick it off, and push the board update after the investor call."*
+- *"Move 'Hire a lawyer' under the seed round, for 'money in the bank', and make the half marathon my top goal."*
+- *"Put 'board approves' under 'shares transferred', and delete the old launch goal with its open tasks."*
 
 Claude says what it's about to change before it changes a goal's shape, and asks before deleting. Every change goes in the chart's history, and the planner shows it the next time its window comes to the front. To undo one, ask Claude to put it back or change it on the chart.
 

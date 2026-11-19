@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import {
-  MAX_ACTIVE, MAX_GOAL_DEPTH, activeGoalOf, addGoal, addResult, ancestorsOf, descendantsOf, findResult, goalNamed, goalProgress, goalRanker,
-  goalSection, goalTree, makeGoal, mergeResults, moveGoal, normalizeGoals, onGoalShare, openResults, outlineOf, parseOutline, patchGoal,
-  patchResult, pickGoal, removeGoal, resultDone, resultPath, resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal,
+  MAX_ACTIVE, MAX_GOAL_DEPTH, MAX_RESULTS, activeGoalOf, addGoal, addResult, ancestorsOf, cantMoveGoal, cantMoveResult, descendantsOf, findResult,
+  flatResults, goalNamed, goalProgress, goalRanker, goalSection, goalTree, heightOf, makeGoal, mergeResults, moveGoal, moveResult, normalizeGoals,
+  onGoalShare, openResults, outlineOf, parseOutline, patchGoal, patchResult, pickGoal, rankGoal, removeGoal, reparentGoal, resultDone, resultPath,
+  resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal,
 } from './goals';
 import { OFF_GOAL, backlogList, focus } from './select';
 import { applyCapture, promptContext } from './capture';
@@ -413,5 +414,97 @@ describe('the goal tree', () => {
     expect(r.goals.map(g => `${g.depth}:${g.id || '-'}:${g.minutes}`)).toEqual(['0:gexit:0', '1:glaw:0', '2:gdeep:60', '1:gcomms:0', '0:grun:0']);
     expect(r.goals.find(g => g.id === 'gdeep')?.color).toBe('#4F5BD5');
     expect(r.insights).toContain('Nothing moved “Run a half marathon” in this stretch.');
+  });
+});
+
+describe('moving goals and key results', () => {
+  const krs = [
+    { id: 'k1', text: 'Shares transferred', done: false, results: [{ id: 'k1a', text: 'Board approves', done: false }] },
+    { id: 'k2', text: 'Paid', done: false },
+    { id: 'k3', text: 'Announced', done: false },
+  ];
+  const exit = goal('gexit', 'Give Sam an exit', { section: 'sj', results: krs });
+  const run = goal('grun', 'Run a half marathon', { section: 'personal' });
+  const legal = goal('glegal', 'Close the lawyer’s side', { parent: 'gexit', parentKr: 'k1', section: 'sj' });
+  const docs = goal('gdocs', 'Get the documents', { parent: 'glegal', section: 'sj' });
+  const old = goal('gold', 'Launch v1', { status: 'achieved', closedAt: 5 });
+  const list = [exit, run, legal, docs, old];
+
+  it('puts an existing goal under another, with everything under it, in its new section', () => {
+    expect(cantMoveGoal(list, 'glegal', 'grun')).toBeNull();
+    const out = normalizeGoals(reparentGoal('glegal', 'grun', null, 9)(list));
+    const byId = new Map(out.map(g => [g.id, g]));
+    expect(byId.get('glegal')).toMatchObject({ parent: 'grun', section: 'personal', updatedAt: 9 });
+    expect(byId.get('glegal')!.parentKr).toBeUndefined();
+    expect(byId.get('gdocs')).toMatchObject({ parent: 'glegal', section: 'personal' });
+    // Last among the goals beside it there.
+    expect(out.filter(g => g.parent === 'grun').map(g => g.id)).toEqual(['glegal']);
+  });
+
+  it('makes a sub-goal a top goal, last among them, keeping its section', () => {
+    const out = normalizeGoals(reparentGoal('glegal', null, null, 9)(list));
+    expect(topGoals(out).map(g => g.id)).toEqual(['gexit', 'grun', 'glegal']);
+    const g = out.find(x => x.id === 'glegal')!;
+    expect(g.parent).toBeUndefined();
+    expect(g.section).toBe('sj');
+    expect(out.find(x => x.id === 'gdocs')!.parent).toBe('glegal');
+  });
+
+  it('changes which key result a sub-goal serves without moving it', () => {
+    const out = reparentGoal('glegal', 'gexit', 'k2', 9)(list);
+    expect(out.map(g => g.id)).toEqual(list.map(g => g.id));
+    expect(out.find(x => x.id === 'glegal')).toMatchObject({ parent: 'gexit', parentKr: 'k2' });
+    // A key result the parent doesn't have serves the goal as a whole.
+    expect(reparentGoal('glegal', 'grun', 'k2', 9)(list).find(x => x.id === 'glegal')!.parentKr).toBeUndefined();
+  });
+
+  it('says why a goal can’t go somewhere', () => {
+    expect(cantMoveGoal(list, 'gexit', 'gexit')).toMatch(/under itself/);
+    expect(cantMoveGoal(list, 'gexit', 'gdocs')).toMatch(/is under “Give Sam an exit”/);
+    expect(cantMoveGoal(list, 'grun', 'gold')).toMatch(/is achieved; bring it back first/);
+    expect(cantMoveGoal(list, 'gold', 'grun')).toBeNull();
+    expect(cantMoveGoal(list, 'glegal', 'gnope')).toMatch(/no goal/);
+    expect(cantMoveGoal(list, 'glegal', 'gexit')).toBeNull();
+    // Too deep, counting what's under it.
+    const chain = Array.from({ length: MAX_GOAL_DEPTH }, (_, i) => goal(`c${i}`, `Level ${i}`, i ? { parent: `c${i - 1}` } : {}));
+    expect(heightOf([...list, ...chain], 'c0')).toBe(MAX_GOAL_DEPTH - 1);
+    expect(cantMoveGoal([...list, ...chain], 'glegal', `c${MAX_GOAL_DEPTH - 1}`)).toMatch(/levels deep/);
+    expect(cantMoveGoal([...list, ...chain], 'gdocs', `c${MAX_GOAL_DEPTH - 2}`)).toBeNull();
+    // A full set of top goals has no room for one more.
+    const full = [...list, ...Array.from({ length: MAX_ACTIVE - 2 }, (_, i) => goal(`t${i}`, `Top ${i}`))];
+    expect(cantMoveGoal(full, 'glegal', null)).toMatch(new RegExp(`${MAX_ACTIVE} top goals`));
+    expect(cantMoveGoal(full, 'grun', 'gexit')).toBeNull();
+  });
+
+  it('ranks a goal among the open ones beside it', () => {
+    const tops = [exit, run, old, goal('g3', 'Third')];
+    expect(topGoals(rankGoal('g3', 1)(tops)).map(g => g.id)).toEqual(['g3', 'gexit', 'grun']);
+    expect(topGoals(rankGoal('gexit', 99)(tops)).map(g => g.id)).toEqual(['grun', 'g3', 'gexit']);
+    expect(rankGoal('gold', 1)(tops)).toBe(tops);
+    expect(rankGoal('grun', 2)(tops)).toBe(tops);
+  });
+
+  it('moves and reorders key results on a goal', () => {
+    const under = moveResult('gexit', 'k3', 'k1', null, 9)([exit])[0];
+    expect(flatResults(under.results).map(x => [x.kr.id, x.parent])).toEqual([['k1', null], ['k1a', 'k1'], ['k3', 'k1'], ['k2', null]]);
+    const first = moveResult('gexit', 'k1a', null, 1, 9)([exit])[0];
+    expect(first.results.map(r => r.id)).toEqual(['k1a', 'k1', 'k2', 'k3']);
+    expect(first.results[1].results).toBeUndefined();
+    const reorder = moveResult('gexit', 'k3', null, 2, 9)([exit])[0];
+    expect(reorder.results.map(r => r.id)).toEqual(['k1', 'k3', 'k2']);
+    expect(normalizeGoals([reorder])[0].results).toEqual(reorder.results);
+  });
+
+  it('says why a key result can’t go somewhere', () => {
+    expect(cantMoveResult(exit, 'k1', 'k1a')).toMatch(/under itself/);
+    expect(cantMoveResult(exit, 'k1', 'k1')).toMatch(/under itself/);
+    expect(cantMoveResult(exit, 'k2', 'k1a')).toBeNull();
+    // k1 has one level under it: under k2 that's two deep, fine; under k1a's level it would be past three.
+    expect(cantMoveResult(exit, 'k1', 'k2')).toBeNull();
+    const deep = moveResult('gexit', 'k2', 'k1a', null, 9)([exit])[0];
+    expect(cantMoveResult(deep, 'k1', 'k3')).toMatch(/levels deep/);
+    expect(cantMoveResult(exit, 'k9', null)).toMatch(/no such/);
+    const crowded = goal('gc', 'Crowded', { results: Array.from({ length: MAX_RESULTS }, (_, i) => ({ id: `r${i}`, text: `R${i}`, done: false, ...(i ? {} : { results: [{ id: 'rin', text: 'In', done: false }] }) })) });
+    expect(cantMoveResult(crowded, 'rin', null)).toMatch(`${MAX_RESULTS} key results`);
   });
 });

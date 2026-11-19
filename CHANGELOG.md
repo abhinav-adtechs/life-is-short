@@ -8,13 +8,21 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 - Claude builds your goals and their flow charts: `change_goals` takes the chart builder's operations (goals, sub-goals, key results, steps, waiting steps, arrows, edits, moves, removals; up to 40 in one call), and `get_goal` shows one goal in full with its chart as Mermaid and its history. `supabase/migrations/0011_connector_goals.sql` lets a connection write goals and the charts' history.
 - A task Claude adds, finishes, reopens, renames or moves on a goal goes in that goal's chart history, as in the app.
+- Everything about a goal can be changed by saying so, through Claude or the planner's chat and chart bar. `move_goal` moves an existing goal, with its sub-goals, under another goal (serving one of its key results, or the goal as a whole) or back to the top, and reorders goals by rank. `delete_goal` deletes a goal and its sub-goals for good; their open tasks go off-goal, or are deleted too with `with_tasks` (never Google's), and done ones stay. `move_result` moves, nests and reorders key results. `edit_goal` sets a top goal's section (by name through Claude), `edit_step` changes how a repeating step repeats, and `move_step` moves a waiting step or a sub-goal to another goal too.
 - MIT `LICENSE`, `CONTRIBUTING.md`, this changelog and `docs/ARCHITECTURE.md`.
 - A project banner and a README with features, architecture, configuration and project structure up front.
 
 ### Changed
 
 - The chart builder looks a step named by its title up on the operation's own goal when no chart is in focus.
+- The chart builder finds an achieved or dropped goal by its title too, so it can be brought back or deleted by name.
+- `change_goals` lists a goal as touched when only its repeating steps changed.
 - Goal fields in Claude's tool schemas (rank, progress, a key result's parent) are bounded, so clients that read one type per field take them.
+
+### Fixed
+
+- Bringing a goal back through the chart builder when 8 top goals were already open silently dropped another; it's refused now, with the reason.
+- Removing a key result as a step left the arrows to the key results under it on the chart.
 
 ### Security
 
