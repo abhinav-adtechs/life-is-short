@@ -1295,7 +1295,7 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .fi-link{margin:0;font-size:var(--t-14);line-height:20px}
 .fi-guide ul{display:flex;flex-direction:column;gap:10px;margin:0;padding:0 0 0 16px;font-size:var(--t-13);line-height:19px;color:var(--ink)}
 .fi-guide kbd,.flow-foot kbd{font:500 11px/16px var(--font-code);padding:0 4px;border:1px solid var(--hair2);border-radius:2px}
-.fi-hh{display:flex;align-items:center}
+.fi-hh{display:flex;align-items:center;gap:8px}
 .fh-day h4{margin:0 0 6px;font-size:var(--t-12);font-weight:600;color:var(--muted)}
 .fh-day ul{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
 .fh{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;font-size:var(--t-13);line-height:18px}
@@ -1365,13 +1365,11 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .gc-m{margin:2px 0 0;font-size:var(--t-12);line-height:17px;color:var(--muted)}
 .gc-m>span+span::before{content:"·";margin:0 6px;color:var(--faint)}
 .gc-m .hot{color:var(--accent-ink)}
-.gc-p{margin-top:5px}
 .gc-list{display:flex;flex-direction:column;margin:0 -4px}
 .gc-list .row{margin:0}
 .gc-empty{margin:0;padding:6px 2px 8px;font-size:var(--t-13);line-height:18px;color:var(--muted)}
 .gc-f{display:flex;align-items:center;gap:4px;margin:4px -2px 0;padding-top:6px;border-top:1px solid var(--hair)}
 .gc-f .link{color:var(--muted);font-weight:400}
-.gc-bl{margin-left:6px;padding:0 6px;border-radius:var(--r-xs);background:var(--accent-soft);color:var(--accent-ink);font-size:var(--t-11);font-weight:600;line-height:18px}
 .gc-add{display:flex;align-items:center;gap:2px;margin:2px -4px 0;padding:0 6px 0 4px}
 .gc-add input{flex:1;min-width:0;height:30px;padding:0 8px;border:1px solid var(--hair2);border-radius:var(--r-sm);background:var(--raised);font:inherit;font-size:var(--t-14);color:var(--ink)}
 .gc-add input:focus{outline:none;border-color:var(--c,var(--ink))}
@@ -1389,3 +1387,51 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .gc-ph .ppill{width:auto;padding:0 8px;height:24px;line-height:22px;font-size:var(--t-12)}
 .gc-ph .gc-done{margin-top:16px}
 .gc-ph .gc-done .prow{margin:0 8px}
+
+/* On the calendar: one colour for every scheduled task, on the cards and the charts. */
+:root{--sched-c:#6D4FE0}
+[data-theme="night"]{--sched-c:#A08CFF}
+.row.sched{background:color-mix(in oklch,var(--sched-c) 7%,transparent)}
+.row.sched:hover{background:color-mix(in oklch,var(--sched-c) 12%,transparent)}
+.when-cal{flex:none;display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:var(--r-xs);background:color-mix(in oklch,var(--sched-c) 12%,var(--raised));color:color-mix(in oklch,var(--sched-c) 78%,var(--ink));font-size:var(--t-12);font-weight:500;line-height:18px;white-space:nowrap}
+.prow.sched{background:color-mix(in oklch,var(--sched-c) 7%,transparent)}
+.prow.sched .prow-m{color:color-mix(in oklch,var(--sched-c) 78%,var(--ink))}
+.prow-m svg{flex:none;color:var(--sched-c)}
+/* A goal card's headline: how much of its work is done. */
+.gc-pct{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:84px;text-align:right}
+.gc-pct b{font-size:30px;line-height:30px;font-weight:700;letter-spacing:-.02em;color:var(--ink)}
+.gc-pct span{font-size:var(--t-12);line-height:16px;color:var(--muted);white-space:nowrap}
+.gc-pct.off b{font-size:22px;line-height:26px;color:var(--muted)}
+.gc-bar{height:6px;margin:2px 0 8px;border-radius:3px;background:var(--hair);overflow:hidden}
+.gc-bar i{display:block;height:100%;border-radius:3px;background:var(--c,var(--ink));transition:width 300ms var(--ease)}
+/* What's holding it up, called out. */
+.gc-block{display:flex;align-items:baseline;gap:8px;width:100%;margin:0 0 6px;padding:7px 10px;border:1px solid color-mix(in oklch,var(--accent) 35%,transparent);border-radius:var(--r-sm);background:var(--accent-soft);font:inherit;font-size:var(--t-13);line-height:18px;text-align:left;color:var(--ink);cursor:pointer}
+.gc-block b{flex:none;color:var(--accent-ink)}
+.gc-block-by{min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gc-block:hover{border-color:var(--accent)}
+/* The chart: scheduled steps, and a key. */
+.fn.sched{background:color-mix(in oklch,var(--sched-c) 9%,var(--raised));border-color:color-mix(in oklch,var(--sched-c) 45%,var(--hair2))}
+.fn.sched.blocked{background:repeating-linear-gradient(135deg,color-mix(in oklch,var(--sched-c) 9%,var(--raised)) 0 8px,color-mix(in oklch,var(--sched-c) 14%,var(--raised)) 8px 16px)}
+.fn.sched .fn-st{color:color-mix(in oklch,var(--sched-c) 80%,var(--ink))}
+.fn.sched .fn-m>svg{flex:none;color:var(--sched-c)}
+.flow-key{display:inline-flex;align-items:center;gap:6px}
+.flow-key i{width:14px;height:10px;border:1.5px solid var(--hair2);border-radius:2px}
+.flow-key .k-sched{background:color-mix(in oklch,var(--sched-c) 9%,var(--raised));border-color:color-mix(in oklch,var(--sched-c) 45%,var(--hair2))}
+.flow-key .k-blocked{background:repeating-linear-gradient(135deg,var(--raised) 0 3px,color-mix(in oklch,var(--ink) 14%,var(--raised)) 3px 6px)}
+.flow-ghost .ell{max-width:240px}
+/* The chart's backlog: off-goal tasks to drag on. */
+.fb{gap:10px}
+.fb-list{display:flex;flex-direction:column;gap:1px;margin:0 -8px;padding:0;list-style:none}
+.fb-i{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 2px 0 8px;border-radius:var(--r-sm);font-size:var(--t-13);line-height:17px;cursor:grab;-webkit-user-select:none;user-select:none;touch-action:pan-y}
+.fb-i:hover{background:var(--soft)}
+.fb-i:active{cursor:grabbing}
+.fb-i.sched{background:color-mix(in oklch,var(--sched-c) 7%,transparent)}
+.fb-p{flex:none;width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.fb-p.p1{background:var(--accent)}
+.fb-p.p2{background:var(--ink)}
+.fb-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb-m{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:var(--t-12);color:var(--muted)}
+.fb-i.sched .fb-m{color:color-mix(in oklch,var(--sched-c) 80%,var(--ink))}
+.flowc.ph .fb-i{min-height:44px;cursor:default}
+.gc-ph .gc-block{align-items:flex-start}
+.gc-ph .gc-block-by{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}

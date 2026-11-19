@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import { normalizeGoals, type Goal } from './goals';
 import {
-  RECENT_DONE, blockedTasks, buildFlow, coalesce, describeEntry, goalNode, krNode, logFromWrites, normalizeLog, normalizePlan, parallelLinks, toJson,
+  RECENT_DONE, blockedTasks, buildFlow, coalesce, describeEntry, goalNode, holdups, krNode, logFromWrites, normalizeLog, normalizePlan, parallelLinks, toJson,
   toMermaid, withLink, withPos, withWait, withoutLink, withoutPos, withoutStep, wouldLoop, type Plan,
 } from './flow';
 
@@ -302,5 +302,16 @@ describe('steps moved by hand', () => {
     expect('pos' in withPos(withPos(plan, 'spa', { x: 1, y: 1 }), 'spa', null)).toBe(false);
     // Other changes keep the positions.
     expect(withLink(p, { from: 'lawyer', to: 'sign' }).pos).toEqual(p.pos);
+  });
+});
+
+describe('holdups', () => {
+  it('lists what is blocked and the open steps right before it that hold it up', () => {
+    const f = buildFlow(goal(plan), tasks, NOW);
+    const h = holdups(f);
+    // The SPA waits on the lawyer; signing waits on the SPA (itself blocked) and on the funds.
+    expect(h.blocked.map(s => s.id).sort()).toEqual(['sign', 'spa']);
+    expect(h.by.map(s => s.id).sort()).toEqual(['lawyer', 'wfunds']);
+    expect(holdups(buildFlow(goal({ links: [], waits: [] }), tasks, NOW))).toEqual({ blocked: [], by: [] });
   });
 });

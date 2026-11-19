@@ -1,16 +1,18 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import { newId, PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { describeRepeat, describeRule } from '@/lib/repeat';
-import { goalProgress, type Goal } from '@/lib/goals';
+import { flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
+import { holdups } from '@/lib/flow';
+import { isEvent } from '@/lib/select';
 import { fromYmd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { daysLeft, fmtHrs, useGoalWeek } from './Goals';
-import { useFlowCount } from './Flow';
-import { CheckIcon, ChevronDown, PlusIcon, RepeatIcon, TargetIcon, XIcon } from './icons';
+import { useGoalFlow } from './Flow';
+import { CalendarIcon, CheckIcon, ChevronDown, PlusIcon, RepeatIcon, TargetIcon, XIcon } from './icons';
 
 /*
  * The main page's backlog: a card per goal, most important first, each with how far along it is, its deadline, its
@@ -27,8 +29,38 @@ function useStagger(step: number, cap: number) {
   return (i: number) => (performance.now() - t0.current < 1500 ? `${Math.min(i, cap) * step}ms` : '0ms');
 }
 
-/** The card a task sits in: its active goal's top goal, or '' for off-goal. */
-const useRowOf = () => { const { rootGoalOf } = usePlanner(); return (t: Task) => rootGoalOf(t)?.id ?? ''; };
+/**
+ * Each card's tasks: every open one (on the calendar or not) whose active goal's top goal it is ('' for off-goal), and
+ * how many are done. A done task counts for its top goal even after the sub-goal it was on is achieved.
+ */
+function useByCard() {
+  const { tasks, isOff, rootGoalOf, goals } = usePlanner();
+  return useMemo(() => {
+    const index = new Map(goals.map(g => [g.id, g]));
+    const m = new Map<string, { open: Task[]; done: number }>();
+    const at = (k: string) => { let e = m.get(k); if (!e) m.set(k, e = { open: [], done: 0 }); return e; };
+    for (const t of tasks) {
+      if (isOff(t) || isEvent(t)) continue;
+      if (t.status === 'open') at(rootGoalOf(t)?.id ?? '').open.push(t);
+      else if (t.status === 'done') {
+        const g = t.goal ? index.get(t.goal) : undefined, top = g ? rootOf(index, g) : null;
+        at(top && top.status === 'active' ? top.id : '').done++;
+      }
+    }
+    return m;
+  }, [tasks, isOff, rootGoalOf, goals]);
+}
+
+/** Every open task the cards show, on the calendar or not. */
+export const useOpenCount = () => [...useByCard().values()].reduce((n, e) => n + e.open.length, 0);
+
+/**
+ * The order to do a goal's tasks in: what can start now before what's blocked; then urgent first, then the nearest
+ * deadline, then the soonest on the calendar, then the oldest.
+ */
+const doOrder = (blocked: Set<string>) => (a: Task, b: Task) =>
+  Number(blocked.has(a.id)) - Number(blocked.has(b.id)) || a.priority - b.priority
+  || (a.due ?? '9999').localeCompare(b.due ?? '9999') || (a.start ?? Infinity) - (b.start ?? Infinity) || (a.created || 0) - (b.created || 0);
 
 /* ---------- one task ---------- */
 
@@ -91,8 +123,9 @@ function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string;
   const due = t.due && kind === 'open' ? dueLabel(t.due, now) : null;
   const ticking = plan.ticks.has(t.id);
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
+  const sched = kind === 'open' && t.start != null;
   const cls = 'row' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (picked === t.id ? ' picked' : '')
-    + (ticking || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (kind === 'new' ? ' new' : '');
+    + (ticking || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (kind === 'new' ? ' new' : '') + (sched ? ' sched' : '');
   const live = kind === 'open';
   return (
     <div className={cls} style={{ animationDelay: delay }}>
@@ -110,6 +143,7 @@ function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string;
         {repeat && <span className="rep-g" title={describeRepeat(repeat)}><RepeatIcon size={11} /><span className="sr">, {describeRepeat(repeat)}</span></span>}
         {tag && <span className={tag.cls}>{tag.text}</span>}
         {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
+        {sched && <span className="when-cal" title="On the calendar"><CalendarIcon size={11} />{fmtWhen(t.start as number, now)}</span>}
         {due && <span className={'due' + (due.hot ? ' hot' : '')}>{due.text}</span>}
         {goalTag && <span className={'gtag' + (goal || inCard ? '' : ' off')} title={goal ? `Moves: ${goal.title}` : 'Not on a goal'}>{goalTag}</span>}
         {(!inCard || card === '') && <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} title={label?.name ?? 'No section'} />}
@@ -131,13 +165,15 @@ function PhoneRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string
   const inCard = card != null;
   const where = inCard ? (goal && goal.id !== card ? `› ${shortTitle(goal.title, 24)}` : null)
     : goal ? shortTitle(goal.title, 28) : activeGoals.length ? 'Off-goal' : label?.name ?? null;
+  const sched = kind === 'open' && t.start != null;
   const facts = [
     kind === 'new' ? 'New' : null,
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
+    sched ? fmtWhen(t.start as number, now) : null,
     due?.text ?? null, where, fmtDur(t.minutes), repeat ? describeRule(repeat.rule) : null,
   ].filter(Boolean).join(' · ');
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
-  const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '');
+  const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (sched ? ' sched' : '');
   return (
     <div className={cls} style={{ animationDelay: delay }}>
       <Ring t={t} kind={kind} size={12} />
@@ -145,7 +181,7 @@ function PhoneRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string
         onPointerDown={kind === 'open' ? e => drag.begin(e, 'row', t.id) : undefined}
         onClick={() => { if (!drag.ignoreClick()) openEditor(t.id); }}>
         <span className="prow-t"><span className="rt"><span className="strike">{t.title}</span></span>{tag && <span className={tag.cls}>{tag.text}</span>}</span>
-        <span className="prow-m">{(!inCard || card === '') && <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} />}<span className={due?.hot ? 'hot' : undefined}>{facts}</span></span>
+        <span className="prow-m">{sched && <CalendarIcon size={11} />}{(!inCard || card === '') && <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} />}<span className={due?.hot ? 'hot' : undefined}>{facts}</span></span>
       </button>
       {inCard && <PriPill t={t} kind={kind} />}
     </div>
@@ -189,13 +225,13 @@ function Done({ Item, stagger }: { Item: Row; stagger: (i: number) => string }) 
  */
 function PriChips({ pri, setPri, phone }: { pri: Priority | null; setPri: (p: Priority | null) => void; phone?: boolean }) {
   const { drag } = usePlanner();
-  const { backlog } = useLists();
+  const open = [...useByCard().values()].flatMap(e => e.open);
   const over = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
   return (
     <div className={'pchips' + (phone ? ' ph' : '')} role="group" aria-label="Show tasks by priority">
-      <button type="button" className="pchip" aria-pressed={pri == null} onClick={() => setPri(null)}>All <span className="num">{backlog.length}</span></button>
+      <button type="button" className="pchip" aria-pressed={pri == null} onClick={() => setPri(null)}>All <span className="num">{open.length}</span></button>
       {PRIS.map(p => {
-        const n = backlog.filter(t => t.priority === p).length;
+        const n = open.filter(t => t.priority === p).length;
         return (
           <button key={p} type="button" className={`pchip p${p}` + (over === `*|${p}` ? ' over' : '')} aria-pressed={pri === p} data-cell={phone ? undefined : `*|${p}`}
             title={phone ? undefined : `Only ${PRI[p].toLowerCase()} tasks. Drop a task here to make it ${PRI[p].toLowerCase()}.`}
@@ -245,30 +281,33 @@ function QuickAdd({ goal, priority, onDone }: { goal: Goal | null; priority: Pri
 }
 
 /** How many tasks a card shows before "more". */
-const SHOWN = { wide: 3, phone: 3 };
+const SHOWN = { wide: 5, phone: 5 };
 
 /**
- * One goal (or, with no goal, off-goal work): rank, title, how far along it is, its deadline and time this week, and
- * the tasks that move it in the order to do them. Drop a task on it to put the task on this goal.
+ * One goal (or, with no goal, off-goal work): rank and title; how much of its work is done, big; its deadline, key
+ * results and time this week; what's holding it up; and its tasks in the order to do them, five and then the rest.
+ * Drop a task on it to put the task on this goal.
  */
-function GoalCard({ g, rank, items, total, pri, phone, focused, Item }: {
-  g: Goal | null; rank: number; items: { t: Task; kind: Kind }[]; total: number; pri: Priority | null; phone?: boolean; focused?: boolean; Item: Row;
+function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
+  g: Goal | null; rank: number; items: { t: Task; kind: Kind }[]; open: number; done: number; pri: Priority | null; phone?: boolean; focused?: boolean; Item: Row;
 }) {
-  const { prefs, goals, now, openSheet, setFilter, drag } = usePlanner();
+  const { prefs, now, openSheet, setFilter, drag } = usePlanner();
   const { rolled } = useGoalWeek();
-  const steps = useFlowCount(g ?? OFF);
-  const [open, setOpen] = useState(false);
+  const flow = useGoalFlow(g ?? OFF);
+  const [more, setMore] = useState(false);
   const [adding, setAdding] = useState(false);
   const stagger = useStagger(30, 12);
   const id = g?.id ?? '';
   const section = g ? prefs.labels.find(l => l.id === g.section) ?? null : null;
-  const progress = g ? goalProgress(g, goals) : null;
   const left = g?.by ? daysLeft(g.by, now) : null;
   const spent = rolled.get(id)?.spent ?? 0;
   const cap = phone ? SHOWN.phone : SHOWN.wide;
-  const shown = open || focused ? items : items.slice(0, cap);
+  const shown = more || focused ? items : items.slice(0, cap);
   const over = drag.view && drag.view.kind !== 'resize' && drag.view.cell === `${id}|*`;
-  const blocked = g ? steps.blocked : 0;
+  const held = g ? holdups(flow) : { blocked: [], by: [] };
+  const all = open + done;
+  const pct = all ? Math.round((done / all) * 100) : null;
+  const krs = g ? flatResults(g.results).filter(x => !x.parent).map(x => x.kr) : [];
   return (
     <article className={'gc' + (g ? '' : ' off') + (over ? ' over' : '') + (focused ? ' focused' : '')} style={tint(section?.color)}
       data-cell={phone ? undefined : `${id}|*`} aria-label={g ? `Goal ${rank + 1}: ${g.title}` : 'Off-goal'}>
@@ -281,17 +320,29 @@ function GoalCard({ g, rank, items, total, pri, phone, focused, Item }: {
               <>
                 {section && <span>{section.name}</span>}
                 {left && g?.by && <span className={left.hot ? 'hot' : undefined}>By {shortDate(fromYmd(g.by).getTime(), now)} · {left.text}</span>}
+                {krs.length > 0 && <span>Key results {krs.filter(resultDone).length} of {krs.length}</span>}
                 <span className="num">{spent ? `${fmtHrs(spent)} this week` : 'Nothing this week'}</span>
               </>
             ) : <span>Errands, admin, favours. Fine, as long as you know.{spent ? ` ${fmtHrs(spent)} this week.` : ''}</span>}
           </p>
         </div>
-        {progress != null && (
-          <span className="gprog gc-p" role="img" aria-label={`${Math.round(progress * 100)}% done`}>
-            <span className="gprog-b"><i style={{ width: `${Math.round(progress * 100)}%` }} /></span><span className="num">{Math.round(progress * 100)}%</span>
-          </span>
-        )}
+        {g ? (
+          <div className="gc-pct" role="img" aria-label={pct == null ? 'No tasks yet' : `${pct}% done: ${done} done, ${open} to go`}>
+            <b className="num">{pct == null ? '–' : `${pct}%`}</b>
+            <span className="num">{all ? `${done} done · ${open} to go` : 'No tasks yet'}</span>
+          </div>
+        ) : <div className="gc-pct off"><b className="num">{open}</b><span>open</span></div>}
       </header>
+      {g && pct != null && <div className="gc-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></div>}
+
+      {held.blocked.length > 0 && g && (
+        <button type="button" className="gc-block" onClick={() => openSheet('flow', g.id)} title="See what’s holding it up on its flow chart">
+          <b className="num">{held.blocked.length} blocked</b>
+          <span className="gc-block-by">
+            {held.by.length ? <>held up by {held.by.slice(0, 2).map((s, i) => <span key={s.id}>{i ? ', ' : ''}{s.kind === 'wait' ? 'waiting on ' : ''}“{shortTitle(s.title, 34)}”</span>)}{held.by.length > 2 ? ` and ${held.by.length - 2} more` : ''}</> : 'see the chart'}
+          </span>
+        </button>
+      )}
 
       {shown.length > 0 ? (
         <div className="gc-list">
@@ -299,23 +350,19 @@ function GoalCard({ g, rank, items, total, pri, phone, focused, Item }: {
         </div>
       ) : (
         <p className="gc-empty">
-          {total ? `Nothing ${pri ? PRI[pri].toLowerCase() : ''} here. ` : g ? 'Nothing open on it. ' : 'Nothing off-goal. '}
-          {g && !total && <>Add the next task, or plan it out in its <button type="button" className="link" onClick={() => openSheet('flow', g.id)}>flow chart</button>.</>}
+          {open ? `Nothing ${pri ? PRI[pri].toLowerCase() : ''} here. ` : g ? 'Nothing open on it. ' : 'Nothing off-goal. '}
+          {g && !open && <>Add the next task, or plan it out in its <button type="button" className="link" onClick={() => openSheet('flow', g.id)}>flow chart</button>.</>}
         </p>
       )}
       {adding && <QuickAdd goal={g} priority={pri ?? 2} onDone={() => setAdding(false)} />}
 
       <footer className="gc-f">
         {items.length > cap && !focused && (
-          <button type="button" className="link sm" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? 'Show less' : `${items.length - cap} more`}</button>
+          <button type="button" className="link sm" aria-expanded={more} onClick={() => setMore(o => !o)}>{more ? 'Show fewer' : `View ${items.length - cap} more`}</button>
         )}
         <span className="spacer" />
         {!adding && <button type="button" className="btn text sm" onClick={() => setAdding(true)}><PlusIcon size={12} />Task</button>}
-        {g && (
-          <button type="button" className="btn sec sm" onClick={() => openSheet('flow', g.id)} title={blocked ? `${blocked} blocked` : 'Its steps as a flow chart'}>
-            Flow chart{blocked ? <span className="gc-bl num">{blocked} blocked</span> : null}
-          </button>
-        )}
+        {g && <button type="button" className="btn sec sm" onClick={() => openSheet('flow', g.id)} title="Every step, as a flow chart">Flow chart</button>}
         {focused && <button type="button" className="btn text sm" onClick={() => setFilter(null)}>All goals</button>}
       </footer>
     </article>
@@ -327,13 +374,12 @@ const OFF: Goal = { id: '', title: '', section: null, results: [], by: null, sta
 
 /** Every goal's card, then off-goal's; or just the goal you picked (Goals → Its tasks). */
 function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean; Item: Row }) {
-  const { topGoals, filter, plan } = usePlanner();
-  const { backlog } = useLists();
-  const rowOf = useRowOf();
+  const { topGoals, filter, plan, rootGoalOf, blocked } = usePlanner();
+  const byCard = useByCard();
   const keep = (t: Task) => pri == null || t.priority === pri;
   const itemsOf = (id: string) => [
-    ...plan.added.filter(t => rowOf(t) === id && keep(t)).map(t => ({ t, kind: 'new' as Kind })),
-    ...backlog.filter(t => rowOf(t) === id && keep(t)).map(t => ({ t, kind: 'open' as Kind })),
+    ...plan.added.filter(t => (rootGoalOf(t)?.id ?? '') === id && keep(t)).map(t => ({ t, kind: 'new' as Kind })),
+    ...(byCard.get(id)?.open ?? []).filter(keep).sort(doOrder(blocked)).map(t => ({ t, kind: 'open' as Kind })),
   ];
   const cards = [...topGoals.map((g, i) => ({ g, rank: i })), { g: null, rank: topGoals.length }]
     .filter(c => !filter || (c.g?.id ?? '') === filter.goal);
@@ -341,7 +387,8 @@ function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean
     <div className={'gc-grid' + (phone ? ' ph' : '')}>
       {cards.map(c => {
         const id = c.g?.id ?? '';
-        return <GoalCard key={id || '-'} g={c.g} rank={c.rank} items={itemsOf(id)} total={backlog.filter(t => rowOf(t) === id).length}
+        const e = byCard.get(id);
+        return <GoalCard key={id || '-'} g={c.g} rank={c.rank} items={itemsOf(id)} open={e?.open.length ?? 0} done={e?.done ?? 0}
           pri={pri} phone={phone} focused={!!filter} Item={Item} />;
       })}
     </div>
@@ -370,6 +417,7 @@ function SetGoals({ phone }: { phone?: boolean }) {
 export function MatrixPanel() {
   const { filter, setFilter, drag, goals, openSheet, store } = usePlanner();
   const { backlog } = useLists();
+  const open = useOpenCount();
   const [pri, setPri] = useState<Priority | null>(null);
   const stagger = useStagger(32, 18);
   const dropOk = drag.view?.kind === 'block' && drag.view.overBacklog;
@@ -378,7 +426,7 @@ export function MatrixPanel() {
     <section className={'mx panel gcs' + (dropOk ? ' drop-ok' : '')} aria-label="Your goals and what moves each one" data-backlog="">
       <div className="mx-h">
         <span className="mx-title">Goals</span>
-        <span className="muted sm num">{backlog.length} open</span>
+        <span className="muted sm num">{open} open</span>
         <span className="spacer" />
         {focusName && (
           <button type="button" className="fchip" aria-label="Show every goal" onClick={() => setFilter(null)}>{shortTitle(focusName, 34)}<XIcon size={11} /></button>

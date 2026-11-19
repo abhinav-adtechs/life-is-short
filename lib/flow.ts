@@ -331,6 +331,22 @@ export function blockedTasks(goals: Goal[], tasks: Task[], now: number): Set<str
   return out;
 }
 
+/**
+ * What's holding a goal up: its blocked steps, and the open steps right before them that aren't blocked themselves.
+ * Finish those (or hear back on them) and things move.
+ */
+export function holdups(flow: Flow): { blocked: Step[]; by: Step[] } {
+  const blocked = flow.steps.filter(s => s.state === 'blocked' && s.kind !== 'milestone');
+  const by = new Map<string, Step>();
+  for (const s of blocked) {
+    for (const id of s.needs) {
+      const n = flow.byId.get(id);
+      if (n && !n.done && n.state !== 'blocked') by.set(n.id, n);
+    }
+  }
+  return { blocked, by: [...by.values()] };
+}
+
 /* ---------- changing a plan ---------- */
 
 /** A plan with one change, for patchGoal. Arrows that would loop, or that are already there, change nothing. */

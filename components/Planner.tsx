@@ -107,8 +107,11 @@ export interface PlannerApi {
   schedule: (id: string) => void;
   unslot: (id: string) => void;
   place: (id: string, start: number) => void;
-  /** Change a backlog task's goal and priority, as dropping it on a matrix cell does. */
-  moveToCell: (id: string, cell: Cell) => void;
+  /**
+   * Change a task's goal and priority, as dropping it on a goal's card or a priority chip does. A calendar block
+   * dropped there goes back to the backlog; a task moved between cards keeps its time.
+   */
+  moveToCell: (id: string, cell: Cell, opts?: { keepTime?: boolean }) => void;
   /** Every goal, active ones first in your order (lib/goals.ts). */
   goals: Goal[];
   /** The ones you're working on, in your order, sub-goals included. */
@@ -397,13 +400,13 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     return g ? { goal: g.id, ...(section ? { label: section } : {}) } : { goal: null };
   }, [goalIndex]);
 
-  const moveToCell = useCallback((id: string, cell: Cell) => {
+  const moveToCell = useCallback((id: string, cell: Cell, opts: { keepTime?: boolean } = {}) => {
     const t = store.get(id);
     if (!t) return;
     const patch: Partial<Task> = { priority: cell.priority };
-    // Only a change of row changes the goal: a task on a sub-goal stays on it within its top goal's row.
+    // Only a change of card changes the goal: a task on a sub-goal stays on it within its top goal's card.
     if ((rootGoalOf(t)?.id ?? '') !== cell.goal) Object.assign(patch, onGoal(cell.goal || null));
-    if (t.start != null) patch.start = null;
+    if (t.start != null && !opts.keepTime) patch.start = null;
     if (patch.priority === t.priority && !('goal' in patch) && !('start' in patch)) return;
     const name = goalIndex.get(cell.goal)?.title ?? 'Off-goal';
     undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${shortTitle(name, 30)} · ${PRI[cell.priority]}`, store.patch(id, patch));
@@ -478,11 +481,11 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     onDrop: (id: string, dayKey: string, min: number) => place(id, atMinutes(fromYmd(dayKey), Math.max(0, min))),
     onDropBacklog: id => unslot(id),
     // A goal's card is "<goal>|*" (keep the priority); a priority chip is "*|<priority>" (keep the goal).
-    onDropCell: (id, cell) => {
+    onDropCell: (id, cell, kind) => {
       const [g, p] = cell.split('|');
       const t = store.get(id);
       if (!t) return;
-      moveToCell(id, { goal: g === '*' ? rootGoalOf(t)?.id ?? '' : g, priority: p === '*' ? t.priority : (Number(p) as Priority) });
+      moveToCell(id, { goal: g === '*' ? rootGoalOf(t)?.id ?? '' : g, priority: p === '*' ? t.priority : (Number(p) as Priority) }, { keepTime: kind === 'row' });
     },
     // Rows tick off with their check-and-strike; a block just goes.
     onDropZone: (id, zone, kind) => {

@@ -10,7 +10,8 @@ import {
 import { fmtDur, fmtWhen, longDate, shortTitle } from '@/lib/format';
 import { ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
-import { CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, TargetIcon, XIcon } from './icons';
+import { isEvent } from '@/lib/select';
+import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, TargetIcon, XIcon } from './icons';
 
 /* ---------- geometry ---------- */
 
@@ -165,12 +166,13 @@ function FlowChart({ goal }: { goal: Goal }) {
   /** The step Delete was pressed on, waiting for a yes. */
   const [confirm, setConfirm] = useState<string | null>(null);
   /** Something from the palette on its way to the chart, where the pointer is (relative to the chart's frame). */
-  const [ghost, setGhost] = useState<{ kind: StepKind; x: number; y: number } | null>(null);
+  const [ghost, setGhost] = useState<{ kind: StepKind; label: string; x: number; y: number } | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   /** A drag just ended: the click that follows it isn't a click. */
   const justMoved = useRef(false);
   const [zoom, setZoom] = useState(1);
-  const [side, setSide] = useState<'inspect' | 'history'>('inspect');
+  /** The side panel: the selected step (or, with nothing selected, the backlog), the backlog, or the history. */
+  const [side, setSide] = useState<'inspect' | 'history' | 'backlog'>('inspect');
   const [note, setNote] = useState<string | null>(null);
   const [drawing, setDrawing] = useState<{ from: string; x: number; y: number; moved: boolean } | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
@@ -459,7 +461,29 @@ function FlowChart({ goal }: { goal: Goal }) {
     else if (kind === 'goal') addSubGoal(s?.result?.id);
     else addKr(s?.result?.id ?? null);
   };
-  const fromPalette = (e: React.PointerEvent, kind: StepKind) => {
+  /** An off-goal task brought onto this goal: after `after` (before `before`, for a key result), or where it was dropped. */
+  const adopt = (t: Task, o: { after?: string; before?: string; at?: Pos } = {}) => {
+    const before = store.patch(t.id, { goal: goal.id, ...(goal.section ? { label: goal.section } : {}) });
+    const links = o.after ? [{ from: o.after, to: t.id }] : o.before ? [{ from: t.id, to: o.before }] : [];
+    const spot = spotFor(o);
+    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, t.id, spot) : q; }) : () => undefined;
+    remember('bring it onto the goal', () => { back(); store.restore(before); });
+    setSel({ kind: 'step', id: t.id });
+    // Keep the backlog open, for the next one.
+    setSide('backlog');
+    say(`“${shortTitle(t.title, 40)}” is on this goal now. ⌘Z undoes it.`);
+  };
+  /** The backlog's +: after the selected step, as Tab does. */
+  const adoptHere = (t: Task) => adopt(t, selStep ? (selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }) : {});
+
+  const fromPalette = (e: React.PointerEvent, kind: StepKind) => carry(e, { kind, label: KIND[kind] }, (onto, at) => dropNew(kind, onto, at));
+  const fromBacklog = (e: React.PointerEvent, t: Task) => {
+    // On a touch screen the list scrolls; its + adds instead.
+    if (e.pointerType === 'touch' || (e.target as HTMLElement).closest('button')) return;
+    carry(e, { kind: 'task', label: t.title }, (onto, at) => adopt(t, onto ? (onto.kind === 'milestone' ? { before: onto.id } : { after: onto.id }) : { at }));
+  };
+  /** Something carried onto the chart from beside it: dropped on a step, or at a spot. */
+  const carry = (e: React.PointerEvent, what: { kind: StepKind; label: string }, drop: (onto: Step | null, at: Pos) => void) => {
     if (e.button !== 0) return;
     const x0 = e.clientX, y0 = e.clientY;
     let moving = false;
@@ -467,7 +491,7 @@ function FlowChart({ goal }: { goal: Goal }) {
     const move = (ev: PointerEvent) => {
       if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
       moving = true;
-      setGhost({ kind, ...rel(ev) });
+      setGhost({ ...what, ...rel(ev) });
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', move);
@@ -481,7 +505,7 @@ function FlowChart({ goal }: { goal: Goal }) {
       if (!hit?.closest('.flow-scroll')) return;
       const onto = hit.closest<HTMLElement>('[data-step]')?.dataset.step;
       const p = toCanvas(ev.clientX, ev.clientY);
-      dropNew(kind, onto ? flow.byId.get(onto) ?? null : null, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
+      drop(onto ? flow.byId.get(onto) ?? null : null, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
     };
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', stop); setGhost(null); };
     window.addEventListener('pointermove', move);
@@ -544,6 +568,8 @@ function FlowChart({ goal }: { goal: Goal }) {
 
   const selStep = sel?.kind === 'step' ? flow.byId.get(sel.id) ?? null : null;
   const selLink = sel?.kind === 'link' ? flow.links.find(l => linkKey(l) === sel.key) ?? null : null;
+  /** With nothing selected, the side shows the backlog. */
+  const showBacklog = side === 'backlog' || (side === 'inspect' && !selStep && !selLink);
 
   const onKey = (e: KeyLike) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
@@ -678,6 +704,7 @@ function FlowChart({ goal }: { goal: Goal }) {
           <button type="button" className="ib bare" aria-label="Zoom in" onClick={() => setZoom(v => Math.min(1.6, +(v + 0.1).toFixed(2)))}>+</button>
         </div>
         <button type="button" className="btn ghost sm" disabled={!undoLabel} onClick={undo} title={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : 'Nothing to undo'}>Undo</button>
+        <button type="button" className="btn ghost sm" aria-pressed={showBacklog} onClick={() => setSide(showBacklog ? 'inspect' : 'backlog')} title="Off-goal tasks, to drag onto the chart">Backlog</button>
         <button type="button" className="btn ghost sm" aria-pressed={side === 'history'} onClick={() => setSide(s => (s === 'history' ? 'inspect' : 'history'))}><HistoryIcon size={13} />History</button>
         <button type="button" className="btn ghost sm wide-only" onClick={copyMermaid} title="Copy the chart as a Mermaid flowchart">Mermaid</button>
         <button type="button" className="btn ghost sm wide-only" onClick={() => download(`${slug}-flow.json`, JSON.stringify(toJson(goal, flow), null, 2))} title="Download the chart as JSON">JSON</button>
@@ -732,7 +759,8 @@ function FlowChart({ goal }: { goal: Goal }) {
               {flow.steps.map(s => {
                 const b = box(s.id);
                 const on = sel?.kind === 'step' && sel.id === s.id;
-                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}`
+                const sched = s.kind === 'task' && !s.done && s.task?.start != null;
+                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}${sched ? ' sched' : ''}`
                   + `${dragPos?.id === s.id ? ' dragging' : ''}${lifting === s.id ? ' lifting' : ''}${confirm === s.id ? ' doomed' : ''}`;
                 return (
                   <div key={s.id} className={cls} data-step={s.id} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...tint }}
@@ -747,6 +775,7 @@ function FlowChart({ goal }: { goal: Goal }) {
                       onClick={e => { e.stopPropagation(); toggle(s); }}><CheckIcon size={10} w={2.6} /></button>
                     <span className="fn-t">{s.kind === 'wait' && <span className="fn-k">Waiting on </span>}{s.title}</span>
                     <span className="fn-m">
+                      {sched && <CalendarIcon size={10} />}
                       {s.kind === 'task' && <span className="num">{fmtDur(s.minutes)}</span>}
                       {s.kind === 'goal' && s.progress != null && <span className="fn-bar" aria-hidden="true"><i style={{ width: `${Math.round(s.progress * 100)}%` }} /></span>}
                       <span className={'fn-st ' + s.state}>{stateText(s, flow.byId, now)}</span>
@@ -822,11 +851,12 @@ function FlowChart({ goal }: { goal: Goal }) {
               </button>
             ))}
           </div>
-          {ghost && <div className={'flow-ghost fn-' + (ghost.kind === 'goal' ? 'sub' : ghost.kind)} style={{ left: ghost.x, top: ghost.y, ...tint }} aria-hidden="true"><Shape kind={ghost.kind} />{KIND[ghost.kind]}</div>}
+          {ghost && <div className={'flow-ghost fn-' + (ghost.kind === 'goal' ? 'sub' : ghost.kind)} style={{ left: ghost.x, top: ghost.y, ...tint }} aria-hidden="true"><Shape kind={ghost.kind} /><span className="ell">{ghost.label}</span></div>}
         </div>
 
-        <aside className="flow-side" aria-label={side === 'history' ? 'History' : 'Step'}>
+        <aside className="flow-side" aria-label={side === 'history' ? 'History' : showBacklog ? 'Backlog' : 'Step'}>
           {side === 'history' ? <History goal={goal} />
+            : showBacklog ? <Backlog title={selStep && selStep.kind !== 'milestone' ? selStep.title : null} onCarry={fromBacklog} onAdd={adoptHere} />
             : selStep ? <Inspector key={selStep.id} s={selStep} flow={flow} focus={focusId === selStep.id} onFocused={() => setFocusId(null)} goal={goal}
               act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask, addSubGoal, addKr, open: id => openSheet('flow', id), goalById }} />
             : selLink ? (
@@ -841,12 +871,14 @@ function FlowChart({ goal }: { goal: Goal }) {
                   </>
                 )}
               </div>
-            ) : wide ? <Guide goal={goal} /> : <p className="note fi-hint">Tap a step to edit it, or hold it to move it. Drag from its dot to the step that comes after it. Add from the row above.</p>}
+            ) : null}
         </aside>
       </div>
 
       <div className="flow-foot num">
         <span>{flow.counts.steps} step{flow.counts.steps === 1 ? '' : 's'} · {flow.counts.done} done · {flow.counts.ready} ready · {flow.counts.blocked} blocked</span>
+        <span className="flow-key"><i className="k-sched" aria-hidden="true" />On the calendar</span>
+        <span className="flow-key"><i className="k-blocked" aria-hidden="true" />Blocked</span>
         {flow.critical.steps.length > 0 && (
           <button type="button" className="link" onClick={() => setSel({ kind: 'step', id: flow.critical.steps[0] })}>
             Critical path: {fmtDur(flow.critical.minutes)} over {flow.critical.steps.length} steps
@@ -1017,23 +1049,34 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
   );
 }
 
-/** With nothing selected: how the chart works. */
-function Guide({ goal }: { goal: Goal }) {
+/** Off-goal tasks, to bring onto this goal: drag one onto the chart, or + to add it after the selected step. */
+function Backlog({ title, onCarry, onAdd }: { title: string | null; onCarry: (e: React.PointerEvent, t: Task) => void; onAdd: (t: Task) => void }) {
+  const { tasks, isOff, goalOf, now, wide } = usePlanner();
+  const [q, setQ] = useState('');
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const all = tasks.filter(t => t.status === 'open' && !isEvent(t) && !isOff(t) && !goalOf(t));
+  const list = all.filter(t => words.every(w => t.title.toLowerCase().includes(w)))
+    .sort((a, b) => a.priority - b.priority || (a.start ?? Infinity) - (b.start ?? Infinity) || (b.created || 0) - (a.created || 0));
   return (
-    <div className="fi fi-guide">
-      <p className="rv-k">How this chart works</p>
-      <ul>
-        <li><b>Left to right.</b> {shortTitle(goal.title, 40)} is on the left; each step sits one column after the steps it needs. <b>Drag a step</b> to put it anywhere; <b>Tidy up</b> lays them out again.</li>
-        <li><b>Add</b> from the palette on the left: click to add next to the selected step, or drag a shape onto the chart (onto a step to go with it). Or double-click an empty spot, or use the <b>+</b> on a step.</li>
-        <li><b>An arrow</b> means the first step has to be done before the next can start. Drag from the dot on a step’s right edge to the step that comes after it.</li>
-        <li><b>Parallel steps</b> have no arrow between them: work on them in any order. Select a step and press <kbd>Enter</kbd>.</li>
-        <li><b>Waiting on</b> (the D-shaped step) is something outside your control that holds steps up, like a reply or a signature. Resolve it when it comes through.</li>
-        <li><b>Key results</b> (the pointed ones) are the goal’s “Done when” lines, reached once everything before them is done. One can have key results under it, with a dotted arrow up to it.</li>
-        <li><b>Sub-goals</b> (the box with doubled sides, a “predefined process”) are objectives of their own, with their own key results and chart. Double-click one to open it; the trail at the top takes you back up.</li>
-        <li><b>Blocked</b> steps don’t come up as your Next task. The <b>critical path</b>, the chain with the most work left, is in your accent colour.</li>
-        <li><b>Delete</b> removes the selected step after asking; <kbd>⌘Z</kbd> brings it back.</li>
-      </ul>
-      <p className="note">Every step here is a task in your planner, on this goal. History keeps every change to the chart.</p>
+    <div className="fi fb">
+      <div className="fi-hh"><p className="rv-k">Backlog · off-goal</p><span className="muted sm num">{all.length}</span></div>
+      <p className="note">
+        {wide ? 'Drag a task onto the chart to put it on this goal: onto a step to follow it, or anywhere. Or ' : 'Tap '}
+        <b>+</b> to add it{title ? <> after “{shortTitle(title, 30)}”</> : null}.
+      </p>
+      {all.length > 6 && <input className="input sm" type="search" placeholder="Find a task" value={q} aria-label="Find an off-goal task" onChange={e => setQ(e.target.value)} />}
+      {list.length ? (
+        <ul className="fb-list">
+          {list.slice(0, 200).map(t => (
+            <li key={t.id} className={'fb-i' + (t.start != null ? ' sched' : '')} onPointerDown={e => onCarry(e, t)} title={wide ? 'Drag onto the chart' : undefined}>
+              <span className={`fb-p p${t.priority}`} title={PRI[t.priority]} aria-label={PRI[t.priority]} />
+              <span className="fb-t">{t.title}</span>
+              <span className="fb-m num">{t.start != null ? <><CalendarIcon size={10} />{fmtWhen(t.start, now)}</> : fmtDur(t.minutes)}</span>
+              <button type="button" className="ib bare" aria-label={`Put “${t.title}” on this goal`} title={title ? `Add it after “${title}”` : 'Add it to the chart'} onClick={() => onAdd(t)}><PlusIcon size={13} /></button>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="note">{q ? 'No off-goal task matches.' : 'Nothing off-goal: every task is on a goal.'}</p>}
     </div>
   );
 }
@@ -1075,8 +1118,11 @@ function History({ goal }: { goal: Goal }) {
   );
 }
 
-/** The goal's step count, for buttons that open its chart. */
-export function useFlowCount(goal: Goal) {
+/** A goal's chart, for what's blocked on it. */
+export function useGoalFlow(goal: Goal) {
   const { tasks, now, goals } = usePlanner();
-  return useMemo(() => buildFlow(goal, tasks, now, { goals }).counts, [goal, tasks, now, goals]);
+  return useMemo(() => buildFlow(goal, tasks, now, { goals }), [goal, tasks, now, goals]);
 }
+
+/** The goal's step count, for buttons that open its chart. */
+export const useFlowCount = (goal: Goal) => useGoalFlow(goal).counts;
