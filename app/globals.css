@@ -1435,3 +1435,21 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .flowc.ph .fb-i{min-height:44px;cursor:default}
 .gc-ph .gc-block{align-items:flex-start}
 .gc-ph .gc-block-by{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+/* Repeating tasks on the chart. */
+.fn-rep{flex:none;display:inline-flex;align-items:center;gap:3px;padding:0 4px;border-radius:var(--r-xs);background:var(--soft);color:var(--ink);font-size:10px;line-height:14px;font-weight:600}
+.fn-rep svg{flex:none}
+.fn.rep::after{content:"";position:absolute;right:4px;bottom:-5px;left:10px;height:5px;border:1.5px solid var(--hair2);border-top:0;border-radius:0 0 var(--r-md) var(--r-md);pointer-events:none}
+.fi-rep{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 8px;padding:8px 10px;border-radius:var(--r-sm);background:var(--soft);font-size:var(--t-13);line-height:18px}
+.fi-rep svg{color:var(--muted)}
+.fi-rep b{font-weight:600}
+.fi-rep-bar{grid-column:2;height:4px;border-radius:2px;background:var(--hair2);overflow:hidden}
+.fi-rep-bar i{display:block;height:100%;background:var(--c,var(--ink))}
+.fi-rep-edit{display:inline-flex;align-items:center;gap:5px;text-align:left}
+.fb-t svg{margin-right:5px;vertical-align:-1px;color:var(--muted)}
+/* When a repeat ends. */
+.rep-end{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rep-end .flabel{margin:0 4px 0 0}
+.rep-at input[type="date"],.rep-at input[type="number"]{padding:0;border:0;outline:none;background:none;font:inherit;color:inherit}
+.rep-times input[type="number"]{width:48px;text-align:right}
+.rep-g .num{margin-left:2px;font-size:var(--t-11);font-weight:600}

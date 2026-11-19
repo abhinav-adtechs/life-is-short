@@ -1,7 +1,8 @@
 import type { Task } from './model';
 import { flatResults, goalProgress, resultDone, type Goal, type KeyResult } from './goals';
 import { isEvent } from './select';
-import { DAY_MS, endOf } from './time';
+import { DAY_MS, endOf, ymd } from './time';
+import { describeRule, nextDue, occurrenceOf, repeatOver, repeatsDone, type Repeat } from './repeat';
 
 /*
  * A goal's flow chart: the steps towards it and what has to happen before what.
@@ -124,6 +125,11 @@ export interface Step {
   progress?: number | null;
   /** For a key result under another: how deep (0 at the top). */
   depth?: number;
+  /**
+   * For a repeating task: the whole series is one step ("rep:" and the repeat's id), with its rule, how many are done,
+   * how many it needs (null with no count), and when the next one comes when none is open. `task` is the open one.
+   */
+  repeat?: { id: string; rule: string; done: number; times: number | null; next: string | null };
   /** Its length, for a task; for a sub-goal, the open work on it and under it; 0 for the others. */
   minutes: number;
   done: boolean;
@@ -167,16 +173,30 @@ export const linkKey = (l: Link) => `${l.from}>${l.to}`;
 /** A task on the chart is done once ticked off; a meeting, once it's over. */
 const taskDone = (t: Task, now: number) => (isEvent(t) ? t.start != null && endOf(t) <= now : t.status === 'done');
 
+/** The chart step for a repeating task: the whole series. */
+export const repeatNode = (r: Pick<Repeat, 'id'>) => `rep:${r.id}`;
+
 /**
  * The goal's chart: its tasks, its waiting steps and its key results, with their arrows, states, columns and the
  * critical path. `all` keeps every finished task; otherwise ones done more than RECENT_DONE ago with no arrows are
- * counted in `older` instead.
+ * counted in `older` instead. A repeating task (with `repeats` given) is one step for the whole series: done once the
+ * repeat is over (done as many times as it had to be, or past its last day), so a repeat with no end never is.
  */
-export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: boolean; goals?: Goal[] } = {}): Flow {
+export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: boolean; goals?: Goal[]; repeats?: Repeat[] } = {}): Flow {
   const plan = planOf(goal);
   const goals = opts.goals ?? [];
   const linked = new Set(plan.links.flatMap(l => [l.from, l.to]));
-  const mine = tasks.filter(t => t.goal === goal.id);
+  const reps = new Map((opts.repeats ?? []).map(r => [r.id, r]));
+  const series = new Map<string, Task[]>();
+  const mine: Task[] = [];
+  for (const t of tasks) {
+    if (t.goal !== goal.id) continue;
+    const o = occurrenceOf(t.id);
+    if (o && reps.has(o.repeat)) series.set(o.repeat, [...(series.get(o.repeat) ?? []), t]);
+    else mine.push(t);
+  }
+  // A repeat on this goal with nothing of it made yet still gets its step.
+  for (const r of reps.values()) if (r.goal === goal.id && !series.has(r.id)) series.set(r.id, []);
   let older = 0;
   const steps: Step[] = [];
   const blank = { needs: [] as string[], unblocks: [] as string[], col: 0, row: 0, critical: false, state: 'ready' as StepState };
@@ -186,6 +206,20 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
     const done = taskDone(t, now);
     if (done && !opts.all && !linked.has(t.id) && now - (t.doneAt ?? t.start ?? 0) > RECENT_DONE) { older++; continue; }
     steps.push({ ...blank, needs: [], unblocks: [], id: t.id, kind: 'task', title: t.title, task: t, minutes: t.minutes, done });
+  }
+  const doneBy = repeatsDone(tasks), today = ymd(now);
+  for (const [rid, list] of series) {
+    const r = reps.get(rid) as Repeat;
+    // The open one, the latest if there's more than one.
+    const open = list.filter(t => t.status === 'open').sort((a, b) => b.id.localeCompare(a.id))[0];
+    const done = doneBy.get(rid) ?? 0, over = repeatOver(r, done, today, !!open), id = repeatNode(r);
+    if (over && !opts.all && !linked.has(id)) { older++; continue; }
+    const left = r.rule.times ? Math.max(1, r.rule.times - done) : 1;
+    steps.push({
+      ...blank, needs: [], unblocks: [], id, kind: 'task', title: r.title, ...(open ? { task: open } : {}),
+      repeat: { id: rid, rule: describeRule(r.rule), done, times: r.rule.times ?? null, next: open ? null : nextDue(r, now) },
+      minutes: over ? 0 : r.minutes * left, done: over,
+    });
   }
   for (const w of plan.waits) steps.push({ ...blank, needs: [], unblocks: [], id: w.id, kind: 'wait', title: w.title, wait: w, minutes: 0, done: w.done });
   // Sub-goals: one step each, with the open work on it and under it as its length.
@@ -300,10 +334,16 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
   };
 }
 
-/** Open tasks held up by a step before them on their goal's chart, across all your active goals. */
-export function blockedTasks(goals: Goal[], tasks: Task[], now: number): Set<string> {
+/**
+ * Open tasks held up by a step before them on their goal's chart, across all your active goals. A repeat's step holds
+ * up its open one, and is done once the repeat is over.
+ */
+export function blockedTasks(goals: Goal[], tasks: Task[], now: number, repeats: Repeat[] = []): Set<string> {
   const out = new Set<string>();
   const byId = new Map(tasks.map(t => [t.id, t]));
+  const reps = new Map(repeats.map(r => [repeatNode(r), r]));
+  const doneBy = repeatsDone(tasks), today = ymd(now);
+  const openOf = (rid: string) => tasks.filter(t => t.status === 'open' && occurrenceOf(t.id)?.repeat === rid);
   for (const g of goals) {
     const plan = planOf(g);
     if (g.status !== 'active' || !plan.links.length) continue;
@@ -320,12 +360,17 @@ export function blockedTasks(goals: Goal[], tasks: Task[], now: number): Set<str
       const c = kids.get(id);
       if (c) return c.status === 'achieved';
       const k = krs.get(id);
-      return k ? resultDone(k) : undefined;
+      if (k) return resultDone(k);
+      const r = reps.get(id);
+      return r ? repeatOver(r, doneBy.get(r.id) ?? 0, today, openOf(r.id).length > 0) : undefined;
     };
     for (const l of plan.links) {
-      const t = byId.get(l.to);
-      if (!t || t.goal !== g.id || t.status !== 'open') continue;
-      if (done(l.from) === false) out.add(t.id);
+      const r = reps.get(l.to);
+      const held = r ? openOf(r.id) : [byId.get(l.to)];
+      for (const t of held) {
+        if (!t || t.goal !== g.id || t.status !== 'open') continue;
+        if (done(l.from) === false) out.add(t.id);
+      }
     }
   }
   return out;
@@ -390,7 +435,7 @@ const mmId = (id: string) => 'n_' + id.replace(/[^A-Za-z0-9_]/g, '_');
  */
 export function toMermaid(goal: Goal, flow: Flow): string {
   const shape = (s: Step) => {
-    const t = mm(s.kind === 'wait' ? `Waiting on: ${s.title}` : s.title);
+    const t = mm(s.kind === 'wait' ? `Waiting on: ${s.title}` : s.repeat ? `${s.title} ↻ ${s.repeat.rule}` : s.title);
     return s.kind === 'milestone' ? `{"${t}"}` : s.kind === 'wait' ? `>"${t}"]` : s.kind === 'goal' ? `[["${t}"]]` : `["${t}"]`;
   };
   const lines = ['flowchart LR', `  goal(["${mm(goal.title)}"])`];
@@ -409,6 +454,7 @@ export function toJson(goal: Goal, flow: Flow) {
       id: s.id, kind: s.kind, title: s.title, state: s.state, minutes: s.minutes || undefined,
       needs: s.needs.length ? s.needs : undefined, critical: s.critical || undefined,
       ...(s.kind === 'goal' && s.progress != null ? { progress: Math.round(s.progress * 100) / 100 } : {}),
+      ...(s.repeat ? { repeats: s.repeat.rule, times_done: s.repeat.done } : {}),
     })),
     arrows: flow.links.map(l => ({ from: l.from, to: l.to, ...(l.auto ? { structure: true as const } : {}) })),
     critical_path: flow.critical.steps,

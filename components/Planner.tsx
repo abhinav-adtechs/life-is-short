@@ -24,7 +24,7 @@ import { pendingCount } from '@/lib/share-client';
 import { haptic, nativeReady, onNativeCommand } from '@/lib/native';
 import type { WorkHours } from '@/lib/place';
 import type { Change as Write, Slip } from '@/lib/slips';
-import { dueNow, followTask, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
+import { dueNow, followTask, liveRepeats, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
 import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
@@ -276,8 +276,10 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
   const repeatIndex = useMemo(() => new Map(repeats.list.map(r => [r.id, r])), [repeats.list]);
   const repeatOf = useCallback((t: Task) => { const o = occurrenceOf(t.id); return o ? repeatIndex.get(o.repeat) ?? null : null; }, [repeatIndex]);
-  const busyTasks = useCallback(() => [...liveTasks(), ...upcoming(repeats.list, Date.now())], [liveTasks, repeats.list]);
-  const upcomingDay = useCallback((d: Date) => upcomingOn(repeats.list, ymd(d), now), [repeats.list, now]);
+  // A repeat that's over (done enough times, or past its last day) has nothing more to come.
+  const going = useMemo(() => liveRepeats(repeats.list, store.tasks, now), [repeats.list, store.tasks, now]);
+  const busyTasks = useCallback(() => [...liveTasks(), ...upcoming(going, Date.now())], [liveTasks, going]);
+  const upcomingDay = useCallback((d: Date) => upcomingOn(going, ymd(d), now), [going, now]);
   const deletedText = useCallback((t: Task) => {
     const r = repeatOf(t), next = r && nextWhen(r, Date.now());
     return r ? `Skipped · ${shortTitle(t.title, 30)}${next ? ` · next one ${next}` : ''}` : `Deleted · ${shortTitle(t.title, 34)}`;
@@ -343,14 +345,25 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     dropHash();
   }, [dropHash]);
 
+  /** The panel the editor was opened from (a goal's chart, or Goals): it comes back when the editor closes. */
+  const returnTo = useRef<{ kind: SheetKind; section: string | null } | null>(null);
   const openEditor = useCallback((id: string) => {
     if (!editorId && !hashSheet) lastFocus.current = document.activeElement as HTMLElement | null;
-    if (hashSheet) { sheetOpenedHere.current = false; dropHash(); }
+    if (hashSheet) {
+      returnTo.current = hashSheet.kind === 'flow' || hashSheet.kind === 'goals' ? hashSheet : null;
+      sheetOpenedHere.current = false;
+      dropHash();
+    } else if (!editorId) returnTo.current = null;
     setPickedState(null);
     setEditorId(id);
   }, [editorId, hashSheet, dropHash]);
 
-  const closeEditor = useCallback(() => setEditorId(null), []);
+  const closeEditor = useCallback(() => {
+    setEditorId(null);
+    const back = returnTo.current;
+    returnTo.current = null;
+    if (back) openSheet(back.kind, back.section ?? undefined);
+  }, [openSheet]);
 
   // Back where you were when the last panel closes; after a trip to Google, the Settings button.
   const panelOpen = !!editorId || !!hashSheet;
@@ -729,7 +742,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     return label?.color ?? a.color;
   }, [prefs.colorBy, labelIndex]);
 
-  const blocked = useMemo(() => blockedTasks(goals.list, store.tasks, now), [goals.list, store.tasks, now]);
+  const blocked = useMemo(() => blockedTasks(goals.list, store.tasks, now, repeats.list), [goals.list, store.tasks, now, repeats.list]);
   const derived = useMemo(() => lists(store.tasks, now, isOff, rank, blocked), [store.tasks, now, isOff, rank, blocked]);
 
   const api: PlannerApi = {

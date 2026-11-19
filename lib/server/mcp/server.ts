@@ -141,6 +141,8 @@ export function buildServer(auth: AuthInfo): McpServer {
             minutes: z.number().optional(), needs: z.array(z.string()).optional().describe('Step ids that have to be done first'),
             critical: z.boolean().optional().describe('On the critical path: the chain with the most work left'),
             progress: z.number().optional().describe('For a sub-goal: how far along it is, 0 to 1'),
+            repeats: z.string().optional().describe('For a repeating task, the whole series as one step: how it repeats and when it ends, e.g. "Every Mon, Wed and Fri, 20 times"'),
+            times_done: z.number().optional().describe('For a repeating task: how many of it are done'),
           })),
           arrows: z.array(z.object({ from: z.string(), to: z.string(), structure: z.literal(true).optional().describe('Drawn by the goal’s structure (a key result under another, a sub-goal for a key result), not by the user') })).describe('from has to be done before to can start'),
           critical_path: z.array(z.string()),

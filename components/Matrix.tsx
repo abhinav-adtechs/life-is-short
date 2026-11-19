@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import { newId, PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
-import { describeRepeat, describeRule } from '@/lib/repeat';
+import { describeRepeat, describeRule, occurrenceOf, repeatsDone } from '@/lib/repeat';
 import { flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
 import { holdups } from '@/lib/flow';
 import { isEvent } from '@/lib/select';
@@ -34,11 +34,11 @@ function useStagger(step: number, cap: number) {
  * how many are done. A done task counts for its top goal even after the sub-goal it was on is achieved.
  */
 function useByCard() {
-  const { tasks, isOff, rootGoalOf, goals } = usePlanner();
+  const { tasks, isOff, rootGoalOf, goals, repeats } = usePlanner();
   return useMemo(() => {
     const index = new Map(goals.map(g => [g.id, g]));
-    const m = new Map<string, { open: Task[]; done: number }>();
-    const at = (k: string) => { let e = m.get(k); if (!e) m.set(k, e = { open: [], done: 0 }); return e; };
+    const m = new Map<string, { open: Task[]; done: number; later: number }>();
+    const at = (k: string) => { let e = m.get(k); if (!e) m.set(k, e = { open: [], done: 0, later: 0 }); return e; };
     for (const t of tasks) {
       if (isOff(t) || isEvent(t)) continue;
       if (t.status === 'open') at(rootGoalOf(t)?.id ?? '').open.push(t);
@@ -47,8 +47,24 @@ function useByCard() {
         at(top && top.status === 'active' ? top.id : '').done++;
       }
     }
+    // A repeat that has to be done so many times: the ones not made yet are still to go.
+    const doneBy = repeatsDone(tasks);
+    const openBy = new Map<string, number>();
+    for (const t of tasks) { const o = t.status === 'open' ? occurrenceOf(t.id) : null; if (o) openBy.set(o.repeat, (openBy.get(o.repeat) ?? 0) + 1); }
+    for (const r of repeats) {
+      if (!r.rule.times || !r.goal) continue;
+      const g = index.get(r.goal), top = g && g.status === 'active' ? rootOf(index, g) : null;
+      if (!top || top.status !== 'active') continue;
+      at(top.id).later += Math.max(0, r.rule.times - (doneBy.get(r.id) ?? 0) - (openBy.get(r.id) ?? 0));
+    }
     return m;
-  }, [tasks, isOff, rootGoalOf, goals]);
+  }, [tasks, isOff, rootGoalOf, goals, repeats]);
+}
+
+/** How many of each repeat's tasks are done. */
+function useRepeatDone() {
+  const { tasks } = usePlanner();
+  return useMemo(() => repeatsDone(tasks), [tasks]);
 }
 
 /** Every open task the cards show, on the calendar or not. */
@@ -113,6 +129,7 @@ function PriPill({ t, kind }: { t: Task; kind: Kind }) {
 function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
   const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf, goalOf, activeGoals } = usePlanner();
   const tag = useTag(t, kind);
+  const repDone = useRepeatDone();
   const label = labelOf(t);
   const goal = goalOf(t);
   const inCard = card != null;
@@ -140,7 +157,11 @@ function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string;
         onDoubleClick={() => { if (kind !== 'new') openEditor(t.id); }}
         onKeyDown={e => { if ((e.key === 'e' || e.key === 'E') && kind !== 'new') { e.preventDefault(); openEditor(t.id); } }}>
         <span className="rt"><span className="strike">{t.title}</span></span>
-        {repeat && <span className="rep-g" title={describeRepeat(repeat)}><RepeatIcon size={11} /><span className="sr">, {describeRepeat(repeat)}</span></span>}
+        {repeat && (
+          <span className="rep-g" title={`${describeRepeat(repeat)}${repeat.rule.times ? ` · ${repDone.get(repeat.id) ?? 0} of ${repeat.rule.times} done` : ''}`}>
+            <RepeatIcon size={11} />{repeat.rule.times ? <span className="num">{repDone.get(repeat.id) ?? 0}/{repeat.rule.times}</span> : null}<span className="sr">, {describeRepeat(repeat)}</span>
+          </span>
+        )}
         {tag && <span className={tag.cls}>{tag.text}</span>}
         {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
         {sched && <span className="when-cal" title="On the calendar"><CalendarIcon size={11} />{fmtWhen(t.start as number, now)}</span>}
@@ -158,6 +179,7 @@ function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string;
 function PhoneRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
   const { completing, openEditor, labelOf, now, drag, repeatOf, goalOf, activeGoals } = usePlanner();
   const tag = useTag(t, kind);
+  const repDone = useRepeatDone();
   const label = labelOf(t);
   const repeat = repeatOf(t);
   const goal = goalOf(t);
@@ -170,7 +192,8 @@ function PhoneRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string
     kind === 'new' ? 'New' : null,
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
     sched ? fmtWhen(t.start as number, now) : null,
-    due?.text ?? null, where, fmtDur(t.minutes), repeat ? describeRule(repeat.rule) : null,
+    due?.text ?? null, where, fmtDur(t.minutes),
+    repeat ? `↻ ${describeRule(repeat.rule)}${repeat.rule.times ? ` (${repDone.get(repeat.id) ?? 0} done)` : ''}` : null,
   ].filter(Boolean).join(' · ');
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (sched ? ' sched' : '');
@@ -388,7 +411,7 @@ function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean
       {cards.map(c => {
         const id = c.g?.id ?? '';
         const e = byCard.get(id);
-        return <GoalCard key={id || '-'} g={c.g} rank={c.rank} items={itemsOf(id)} open={e?.open.length ?? 0} done={e?.done ?? 0}
+        return <GoalCard key={id || '-'} g={c.g} rank={c.rank} items={itemsOf(id)} open={(e?.open.length ?? 0) + (e?.later ?? 0)} done={e?.done ?? 0}
           pri={pri} phone={phone} focused={!!filter} Item={Item} />;
       })}
     </div>

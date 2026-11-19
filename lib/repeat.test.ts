@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import {
-  applyOps, describeRepeat, describeRule, dueNow, firstDay, followTask, lastOn, makeRepeating, markMade, nextOn, nextWhen,
-  normalizeRepeats, occurrence, occurrenceId, occurrenceOf, occursOn, repeatChoices, startRepeat, takeRepeat, toRule,
-  undoOps, upcoming, upcomingOn, type Repeat, type Rule,
+  applyOps, describeRepeat, describeRule, dueNow, firstDay, followTask, lastOn, liveRepeats, makeRepeating, markMade, nextOn, nextWhen,
+  normalizeRepeats, occurrence, occurrenceId, occurrenceOf, occursOn, repeatChoices, repeatOver, repeatsDone, ruleForModel, sameRule, startRepeat,
+  takeRepeat, toRule, undoOps, upcoming, upcomingOn, type Repeat, type Rule,
 } from './repeat';
 import { localParse } from './parse';
 import { applyCapture } from './capture';
@@ -352,5 +352,50 @@ describe('the review', () => {
     expect(rv.lists.missed[0]).toMatchObject({ id: 'rgroc.2026-10-29', slot: false, how: 'replaced' });
     expect(rv.buckets.reduce((n, b) => n + b.missed, 0)).toBe(0);
     expect(occurrenceId('rgroc', '2026-10-29')).toBe(slip.id);
+  });
+});
+
+describe('repeats that end', () => {
+  it('stop landing after their last day', () => {
+    const r = R({ rule: { ...WEEKLY([1, 4]), until: '2026-11-05' } });
+    expect(occursOn(r, '2026-11-05')).toBe(true);
+    expect(occursOn(r, '2026-11-09')).toBe(false);
+    expect(nextOn(r, '2026-11-05')).toBeNull();
+    expect(upcomingOn([{ ...r, time: '07:00' }], '2026-11-09', NOW)).toEqual([]);
+  });
+
+  it('stop coming once done as many times as they had to be; missed ones don’t count', () => {
+    const r = R({ rule: { ...WEEKLY([1, 4]), times: 2 } });
+    const done = (day: string) => task({ id: occurrenceId(r.id, day), status: 'done', doneAt: 1 });
+    const missed = task({ id: occurrenceId(r.id, '2026-10-26'), status: 'open' });
+    expect(repeatsDone([done('2026-10-29'), missed, task()]).get(r.id)).toBe(1);
+    // One done: Monday's still comes.
+    expect(dueNow([r], [done('2026-10-29')], NOW).puts.map(t => t.id)).toEqual(['rgroc.2026-11-02']);
+    // Two done: it's over, and leaves the calendar.
+    const two = [done('2026-10-26'), done('2026-10-29')];
+    expect(dueNow([r], two, NOW).puts).toEqual([]);
+    expect(repeatOver(r, 2, '2026-11-02')).toBe(true);
+    expect(liveRepeats([r, R({ id: 'rgym' })], two, NOW).map(x => x.id)).toEqual(['rgym']);
+    // An end date is over once it's passed and nothing of it is left open.
+    const u = R({ rule: { ...WEEKLY([1]), until: '2026-11-01' } });
+    expect(repeatOver(u, 0, '2026-11-02')).toBe(true);
+    expect(repeatOver(u, 0, '2026-11-02', true)).toBe(false);
+    expect(repeatOver(R(), 50, '2030-01-01')).toBe(false);
+  });
+
+  it('say how they end, and keep it through the model and storage', () => {
+    expect(describeRule({ ...WEEKLY([1, 3, 5]), times: 20 })).toBe('Every Mon, Wed and Fri, 20 times');
+    expect(describeRule({ ...WEEKLY([1], 2), until: '2026-12-31' })).toBe('Every other week on Monday, until 31 Dec 2026');
+    expect(describeRule({ freq: 'day', every: 1, days: [], monthDay: null, times: 1 })).toBe('Every day, 1 time');
+    expect(toRule({ freq: 'week', every: 2, days: ['tue'], until: '2026-12-31', times: '12' })).toEqual({ ...WEEKLY([2], 2), until: '2026-12-31', times: 12 });
+    expect(toRule({ freq: 'week', days: ['tue'], until: 'soon', times: 0 })).toEqual(WEEKLY([2]));
+    expect(ruleForModel({ ...WEEKLY([2]), times: 5 })).toMatchObject({ until: null, times: 5 });
+    expect(sameRule(WEEKLY([1]), { ...WEEKLY([1]), times: 3 })).toBe(false);
+    expect(normalizeRepeats([R({ rule: { ...WEEKLY([1]), until: '2027-01-31', times: 8 } })])[0].rule).toMatchObject({ until: '2027-01-31', times: 8 });
+  });
+
+  it('the keyword parser takes a count', () => {
+    expect(takeRepeat('run every mon wed fri 20 times')).toEqual({ rule: { ...WEEKLY([1, 3, 5]), times: 20 }, rest: 'run' });
+    expect(takeRepeat('physio every other tuesday for ten sessions')).toEqual({ rule: { ...WEEKLY([2], 2), times: 10 }, rest: 'physio' });
   });
 });

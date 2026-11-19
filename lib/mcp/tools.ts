@@ -4,7 +4,7 @@ import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
 import { GOALS_KEY, activeGoals, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
 import { buildFlow, toJson } from '../flow';
-import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type RepeatOp } from '../repeat';
+import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type Repeat, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
 
@@ -415,6 +415,9 @@ export interface GoalSummary {
 export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): Promise<{ goals: GoalSummary[]; off_goal_open_tasks: number }> {
   const { tasks, byLabel, goals } = await load(c);
   const now = clock(c);
+  // A repeating task is one step on its goal's chart; without the repeats, each of its tasks is one.
+  let repeats: Repeat[] = [];
+  try { repeats = normalizeRepeats(await c.repo.getSetting(REPEATS_KEY)); } catch { /* an older database: no repeats */ }
   const live = activeGoals(goals);
   const tops = topGoals(goals);
   const index = new Map(goals.map(g => [g.id, g]));
@@ -431,7 +434,7 @@ export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): P
       progress: (p => (p == null ? null : Math.round(p * 100) / 100))(goalProgress(g, goals)),
       done_when: flatResults(g.results).map(({ kr, parent }) => ({ id: kr.id, text: kr.text, done: resultDone(kr), under: parent })),
       open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
-      flow: (({ steps, arrows, critical_path }) => ({ steps, arrows, critical_path }))(toJson(g, buildFlow(g, tasks, now, { goals }))),
+      flow: (({ steps, arrows, critical_path }) => ({ steps, arrows, critical_path }))(toJson(g, buildFlow(g, tasks, now, { goals, repeats }))),
     })),
     off_goal_open_tasks: mine.filter(t => t.status === 'open' && !(t.goal && live.some(g => g.id === t.goal))).length,
   };

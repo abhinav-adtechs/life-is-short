@@ -7,7 +7,7 @@ import { findSlot } from '@/lib/place';
 import { fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { gcalUrl } from '@/lib/links';
 import { addDays, fromYmd, startOfDay, ymd } from '@/lib/time';
-import { describeRepeat, makeRepeating, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
+import { describeRepeat, makeRepeating, repeatsDone, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
 import { usePlanner } from './Planner';
 import { RepeatField } from './Repeating';
 import { GoalPicker } from './Goals';
@@ -36,7 +36,7 @@ function dueChoices(now: number) {
  * nothing else waits on it. On one of a repeat's tasks, what the task is goes to the ones to come too.
  */
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet, blocked } = usePlanner();
+  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet, blocked, tasks } = usePlanner();
   const repeat = repeatOf(t);
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
@@ -199,7 +199,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
 
           {!src && (
             <RepeatField rule={rule} time={time} day={t.start != null ? ymd(t.start) : t.due ?? ymd(now)} repeating={!!repeat}
-              onRule={setRule} onTime={setTime} />
+              done={repeat ? repeatsDone(tasks).get(repeat.id) ?? 0 : 0} onRule={setRule} onTime={setTime} />
           )}
 
           <div className="ed-f">

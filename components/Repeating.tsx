@@ -2,7 +2,7 @@
 
 import { useId } from 'react';
 import { DOW, DOWL } from '@/lib/time';
-import { describeRepeat, describeRule, nextWhen, occurrenceOf, weekdayOfDay, type Repeat, type Rule } from '@/lib/repeat';
+import { MAX_TIMES, describeRepeat, describeRule, nextWhen, occurrenceOf, repeatsDone, shiftDay, weekdayOfDay, type Repeat, type Rule } from '@/lib/repeat';
 import { usePlanner } from './Planner';
 import { radio, radioKeys } from './Controls';
 
@@ -18,14 +18,20 @@ const UNIT = { day: 'day', week: 'week', month: 'month' } as const;
 const everyName = (n: number, unit: string) => (n === 1 ? `Every ${unit}` : n === 2 ? `Every other ${unit}` : `Every ${n} ${unit}s`);
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 
+type End = 'never' | 'until' | 'times';
+const endOf = (r: Rule): End => (r.times ? 'times' : r.until ? 'until' : 'never');
+
 /**
- * How a task repeats, in the task editor: not at all, every day, on weekdays, weekly on the days you pick, or monthly
- * on a date, every one or more of those, at a time or at any time. `day` is the task's own day, for the defaults.
+ * How a task repeats, in the task editor: not at all, every day, on weekdays, weekly on the days you pick (several
+ * times a week), or monthly on a date; every one or more of those (every other week is bi-weekly); at a time or at any
+ * time; and when it ends: never, on a day, or once it's been done a number of times. `day` is the task's own day, for
+ * the defaults; `done`, how many of it are done so far.
  */
-export function RepeatField({ rule, time, day, onRule, onTime, repeating }: {
+export function RepeatField({ rule, time, day, onRule, onTime, repeating, done = 0 }: {
   rule: Rule | null; time: string; day: string; onRule: (r: Rule | null) => void; onTime: (t: string) => void;
   /** It repeats already, so changes start with the next one. */
   repeating: boolean;
+  done?: number;
 }) {
   const id = useId();
   const preset = presetOf(rule);
@@ -42,7 +48,15 @@ export function RepeatField({ rule, time, day, onRule, onTime, repeating }: {
     const days = rule.days.includes(d) ? rule.days.filter(x => x !== d) : [...rule.days, d].sort((a, b) => a - b);
     if (days.length) onRule({ ...rule, days });
   };
-  const everies = rule ? [...new Set([1, 2, 3, 4, rule.every])].sort((a, b) => a - b) : [];
+  const everies = rule ? [...new Set([1, 2, 3, 4, 6, 8, 12, rule.every])].filter(n => rule.freq !== 'month' || n <= 12).sort((a, b) => a - b) : [];
+  const end = rule ? endOf(rule) : 'never';
+  const setEnd = (e: End) => {
+    if (!rule || e === end) return;
+    const { until: _, times: __, ...base } = rule;
+    if (e === 'until') onRule({ ...base, until: shiftDay(day, 8 * 7) });
+    else if (e === 'times') onRule({ ...base, times: Math.max(10, done + 1) });
+    else onRule(base);
+  };
   const chips: { p: Preset; name: string }[] = [
     { p: 'none', name: 'Doesn’t repeat' }, { p: 'day', name: 'Every day' }, { p: 'weekdays', name: 'Weekdays' }, { p: 'week', name: 'Weekly' }, { p: 'month', name: 'Monthly' },
   ];
@@ -85,8 +99,32 @@ export function RepeatField({ rule, time, day, onRule, onTime, repeating }: {
         </div>
       )}
       {rule && (
+        <div className="rep-end">
+          <span className="flabel sm" id={`${id}-e`}>Ends</span>
+          <div className="chips" role="radiogroup" aria-labelledby={`${id}-e`} onKeyDown={radioKeys}>
+            <button type="button" className="chipb" {...radio(end === 'never')} onClick={() => setEnd('never')}>Never</button>
+            <button type="button" className="chipb" {...radio(end === 'until')} onClick={() => setEnd('until')}>On a date</button>
+            <button type="button" className="chipb" {...radio(end === 'times')} onClick={() => setEnd('times')}>After a number of times</button>
+          </div>
+          {end === 'until' && (
+            <label className="chipb sel rep-at">
+              <span>Last day</span>
+              <input type="date" min={day} value={rule.until ?? ''} aria-label="Last day it repeats" onChange={e => { if (e.target.value) onRule({ ...rule, until: e.target.value }); }} />
+            </label>
+          )}
+          {end === 'times' && (
+            <label className="chipb sel rep-at rep-times">
+              <input type="number" inputMode="numeric" min={1} max={MAX_TIMES} value={rule.times ?? ''} aria-label="How many times it has to be done"
+                onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 1) onRule({ ...rule, times: Math.min(MAX_TIMES, n) }); }} />
+              <span>times{repeating ? <span className="muted num"> · {done} done so far</span> : null}</span>
+            </label>
+          )}
+        </div>
+      )}
+      {rule && (
         <p className="note">
           {describeRule(rule)}: each one {time ? 'goes on the calendar at that time' : 'waits in the backlog, due that day'}.
+          {rule.times ? ` It ends once ${rule.times} of them are done; missed ones don’t count.` : rule.until ? ' None comes after its last day.' : ''}
           {repeating ? ' A change to the days or the time starts with the next one.' : ''} One still open when the next comes is replaced.
         </p>
       )}
@@ -98,6 +136,7 @@ export function RepeatField({ rule, time, day, onRule, onTime, repeating }: {
 export function RepeatsSection() {
   const { repeats, applyRepeats, toast, tasks, openEditor, now, prefs } = usePlanner();
   const labels = new Map(prefs.labels.map(l => [l.id, l]));
+  const doneBy = repeatsDone(tasks);
   // Each repeat's open task, the latest if there's more than one.
   const open = new Map<string, string>();
   for (const t of [...tasks].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -124,7 +163,7 @@ export function RepeatsSection() {
                 <span className={'dot' + (label ? '' : ' none')} style={tint(label?.color)} />
                 <span className="rep-b">
                   {cur ? <button type="button" className="link rep-t" onClick={() => openEditor(cur)}>{r.title}</button> : <span className="rep-t">{r.title}</span>}
-                  <span className="note">{describeRepeat(r)}{next ? ` · next ${next}` : ''}</span>
+                  <span className="note">{describeRepeat(r)}{r.rule.times ? ` · ${doneBy.get(r.id) ?? 0} of ${r.rule.times} done` : ''}{next ? ` · next ${next}` : ''}</span>
                 </span>
                 <button type="button" className="btn text sm" onClick={() => stop(r)}>Stop</button>
               </li>

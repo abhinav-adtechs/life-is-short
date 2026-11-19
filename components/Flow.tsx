@@ -11,7 +11,8 @@ import { fmtDur, fmtWhen, longDate, shortTitle } from '@/lib/format';
 import { ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
 import { isEvent } from '@/lib/select';
-import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, TargetIcon, XIcon } from './icons';
+import { dayName, occurrenceOf } from '@/lib/repeat';
+import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, RepeatIcon, TargetIcon, XIcon } from './icons';
 
 /* ---------- geometry ---------- */
 
@@ -122,6 +123,14 @@ function stateText(s: Step, byId: Map<string, Step>, now: number) {
   }
   if (s.kind === 'milestone') return s.done ? 'Reached' : s.state === 'reached' ? 'Ready to tick' : s.needs.length ? `After ${s.needs.length} step${s.needs.length === 1 ? '' : 's'}` : 'Nothing leads here yet';
   if (s.kind === 'wait') return s.done ? 'Resolved' : s.state === 'blocked' ? 'Waiting, held up' : 'Waiting';
+  if (s.repeat) {
+    const { times, next } = s.repeat;
+    if (s.done) return times ? `All ${times} done` : 'Over';
+    const when = s.state === 'blocked' ? `Blocked by ${s.needs.filter(id => !byId.get(id)?.done).length}`
+      : s.task ? (s.task.start != null ? fmtWhen(s.task.start, now) : 'Ready') : next ? `Next ${dayName(next, now)}` : 'Nothing more to come';
+    // The count is on the step's repeat badge, and in the side panel.
+    return when;
+  }
   if (s.done) return 'Done';
   if (s.state === 'blocked') {
     const open = s.needs.filter(id => !byId.get(id)?.done).length;
@@ -152,9 +161,9 @@ type Sel = { kind: 'step'; id: string } | { kind: 'link'; key: string } | null;
 type KeyLike = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'preventDefault'> & { target: EventTarget | null };
 
 function FlowChart({ goal }: { goal: Goal }) {
-  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById } = usePlanner();
+  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById, repeats, applyRepeats } = usePlanner();
   const [all, setAll] = useState(false);
-  const flow = useMemo(() => buildFlow(goal, tasks, now, { all, goals }), [goal, tasks, now, all, goals]);
+  const flow = useMemo(() => buildFlow(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
   const trail = useMemo(() => ancestorsOf(new Map(goals.map(g => [g.id, g])), goal).reverse(), [goals, goal]);
   /** The step being dragged, where it is now. */
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -276,7 +285,11 @@ function FlowChart({ goal }: { goal: Goal }) {
   const rename = (s: Step, title: string) => {
     const v = title.replace(/\s+/g, ' ').trim();
     if (!v || v === s.title) return;
-    if (s.kind === 'task' && s.task) { const before = store.patch(s.id, { title: v.slice(0, 160) }); remember('rename', () => store.restore(before)); return; }
+    // One of a repeat's: the ones to come follow it.
+    if (s.kind === 'task' && s.task) { const before = store.patch(s.task.id, { title: v.slice(0, 160) }); remember('rename', () => store.restore(before)); return; }
+    // A repeat with none open: the repeat itself.
+    const r = s.repeat ? repeats.find(x => x.id === s.repeat?.id) : null;
+    if (r) { remember('rename', applyRepeats([{ kind: 'set', repeat: { ...r, title: v.slice(0, 160), updatedAt: Date.now() } }])); return; }
     if (s.kind === 'wait') {
       const back = plan(p => patchWait(p, s.id, { title: v.slice(0, WAIT_TITLE_MAX) }));
       log({ op: 'rename', step: s.id, title: v, was: s.title });
@@ -323,10 +336,11 @@ function FlowChart({ goal }: { goal: Goal }) {
   };
 
   const toggle = (s: Step) => {
+    if (s.repeat && !s.task) { say(s.repeat.next ? `Nothing of it is open: the next one comes ${dayName(s.repeat.next, now)}.` : 'It’s over: nothing more to come.'); return; }
     if (s.kind === 'task' && s.task) {
       if (s.task.externalId?.startsWith('gcal:')) { say('A meeting is done once it’s over.'); return; }
       const isDone = s.task.status !== 'done';
-      const before = store.patch(s.id, { status: isDone ? 'done' : 'open', doneAt: isDone ? Date.now() : null });
+      const before = store.patch(s.task.id, { status: isDone ? 'done' : 'open', doneAt: isDone ? Date.now() : null });
       remember(isDone ? 'tick it off' : 'reopen it', () => store.restore(before));
       return;
     }
@@ -371,8 +385,15 @@ function FlowChart({ goal }: { goal: Goal }) {
       log({ op: 'remove', step: s.id, title: s.title });
       remember('drop the sub-goal', () => { back(); off(); });
     }
+    else if (s.repeat) {
+      // Stop it (its open one goes too), or take the whole series off this goal.
+      const r = repeats.find(x => x.id === s.repeat?.id);
+      const before = s.task ? (how === 'delete' ? store.remove([s.task.id]) : store.patch(s.task.id, { goal: null })) : null;
+      const unrepeat = r ? applyRepeats([how === 'delete' ? { kind: 'stop', id: r.id } : { kind: 'set', repeat: { ...r, goal: null, updatedAt: Date.now() } }]) : () => undefined;
+      remember(how === 'delete' ? 'stop repeating' : 'take it off the goal', () => { back(); unrepeat(); if (before) store.restore(before); });
+    }
     else if (s.task) {
-      const before = how === 'delete' ? store.remove([s.id]) : store.patch(s.id, { goal: null });
+      const before = how === 'delete' ? store.remove([s.task.id]) : store.patch(s.task.id, { goal: null });
       remember(how === 'delete' ? 'delete it' : 'take it off the goal', () => { back(); store.restore(before); });
     }
     setSel(null);
@@ -382,8 +403,9 @@ function FlowChart({ goal }: { goal: Goal }) {
   /** Delete pressed on a step, and the answer yes. */
   const confirmDelete = (s: Step, how: 'off' | 'delete' = 'delete') => {
     const external = !!s.task?.externalId;
-    removeStep(s, s.task && !external ? how : 'off');
-    say(`${s.kind === 'goal' ? 'Dropped' : s.task && (how === 'off' || external) ? 'Took off this goal:' : s.kind === 'wait' ? 'Removed' : 'Deleted'} “${shortTitle(s.title, 40)}”. ⌘Z undoes it.`);
+    removeStep(s, s.repeat || (s.task && !external) ? how : 'off');
+    const verb = s.kind === 'goal' ? 'Dropped' : s.repeat ? (how === 'off' ? 'Took off this goal:' : 'Stopped repeating') : s.task && (how === 'off' || external) ? 'Took off this goal:' : s.kind === 'wait' ? 'Removed' : 'Deleted';
+    say(`${verb} “${shortTitle(s.title, 40)}”. ⌘Z undoes it.`);
     scroller.current?.focus({ preventScroll: true });
   };
 
@@ -464,11 +486,14 @@ function FlowChart({ goal }: { goal: Goal }) {
   /** An off-goal task brought onto this goal: after `after` (before `before`, for a key result), or where it was dropped. */
   const adopt = (t: Task, o: { after?: string; before?: string; at?: Pos } = {}) => {
     const before = store.patch(t.id, { goal: goal.id, ...(goal.section ? { label: goal.section } : {}) });
-    const links = o.after ? [{ from: o.after, to: t.id }] : o.before ? [{ from: t.id, to: o.before }] : [];
+    // One of a repeat's brings the whole series, as one step.
+    const rid = occurrenceOf(t.id)?.repeat;
+    const sid = rid && repeats.some(r => r.id === rid) ? `rep:${rid}` : t.id;
+    const links = o.after ? [{ from: o.after, to: sid }] : o.before ? [{ from: sid, to: o.before }] : [];
     const spot = spotFor(o);
-    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, t.id, spot) : q; }) : () => undefined;
+    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, sid, spot) : q; }) : () => undefined;
     remember('bring it onto the goal', () => { back(); store.restore(before); });
-    setSel({ kind: 'step', id: t.id });
+    setSel({ kind: 'step', id: sid });
     // Keep the backlog open, for the next one.
     setSide('backlog');
     say(`“${shortTitle(t.title, 40)}” is on this goal now. ⌘Z undoes it.`);
@@ -515,7 +540,7 @@ function FlowChart({ goal }: { goal: Goal }) {
 
   const patchTask = (s: Step, part: Partial<Task>, label: string) => {
     if (!s.task) return;
-    const before = store.patch(s.id, part);
+    const before = store.patch(s.task.id, part);
     remember(label, () => store.restore(before));
   };
 
@@ -760,7 +785,7 @@ function FlowChart({ goal }: { goal: Goal }) {
                 const b = box(s.id);
                 const on = sel?.kind === 'step' && sel.id === s.id;
                 const sched = s.kind === 'task' && !s.done && s.task?.start != null;
-                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}${sched ? ' sched' : ''}`
+                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}${sched ? ' sched' : ''}${s.repeat ? ' rep' : ''}`
                   + `${dragPos?.id === s.id ? ' dragging' : ''}${lifting === s.id ? ' lifting' : ''}${confirm === s.id ? ' doomed' : ''}`;
                 return (
                   <div key={s.id} className={cls} data-step={s.id} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...tint }}
@@ -775,8 +800,9 @@ function FlowChart({ goal }: { goal: Goal }) {
                       onClick={e => { e.stopPropagation(); toggle(s); }}><CheckIcon size={10} w={2.6} /></button>
                     <span className="fn-t">{s.kind === 'wait' && <span className="fn-k">Waiting on </span>}{s.title}</span>
                     <span className="fn-m">
+                      {s.repeat && <span className="fn-rep" title={s.repeat.rule}><RepeatIcon size={10} />{s.repeat.times ? <span className="num">{s.repeat.done}/{s.repeat.times}</span> : null}</span>}
                       {sched && <CalendarIcon size={10} />}
-                      {s.kind === 'task' && <span className="num">{fmtDur(s.minutes)}</span>}
+                      {s.kind === 'task' && <span className="num">{fmtDur(s.repeat ? s.task?.minutes ?? s.minutes : s.minutes)}</span>}
                       {s.kind === 'goal' && s.progress != null && <span className="fn-bar" aria-hidden="true"><i style={{ width: `${Math.round(s.progress * 100)}%` }} /></span>}
                       <span className={'fn-st ' + s.state}>{stateText(s, flow.byId, now)}</span>
                     </span>
@@ -804,7 +830,8 @@ function FlowChart({ goal }: { goal: Goal }) {
                 if (!s || !b) return null;
                 const external = !!s.task?.externalId;
                 const under = s.result ? flatResults(s.result.results ?? []).length : s.goal ? descendantsOf(goals, s.goal.id).filter(d => d.status === 'active').length : 0;
-                const what = s.kind === 'goal' ? `Drop the sub-goal “${shortTitle(s.title, 40)}”${under ? `, and the ${under} under it` : ''}?`
+                const what = s.repeat ? `Stop repeating “${shortTitle(s.title, 40)}”?`
+                  : s.kind === 'goal' ? `Drop the sub-goal “${shortTitle(s.title, 40)}”${under ? `, and the ${under} under it` : ''}?`
                   : s.kind === 'milestone' ? `Delete the key result “${shortTitle(s.title, 40)}”${under ? `, and the ${under} under it` : ''}?`
                   : s.kind === 'wait' ? `Remove “Waiting on ${shortTitle(s.title, 40)}”?`
                   : external ? `Take “${shortTitle(s.title, 40)}” off this goal?` : `Delete “${shortTitle(s.title, 40)}”?`;
@@ -812,12 +839,13 @@ function FlowChart({ goal }: { goal: Goal }) {
                   <div className="fn-confirm" role="alertdialog" aria-label={what} style={{ left: b.x, top: b.y + b.h + 10 }}
                     onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                     <p>{what}</p>
-                    {s.task && !external && <p className="muted sm">It’s a task in your planner too, so it goes from there as well.</p>}
+                    {s.repeat ? <p className="muted sm">No more of it will come{s.task ? ', and the open one goes' : ''}. The ones you’ve done stay done.</p>
+                      : s.task && !external && <p className="muted sm">It’s a task in your planner too, so it goes from there as well.</p>}
                     <div className="acts">
                       <button type="button" className="btn sm pri" autoFocus onClick={() => confirmDelete(s)}>
-                        {s.kind === 'goal' ? 'Drop it' : s.kind === 'wait' ? 'Remove' : external ? 'Take it off' : 'Delete'}
+                        {s.repeat ? 'Stop it' : s.kind === 'goal' ? 'Drop it' : s.kind === 'wait' ? 'Remove' : external ? 'Take it off' : 'Delete'}
                       </button>
-                      {s.task && !external && <button type="button" className="btn sec sm" onClick={() => confirmDelete(s, 'off')}>Only off this goal</button>}
+                      {(s.repeat || (s.task && !external)) && <button type="button" className="btn sec sm" onClick={() => confirmDelete(s, 'off')}>Only off this goal</button>}
                       <button type="button" className="btn text sm" onClick={() => { setConfirm(null); scroller.current?.focus({ preventScroll: true }); }}>Cancel</button>
                     </div>
                     <p className="muted sm"><kbd>Delete</kbd> or <kbd>Enter</kbd> to confirm · <kbd>Esc</kbd> to keep it</p>
@@ -932,7 +960,7 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
 
   return (
     <div className="fi">
-      <p className="rv-k">{KIND[s.kind]}{s.critical ? ' · on the critical path' : ''}</p>
+      <p className="rv-k">{s.repeat ? 'Repeating task' : KIND[s.kind]}{s.critical ? ' · on the critical path' : ''}</p>
       <textarea ref={input} className="ed-title sm" rows={2} aria-label="Title" value={title} maxLength={s.kind === 'wait' ? WAIT_TITLE_MAX : 160}
         onChange={e => setTitle(e.target.value)} onBlur={() => act.rename(s, title)}
         onKeyDown={e => {
@@ -941,6 +969,16 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
           e.currentTarget.blur();
           (document.querySelector('.flow-scroll') as HTMLElement | null)?.focus({ preventScroll: true });
         }} />
+      {s.repeat && (
+        <div className="fi-rep">
+          <RepeatIcon size={14} />
+          <span>
+            <b>{s.repeat.rule}</b>
+            {s.repeat.times ? <> · <span className="num">{s.repeat.done} of {s.repeat.times} done</span></> : s.repeat.done ? <> · <span className="num">{s.repeat.done} done so far</span></> : null}
+          </span>
+          {s.repeat.times ? <span className="fi-rep-bar" aria-hidden="true"><i style={{ width: `${Math.round((s.repeat.done / s.repeat.times) * 100)}%` }} /></span> : null}
+        </div>
+      )}
       <p className={'fi-st ' + s.state}>{stateText(s, flow.byId, now)}{s.state === 'blocked' ? `: waiting for ${s.needs.filter(id => !flow.byId.get(id)?.done).map(id => `“${shortTitle(name(id), 28)}”`).join(', ')}` : ''}</p>
 
       <div className="acts">
@@ -1031,14 +1069,22 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
           </>}
       </div>
 
+      {t && !t.externalId && (
+        <button type="button" className="link sm fi-rep-edit" onClick={() => openEditor(t.id)}>
+          <RepeatIcon size={11} />{s.repeat ? 'Change how it repeats, or when it ends' : 'Make it repeat: days of the week, monthly, until a date or a number of times'}
+        </button>
+      )}
+
       <div className="acts fi-end">
         {t && <button type="button" className="btn text sm" onClick={() => openEditor(t.id)}>Open in the editor</button>}
         <span className="spacer" />
         {s.kind === 'wait' && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Remove</button>}
         {s.goal && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Drop this sub-goal</button>}
         {s.result && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Delete key result</button>}
-        {t && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Take off this goal</button>}
-        {t && !t.externalId && (
+        {s.repeat && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Take off this goal</button>}
+        {s.repeat && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'delete')}>Stop repeating</button>}
+        {t && !s.repeat && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Take off this goal</button>}
+        {t && !t.externalId && !s.repeat && (
           <button type="button" className="btn text sm warn" onBlur={() => setArmed(false)} onClick={() => { if (!armed) { setArmed(true); return; } act.removeStep(s, 'delete'); }}>
             {armed ? 'Click again to delete' : 'Delete'}
           </button>
@@ -1070,7 +1116,7 @@ function Backlog({ title, onCarry, onAdd }: { title: string | null; onCarry: (e:
           {list.slice(0, 200).map(t => (
             <li key={t.id} className={'fb-i' + (t.start != null ? ' sched' : '')} onPointerDown={e => onCarry(e, t)} title={wide ? 'Drag onto the chart' : undefined}>
               <span className={`fb-p p${t.priority}`} title={PRI[t.priority]} aria-label={PRI[t.priority]} />
-              <span className="fb-t">{t.title}</span>
+              <span className="fb-t">{occurrenceOf(t.id) && <RepeatIcon size={11} />}{t.title}</span>
               <span className="fb-m num">{t.start != null ? <><CalendarIcon size={10} />{fmtWhen(t.start, now)}</> : fmtDur(t.minutes)}</span>
               <button type="button" className="ib bare" aria-label={`Put “${t.title}” on this goal`} title={title ? `Add it after “${title}”` : 'Add it to the chart'} onClick={() => onAdd(t)}><PlusIcon size={13} /></button>
             </li>
@@ -1120,8 +1166,8 @@ function History({ goal }: { goal: Goal }) {
 
 /** A goal's chart, for what's blocked on it. */
 export function useGoalFlow(goal: Goal) {
-  const { tasks, now, goals } = usePlanner();
-  return useMemo(() => buildFlow(goal, tasks, now, { goals }), [goal, tasks, now, goals]);
+  const { tasks, now, goals, repeats } = usePlanner();
+  return useMemo(() => buildFlow(goal, tasks, now, { goals, repeats }), [goal, tasks, now, goals, repeats]);
 }
 
 /** The goal's step count, for buttons that open its chart. */

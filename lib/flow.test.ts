@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import { normalizeGoals, type Goal } from './goals';
+import type { Repeat } from './repeat';
 import {
-  RECENT_DONE, blockedTasks, buildFlow, coalesce, describeEntry, goalNode, holdups, krNode, logFromWrites, normalizeLog, normalizePlan, parallelLinks, toJson,
+  RECENT_DONE, blockedTasks, buildFlow, coalesce, describeEntry, goalNode, holdups, krNode, repeatNode, logFromWrites, normalizeLog, normalizePlan, parallelLinks, toJson,
   toMermaid, withLink, withPos, withWait, withoutLink, withoutPos, withoutStep, wouldLoop, type Plan,
 } from './flow';
 
@@ -313,5 +314,42 @@ describe('holdups', () => {
     expect(h.blocked.map(s => s.id).sort()).toEqual(['sign', 'spa']);
     expect(h.by.map(s => s.id).sort()).toEqual(['lawyer', 'wfunds']);
     expect(holdups(buildFlow(goal({ links: [], waits: [] }), tasks, NOW))).toEqual({ blocked: [], by: [] });
+  });
+});
+
+describe('repeating tasks', () => {
+  // Run three times a week, 4 times in all, then the race.
+  const runs: Repeat = {
+    id: 'rrun', title: 'Run 5 km', notes: '', priority: 2, minutes: 45, label: null, goal: 'g1', time: null, from: '2026-11-09', made: '2026-11-18',
+    rule: { freq: 'week', every: 1, days: [1, 3, 5], monthDay: null, times: 4 }, raw: '', created: 1, updatedAt: 1,
+  };
+  const occ = (day: string, extra: Partial<Task> = {}) => task(`rrun.${day}`, { title: 'Run 5 km', minutes: 45, ...extra });
+  const g = goal({ waits: [], links: [{ from: repeatNode(runs), to: 'race' }] }, { results: [] });
+  const ts = [occ('2026-11-09', { status: 'done', doneAt: at(9, 8) }), occ('2026-11-11', { status: 'done', doneAt: at(11, 8) }), occ('2026-11-18'), task('race')];
+
+  it('draws the whole series as one step, with how many are done', () => {
+    const f = buildFlow(g, ts, NOW, { repeats: [runs] });
+    expect(f.steps.filter(s => s.id.startsWith('rrun.'))).toEqual([]);
+    const s = f.byId.get('rep:rrun');
+    expect(s).toMatchObject({ kind: 'task', title: 'Run 5 km', state: 'ready', done: false, minutes: 90 });
+    expect(s?.repeat).toMatchObject({ id: 'rrun', done: 2, times: 4, rule: 'Every Mon, Wed and Fri, 4 times' });
+    expect(s?.task?.id).toBe('rrun.2026-11-18');
+    expect(f.byId.get('race')).toMatchObject({ state: 'blocked', needs: ['rep:rrun'] });
+    expect(toJson(g, f).steps.find(x => x.id === 'rep:rrun')).toMatchObject({ repeats: 'Every Mon, Wed and Fri, 4 times', times_done: 2 });
+  });
+
+  it('holds up what comes after it until it’s been done enough times', () => {
+    expect([...blockedTasks([g], ts, NOW, [runs])]).toEqual(['race']);
+    const four = [...ts.slice(0, 2), occ('2026-11-13', { status: 'done', doneAt: at(13, 8) }), occ('2026-11-16', { status: 'done', doneAt: at(16, 8) }), task('race')];
+    expect([...blockedTasks([g], four, NOW, [runs])]).toEqual([]);
+    expect(buildFlow(g, four, NOW, { repeats: [runs] }).byId.get('rep:rrun')).toMatchObject({ done: true, state: 'done' });
+    // Without the repeats, each one is a step of its own, as before.
+    expect(buildFlow(g, ts, NOW).byId.has('rrun.2026-11-18')).toBe(true);
+  });
+
+  it('a repeat on the goal with none open yet says when the next one comes', () => {
+    const s = buildFlow(g, [task('race')], NOW, { repeats: [runs] }).byId.get('rep:rrun');
+    expect(s?.task).toBeUndefined();
+    expect(s?.repeat?.next).toBe('2026-11-20');
   });
 });
