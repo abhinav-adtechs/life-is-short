@@ -1,7 +1,7 @@
 import type { Priority, Task } from './model';
 import type { Slip } from './slips';
 import { fmtTime, dayWord } from './format';
-import { DAY_MS, DOW, DOWL, addDays, atMinutes, fromYmd, minsOf, pad, ymd } from './time';
+import { DAY_MS, DOW, DOWL, MON, addDays, atMinutes, fromYmd, minsOf, pad, ymd } from './time';
 
 /*
  * Repeating tasks: "order groceries every Monday and Thursday".
@@ -18,6 +18,11 @@ import { DAY_MS, DOW, DOWL, addDays, atMinutes, fromYmd, minsOf, pad, ymd } from
  *   and `made`, the last day handled, means one you deleted (skipped) doesn't come back.
  * - What the task is (title, priority, length, label, notes) belongs to the repeat: change it on the open one and the
  *   ones to come follow. When this one happens, and ticking it off, belong to this one.
+ * - It can end: on a day (`until`), or once it's been done so many times (`times`), like "run 20 times for the half
+ *   marathon". Missed ones don't count towards that; ticked ones do.
+ * - It can be a number of times a week (or month) on no set days (`per`): "check support tickets 4 times a week". One
+ *   at a time waits in the backlog, due at the end of the week (or month); tick it and the next comes the next day,
+ *   until that many are done; then nothing till the next week. Each week's count is kept, from the ticked tasks.
  */
 
 export type Freq = 'day' | 'week' | 'month';
@@ -31,7 +36,18 @@ export interface Rule {
   days: number[];
   /** Monthly: the day of the month, 1–31; a shorter month uses its last day. Null takes the first day's. */
   monthDay: number | null;
+  /** YYYY-MM-DD: the last day it can land on. Missing or null: no end date. */
+  until?: string | null;
+  /** How many times it has to be done: it ends once that many of its tasks are ticked off. Missing or null: no count. */
+  times?: number | null;
+  /**
+   * Weekly or monthly: how many times a week (or month), on any day (or any of `days`), instead of on set days. One a
+   * day at most. Missing or null: on its days.
+   */
+  per?: number | null;
 }
+
+export const MAX_TIMES = 999;
 
 export interface Repeat {
   id: string;
@@ -78,10 +94,15 @@ export const timeOf = (ms: number) => `${pad(new Date(ms).getHours())}:${pad(new
 
 /** Whether the repeat lands on a day (YYYY-MM-DD). */
 export function occursOn(r: Pick<Repeat, 'rule' | 'from'>, day: string): boolean {
-  if (day < r.from) return false;
+  if (day < r.from || (r.rule.until && day > r.rule.until)) return false;
   const { freq, every } = r.rule;
   const d = dayNum(day), f = dayNum(r.from);
   if (freq === 'day') return (d - f) % every === 0;
+  // A number of times a week or month: any day of it can have one (or any of its days).
+  if (r.rule.per) {
+    if (freq === 'month') return true;
+    return !r.rule.days.length || r.rule.days.includes(weekdayOf(d));
+  }
   if (freq === 'week') {
     const days = r.rule.days.length ? r.rule.days : [weekdayOf(f)];
     // Weeks run Monday to Sunday, counted from the one holding the first day.
@@ -127,7 +148,44 @@ export function placeFirst(rule: Rule, c: { date: string | null; time: string | 
   const tm = /^(\d{1,2}):(\d{2})$/.exec(c.time || '');
   const time = !c.deadline && tm && +tm[1] < 24 && +tm[2] < 60 ? `${pad(+tm[1])}:${tm[2]}` : null;
   const day = firstDay(rule, time, now, c.date);
-  return time ? { start: atMinutes(fromYmd(day), minsOfTime(time)), due: null } : { start: null, due: day };
+  return time ? { start: atMinutes(fromYmd(day), minsOfTime(time)), due: null } : { start: null, due: rule.per ? repeatPeriod(rule, day).end : day };
+}
+
+/** The week (Monday to Sunday) or month holding a day, for a number of times a week or month. */
+export function repeatPeriod(rule: Pick<Rule, 'freq'>, day: string): { start: string; end: string } {
+  if (rule.freq === 'month') {
+    const [y, m] = day.split('-').map(Number);
+    return { start: `${day.slice(0, 8)}01`, end: `${day.slice(0, 8)}${pad(new Date(y, m, 0).getDate())}` };
+  }
+  const mon = mondayOf(dayNum(day));
+  const at = (n: number) => { const x = new Date(n * DAY_MS); return `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-${pad(x.getUTCDate())}`; };
+  return { start: at(mon), end: at(mon + 6) };
+}
+
+/** How many of a repeat's tasks made in a period (YYYY-MM-DD, inclusive) are ticked off. */
+export function doneIn(rid: string, tasks: Task[], start: string, end: string): number {
+  let n = 0;
+  for (const t of tasks) {
+    const o = t.status === 'done' ? occurrenceOf(t.id) : null;
+    if (o && o.repeat === rid && o.day >= start && o.day <= end) n++;
+  }
+  return n;
+}
+
+/**
+ * The log of a number-of-times-a-week (or month) repeat: this week's count and the ones before, newest first, back to
+ * when it started. `left` is how many days of this period are still to come (today included).
+ */
+export function tallies(r: Pick<Repeat, 'id' | 'rule' | 'from'>, tasks: Task[], now: number, count = 6) {
+  const today = ymd(now), per = r.rule.per ?? 0;
+  const out: { start: string; end: string; done: number; per: number }[] = [];
+  let p = repeatPeriod(r.rule, today);
+  for (let i = 0; i < count && p.end >= r.from; i++) {
+    out.push({ ...p, done: doneIn(r.id, tasks, p.start, p.end), per });
+    p = repeatPeriod(r.rule, shiftDay(p.start, -1));
+  }
+  const left = dayNum(repeatPeriod(r.rule, today).end) - dayNum(today) + 1;
+  return { list: out, left };
 }
 
 /* ---------- occurrences ---------- */
@@ -146,7 +204,8 @@ export function occurrence(r: Repeat, day: string, now: number): Task {
   const start = r.time ? atMinutes(fromYmd(day), minsOfTime(r.time)) : null;
   return {
     id: occurrenceId(r.id, day), title: r.title, raw: r.raw, notes: r.notes, priority: r.priority, minutes: r.minutes,
-    start, due: start == null ? day : null, status: 'open', created: now, order: now, doneAt: null, label: r.label, updatedAt: now,
+    // A number of times a week is due by the end of the week.
+    start, due: start == null ? (r.rule.per ? repeatPeriod(r.rule, day).end : day) : null, status: 'open', created: now, order: now, doneAt: null, label: r.label, updatedAt: now,
     ...(r.goal ? { goal: r.goal } : {}),
   };
 }
@@ -169,10 +228,14 @@ export interface Due {
 export function dueNow(repeats: Repeat[], tasks: Task[], now: number): Due {
   const today = ymd(now);
   const have = new Set(tasks.map(t => t.id));
+  const done = repeatsDone(tasks);
   const out: Due = { puts: [], removes: [], slips: [], made: new Map() };
   for (const r of repeats) {
     if (r.made >= today) continue;
     out.made.set(r.id, today);
+    // Done as many times as it needed to be: no more.
+    if (r.rule.times && (done.get(r.id) ?? 0) >= r.rule.times) continue;
+    if (r.rule.per) { dueQuota(r, tasks, today, now, have, out); continue; }
     const day = lastOn(r, r.made, today);
     if (!day) continue;
     const id = occurrenceId(r.id, day);
@@ -195,10 +258,33 @@ export function dueNow(repeats: Repeat[], tasks: Task[], now: number): Due {
   return out;
 }
 
+/**
+ * A number of times a week (or month): one open at a time. Today gets one when none of this period's is open and fewer
+ * than that many are done; one still open from a period that's over is replaced, and counts as missed.
+ */
+function dueQuota(r: Repeat, tasks: Task[], today: string, now: number, have: Set<string>, out: Due) {
+  const p = repeatPeriod(r.rule, today);
+  let open = false;
+  for (const t of tasks) {
+    const o = occurrenceOf(t.id);
+    if (!o || o.repeat !== r.id || t.status !== 'open') continue;
+    if (o.day >= p.start) { open = true; continue; }
+    out.removes.push(t.id);
+    out.slips.push({
+      id: t.id, start: fromYmd(t.due ?? o.day).getTime(), minutes: t.minutes, title: t.title, label: t.label ?? null, priority: t.priority,
+      at: now, how: 'replaced', due: true, ...(t.goal ? { goal: t.goal } : {}),
+    });
+  }
+  const id = occurrenceId(r.id, today);
+  if (open || have.has(id) || !occursOn(r, today) || doneIn(r.id, tasks, p.start, p.end) >= (r.rule.per ?? 0)) return;
+  out.puts.push(occurrence(r, today, now));
+}
+
 /** The timed ones still to come on a day, not made yet: faint on the calendar, and busy time for slotting. */
 export function upcomingOn(repeats: Repeat[], day: string, now: number): Task[] {
   if (day <= ymd(now)) return [];
-  return repeats.filter(r => r.time && day > r.made && occursOn(r, day)).map(r => occurrence(r, day, now));
+  // A number of times a week has no set days to show.
+  return repeats.filter(r => r.time && !r.rule.per && day > r.made && occursOn(r, day)).map(r => occurrence(r, day, now));
 }
 
 /** The timed ones to come over the next `days` days, for slotting around. */
@@ -207,6 +293,38 @@ export const upcoming = (repeats: Repeat[], now: number, days = 14) =>
 
 /** The next day it lands on that doesn't have its task yet. */
 export const nextDue = (r: Repeat, now: number) => nextOn(r, r.made > ymd(now) ? r.made : ymd(now));
+
+/** When a number-of-times-a-week repeat has its next one: tomorrow, or the next week once this one's are done. */
+export function nextQuota(r: Repeat, tasks: Task[], now: number): string | null {
+  const today = ymd(now), p = repeatPeriod(r.rule, today);
+  const after = doneIn(r.id, tasks, p.start, p.end) >= (r.rule.per ?? 0) ? p.end : today;
+  return nextOn(r, after);
+}
+
+/** How many of each repeat's tasks are ticked off, by repeat id. */
+export function repeatsDone(tasks: Task[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const t of tasks) {
+    const o = t.status === 'done' ? occurrenceOf(t.id) : null;
+    if (o) out.set(o.repeat, (out.get(o.repeat) ?? 0) + 1);
+  }
+  return out;
+}
+
+/**
+ * Whether a repeat is over: done as many times as it had to be, or past its last day with nothing of it left open.
+ * One with no end never is.
+ */
+export function repeatOver(r: Pick<Repeat, 'id' | 'rule'>, done: number, today: string, open = false): boolean {
+  if (r.rule.times && done >= r.rule.times) return true;
+  return !!r.rule.until && today > r.rule.until && !open;
+}
+
+/** The repeats still going, for the ones to come on the calendar. */
+export const liveRepeats = (repeats: Repeat[], tasks: Task[], now: number) => {
+  const done = repeatsDone(tasks), today = ymd(now);
+  return repeats.filter(r => !repeatOver(r, done.get(r.id) ?? 0, today, true));
+};
 
 /* ---------- making and changing ---------- */
 
@@ -221,7 +339,7 @@ export function startRepeat(s: RepeatSpec, now: number, id = newRepeatId()): Rep
   const today = ymd(now);
   const f = dayNum(s.from);
   const rule = { ...s.rule };
-  if (rule.freq === 'week' && !rule.days.length) rule.days = [weekdayOf(f)];
+  if (rule.freq === 'week' && !rule.days.length && !rule.per) rule.days = [weekdayOf(f)];
   if (rule.freq === 'month' && rule.monthDay == null) rule.monthDay = +s.from.slice(8, 10);
   return {
     id, title: s.title, notes: s.notes, priority: s.priority, minutes: s.minutes, label: s.label ?? null, raw: s.raw.slice(0, 600),
@@ -296,11 +414,24 @@ export function toRule(v: unknown): Rule | null {
   )).filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
   const md = Math.round(Number(o.monthDay ?? o.monthday));
   const monthDay = freq === 'month' && md >= 1 && md <= 31 ? md : null;
-  return { freq, every, days, monthDay };
+  // How it ends, if it does: on a day, or after being done so many times.
+  const until = typeof o.until === 'string' && YMD.test(o.until) ? o.until : null;
+  const t = Math.round(Number(o.times));
+  const times = Number.isFinite(t) && t >= 1 ? Math.min(t, MAX_TIMES) : null;
+  // A number of times a week or month, at most one a day.
+  const pr = Math.round(Number(o.per));
+  const per = freq !== 'day' && Number.isFinite(pr) && pr >= 1 ? Math.min(pr, freq === 'week' ? (days.length || 7) : 31) : null;
+  return {
+    freq, every: per ? 1 : every, days, monthDay: per ? null : monthDay,
+    ...(until ? { until } : {}), ...(times ? { times } : {}), ...(per ? { per } : {}),
+  };
 }
 
 /** The rule as the prompt shows it to the model, with weekday names. */
-export const ruleForModel = (r: Rule) => ({ freq: r.freq, every: r.every, days: r.days.map(d => DAY_KEYS[d]), monthday: r.monthDay });
+export const ruleForModel = (r: Rule) => ({
+  freq: r.freq, every: r.every, days: r.days.map(d => DAY_KEYS[d]), monthday: r.monthDay, until: r.until ?? null, times: r.times ?? null,
+  per: r.per ?? null,
+});
 
 const PRIS = new Set([1, 2, 3]);
 const ID = /^r[0-9a-z]{1,30}$/;
@@ -338,9 +469,29 @@ const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const everyN = (n: number, unit: string) => (n === 1 ? `Every ${unit}` : n === 2 ? `Every other ${unit}` : `Every ${n} ${unit}s`);
 
-/** "Every day", "Every weekday", "Every Mon and Thu", "Every other week on Monday", "Every month on the 1st". */
+/** How a repeat ends, if it does: ", 20 times", ", until 31 Dec 2026". */
+export function describeEnd(rule: Pick<Rule, 'until' | 'times'>): string {
+  const [y, m, d] = (rule.until ?? '').split('-').map(Number);
+  return `${rule.times ? `, ${rule.times} time${rule.times === 1 ? '' : 's'}` : ''}${rule.until ? `, until ${d} ${MON[m - 1]} ${y}` : ''}`;
+}
+
+/**
+ * "Every day", "Every weekday", "Every Mon and Thu", "Every other week on Monday", "Every month on the 1st", and how it
+ * ends: "Every Monday, 20 times".
+ */
 export function describeRule(rule: Rule): string {
+  return describeDays(rule) + describeEnd(rule);
+}
+
+/** "Once a week", "Twice a week", "4 times a week", "3 times a month". */
+const timesA = (n: number, unit: string) => `${n === 1 ? 'Once' : n === 2 ? 'Twice' : `${n} times`} a ${unit}`;
+
+function describeDays(rule: Rule): string {
   if (rule.freq === 'day') return everyN(rule.every, 'day');
+  if (rule.per) {
+    const on = rule.freq === 'week' && rule.days.length && rule.days.length < 7 ? describeDays({ ...rule, per: null, every: 1 }).replace(/^Every /, '') : null;
+    return `${timesA(rule.per, rule.freq)}${on ? `, on ${on === 'weekday' ? 'weekdays' : on === 'weekend' ? 'weekends' : on}` : ''}`;
+  }
   if (rule.freq === 'month') return `${everyN(rule.every, 'month')}${rule.monthDay ? ` on the ${ordinal(rule.monthDay)}` : ''}`;
   // Monday first, Sunday last.
   const days = [...rule.days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
@@ -357,7 +508,8 @@ export function describeRule(rule: Rule): string {
 }
 
 export const sameRule = (a: Rule | null, b: Rule | null) => !!a && !!b && a.freq === b.freq && a.every === b.every
-  && a.days.join() === b.days.join() && (a.monthDay ?? null) === (b.monthDay ?? null);
+  && a.days.join() === b.days.join() && (a.monthDay ?? null) === (b.monthDay ?? null)
+  && (a.until ?? null) === (b.until ?? null) && (a.times ?? null) === (b.times ?? null) && (a.per ?? null) === (b.per ?? null);
 
 /** The weekday of a YYYY-MM-DD, 0 Sunday to 6 Saturday. */
 export const weekdayOfDay = (day: string) => weekdayOf(dayNum(day));
@@ -411,6 +563,13 @@ const daysIn = (s: string) => [...new Set((s.toLowerCase().match(new RegExp(`${P
   .map(w => DAY_NAMES[w.slice(0, 3)]))].sort((a, b) => a - b);
 
 const PATTERNS: [RegExp, (m: RegExpMatchArray) => Rule][] = [
+  // "4 times a week", "twice a month": a number of times, on no set days.
+  [new RegExp(`\\b(twice|${N})\\s*(?:times|x)\\s*(?:a|per|each|every)\\s+(week|month)\\b|\\btwice\\s+(?:a|per|each)\\s+(week|month)\\b`, 'i'),
+    m => {
+      const unit = (m[2] ?? m[3]).toLowerCase() as 'week' | 'month';
+      const n = /^twice$/i.test(m[1] ?? 'twice') ? 2 : nOf(m[1]);
+      return { freq: unit, every: 1, days: [], monthDay: null, per: Math.min(n, unit === 'week' ? 7 : 31) };
+    }],
   [new RegExp(`\\b(?:every|each)\\s+(${N}\\s+)?(?:week\\s+on\\s+|weeks\\s+on\\s+)?(${DAYS})\\b`, 'i'),
     m => ({ freq: 'week', every: nOf(m[1]?.trim()), days: daysIn(m[2]), monthDay: null })],
   [new RegExp(`\\b(?:on\\s+)?(${PLURAL}(?:\\s*(?:,|and|&|/|\\+)?\\s*${PLURAL})*)\\b`, 'i'),
@@ -435,7 +594,11 @@ export function takeRepeat(text: string): { rule: Rule; rest: string } | null {
     if (!m) continue;
     const rule = make(m);
     if (rule.freq === 'week' && rule.days.length === 7 && rule.every === 1) Object.assign(rule, { freq: 'day', days: [] });
-    return { rule, rest: text.replace(m[0], ' ').replace(/\s{2,}/g, ' ').trim() };
+    let rest = text.replace(m[0], ' ');
+    // How many times, when it says: "20 times", "for 10 sessions".
+    const times = new RegExp(`\\b(?:for\\s+)?(${N})\\s+(?:times|sessions|runs|reps)\\b`, 'i').exec(rest);
+    if (times) { rule.times = Math.min(MAX_TIMES, nOf(times[1])); rest = rest.replace(times[0], ' '); }
+    return { rule, rest: rest.replace(/\s{2,}/g, ' ').trim() };
   }
   return null;
 }

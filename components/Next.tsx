@@ -7,6 +7,7 @@ import { MIN, endOf, minsOf, startOfDay, ymd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { describeRule } from '@/lib/repeat';
 import { CalendarIcon, CheckIcon, RepeatIcon, TargetIcon } from './icons';
+import { useRepeatWeek } from './Matrix';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
 
@@ -24,8 +25,9 @@ function nextWhen(t: Task, now: number) {
  * your day goes.
  */
 export function NextCard({ phone }: { phone?: boolean }) {
-  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf, goalOf, activeGoals } = usePlanner();
+  const { store, now, prefs, done, schedule, openEditor, labelOf, completing, repeatOf, goalOf, activeGoals, openSheet, blocked } = usePlanner();
   const { focus: f, busy, freeUntil } = useLists();
+  const weeks = useRepeatWeek();
   const cur = f.now;
   const dayStart = startOfDay(now).getTime() + prefs.dayStart * 3600000;
   const dayPct = Math.max(0, Math.min(100, ((now - dayStart) / ((prefs.dayEnd - prefs.dayStart) * 3600000)) * 100));
@@ -41,6 +43,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
   const label = labelOf(cur);
   const goal = goalOf(cur);
   const repeat = repeatOf(cur);
+  const week = weeks.get(repeat?.id ?? '');
   const due = cur.due ? dueLabel(cur.due, now) : null;
   const finishing = completing.has(cur.id);
   const context = f.live ? `Until ${fmtTime(endOf(cur))}`
@@ -64,7 +67,10 @@ export function NextCard({ phone }: { phone?: boolean }) {
       </h1>
       {goal ? (
         <p className="next-goal" style={tint(label?.color)} key={`g:${cur.id}`}>
-          <TargetIcon size={13} /><span className="muted">Moves</span><span className="ell">{goal.title}</span>
+          <button type="button" onClick={() => openSheet('flow', goal.id)} title="See where it sits on the goal’s flow chart">
+            <TargetIcon size={13} /><span className="muted">Moves</span><span className="ell">{goal.title}</span>
+          </button>
+          {blocked.has(cur.id) && <span className="loz">Blocked</span>}
         </p>
       ) : activeGoals.length > 0 && (
         <p className="next-goal off" key={`g:${cur.id}`}><span className="dot none" />Off-goal</p>
@@ -75,7 +81,12 @@ export function NextCard({ phone }: { phone?: boolean }) {
             {cur.priority === 1 && <span className="loz hot">Urgent</span>}
             {label && <span className="dot" style={tint(label.color)} />}
             <span className="ell">{fmtDur(cur.minutes)}</span>
-            {repeat && <span className="rep-g" title={describeRule(repeat.rule)}><RepeatIcon size={12} /><span className="sr">{describeRule(repeat.rule)}</span></span>}
+            {repeat && (
+              <span className={'rep-g' + (week?.behind ? ' hot' : '')} title={describeRule(repeat.rule)}>
+                <RepeatIcon size={12} />{week ? <span className="num">{week.done} of {week.per} this {week.unit === 'wk' ? 'week' : 'month'}</span> : null}
+                <span className="sr">{describeRule(repeat.rule)}</span>
+              </span>
+            )}
           </div>
           <button type="button" className="btn pri tall" disabled={finishing} onClick={() => done(cur.id, true)}>Done</button>
           <button type="button" className="btn sec tall" onClick={() => schedule(cur.id)}>Schedule</button>
@@ -86,7 +97,11 @@ export function NextCard({ phone }: { phone?: boolean }) {
           <span>{fmtDur(cur.minutes)}</span>
           {label && !goal && <span className="lab"><span className="dot" style={tint(label.color)} />{label.name}</span>}
           {due && <span className={due.hot ? 'hot' : undefined}>{due.text}</span>}
-          {repeat && <span className="rep-l"><RepeatIcon size={12} />{describeRule(repeat.rule)}</span>}
+          {repeat && (
+            <span className={'rep-l' + (week?.behind ? ' hot' : '')}><RepeatIcon size={12} />{describeRule(repeat.rule)}
+              {week ? <span className="num"> · {week.done} of {week.per} this {week.unit === 'wk' ? 'week' : 'month'}</span> : null}
+            </span>
+          )}
           <span className="spacer" />
           <span className="acts">
             <button type="button" className="btn pri sm" disabled={finishing} onClick={() => done(cur.id, true)}><CheckIcon />Done</button>

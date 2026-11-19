@@ -5,10 +5,10 @@ import { PRI } from '@/lib/model';
 import { hasSupabase } from '@/lib/supabase';
 import { progress } from '@/lib/select';
 import { dueLabel, fmtDur } from '@/lib/format';
-import { usePlanner, useLists } from './Planner';
+import { usePlanner } from './Planner';
 import { Brand } from './Brand';
 import { NextCard } from './Next';
-import { PhoneMatrix } from './Matrix';
+import { PhoneMatrix, useOpenCount } from './Matrix';
 import { PhoneCalendar } from './Calendar';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
@@ -20,7 +20,7 @@ const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
 /** The ••• menu: how the day and week are going and how much went to goals, then Goals, Analytics, Share and Settings. */
 function Menu({ onClose }: { onClose: () => void }) {
-  const { tasks, now, prefs, openSheet, inbox, activeGoals } = usePlanner();
+  const { tasks, now, prefs, openSheet, inbox, topGoals: activeGoals } = usePlanner();
   const m = progress(tasks, now, prefs.weekStart);
   const g = useGoalWeek();
   const share = g.share == null ? null : Math.round(g.share * 100);
@@ -68,7 +68,7 @@ function SchedulingCard() {
  */
 export function Phone() {
   const { tasks, now, prefs, editorId, sheet, chat, picked, phoneTab, setPhoneTab } = usePlanner();
-  const { backlog } = useLists();
+  const open = useOpenCount();
   const [menu, setMenu] = useState(false);
   const m = progress(tasks, now, prefs.weekStart);
   const covered = !!editorId || !!sheet || chat.open || menu;
@@ -85,8 +85,8 @@ export function Phone() {
       </header>
       <div className="ph-scroll" inert={covered}>
         {picked ? <SchedulingCard /> : <NextCard phone />}
-        <div className="tabs" role="tablist" aria-label="Matrix or calendar">
-          <button type="button" role="tab" aria-selected={phoneTab === 'matrix'} onClick={() => setPhoneTab('matrix')}>Matrix <span className="muted num">{backlog.length}</span></button>
+        <div className="tabs" role="tablist" aria-label="Goals or calendar">
+          <button type="button" role="tab" aria-selected={phoneTab === 'matrix'} onClick={() => setPhoneTab('matrix')}>Goals <span className="muted num">{open}</span></button>
           <button type="button" role="tab" aria-selected={phoneTab === 'calendar'} onClick={() => setPhoneTab('calendar')}>Calendar</button>
         </div>
         {phoneTab === 'matrix' ? <PhoneMatrix /> : <PhoneCalendar />}

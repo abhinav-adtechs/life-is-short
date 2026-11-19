@@ -346,7 +346,7 @@ function GoalTime({ data }: Ctx) {
         <thead><tr><th scope="col">Goal</th><th scope="col">Time</th><th scope="col">Share</th><th scope="col">Done</th><th scope="col">Missed</th></tr></thead>
         <tbody>{rows.map(r => (
           <tr key={r.id || '-'} className={r.id ? undefined : 'rv-off'}>
-            <th scope="row"><span className="rv-lab">{dot(r.color)}<span className="ell">{r.name}</span>{r.status && r.status !== 'active' && <span className="muted sm">{r.status}</span>}</span></th>
+            <th scope="row"><span className="rv-lab" style={r.depth ? { paddingInlineStart: r.depth * 14 } : undefined}>{r.depth ? <span className="muted" aria-label="sub-goal">›</span> : dot(r.color)}<span className="ell">{r.name}</span>{r.status && r.status !== 'active' && <span className="muted sm">{r.status}</span>}</span></th>
             <td>{fmtDur(r.minutes)}</td><td>{pct(r.share)}</td><td>{r.done.count + r.held.count}</td><td>{r.outcomes.missed}</td>
           </tr>
         ))}</tbody>

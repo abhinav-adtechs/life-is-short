@@ -1,7 +1,7 @@
 import type { Priority, Task } from './model';
 import { PRI } from './model';
 import type { Label } from './labels';
-import type { Goal } from './goals';
+import { goalTree, rootOf, type Goal } from './goals';
 import type { WorkHours } from './place';
 import { slipKey, type Slip } from './slips';
 import { fmtDur, fmtTime, shortDate } from './format';
@@ -210,7 +210,8 @@ interface Ctx {
 
 function context(input: ReviewInput): Ctx {
   const known = new Set(input.labels.map(l => l.id));
-  const goals = input.goals ?? [];
+  // Each goal followed by its sub-goals.
+  const goals = goalTree(input.goals ?? []).map(x => x.goal);
   const knownGoals = new Set(goals.map(g => g.id));
   const labelOf = input.labelOf ?? ((t: Task) => t.label ?? null);
   const lab = (id: string | null | undefined) => (id && known.has(id) ? id : '');
@@ -340,7 +341,8 @@ export interface LabelRow {
 }
 
 /** A goal's line in the review, in the same shape as a label's; '' is off-goal. */
-export type GoalRow = LabelRow & { status: Goal['status'] | null };
+/** A goal's row; depth is how far down the goal tree it sits (0 for a top goal), and its colour its top goal's section's. */
+export type GoalRow = LabelRow & { status: Goal['status'] | null; depth: number };
 
 export interface PriorityRow { priority: Priority; name: string; done: Tally; outcomes: Outcomes }
 
@@ -410,8 +412,11 @@ export function review(input: ReviewInput, p: Period): Review {
   const rows = new Map<string, LabelRow>([...c.labels.map(l => ({ id: l.id, name: l.name, color: l.color as string | null })), { id: '', name: 'No section', color: null }]
     .map(l => [l.id, { ...l, done: tally(), held: tally(), minutes: 0, share: 0, outcomes: outcomes() }]));
   const sectionColor = (id: string | null) => c.labels.find(l => l.id === id)?.color ?? null;
-  const goalRows = new Map<string, GoalRow>([...c.goals.map(g => ({ id: g.id, name: g.title, color: sectionColor(g.section) as string | null, status: g.status as GoalRow['status'] })),
-    { id: '', name: 'Off-goal', color: null, status: null }]
+  const goalIndex = new Map(c.goals.map(g => [g.id, g]));
+  const depthOf = (g: Goal) => { let n = 0; for (let up = g.parent ? goalIndex.get(g.parent) : undefined; up && n < 8; up = up.parent ? goalIndex.get(up.parent) : undefined) n++; return n; };
+  const goalRows = new Map<string, GoalRow>([...c.goals.map(g => ({
+    id: g.id, name: g.title, color: sectionColor(rootOf(goalIndex, g).section) as string | null, status: g.status as GoalRow['status'], depth: depthOf(g),
+  })), { id: '', name: 'Off-goal', color: null, status: null, depth: 0 }]
     .map(g => [g.id, { ...g, done: tally(), held: tally(), minutes: 0, share: 0, outcomes: outcomes() }]));
   const days = daysIn(p);
   const buckets: Bucket[] = p.span === 'day'
@@ -571,7 +576,13 @@ export function insights(r: Review, now: number): string[] {
     const on = time - (r.byGoal[''] ?? 0), prevTime = r.prev.done.minutes + r.prev.held.minutes;
     const share = on / time, prevShare = prevTime ? (prevTime - (r.prev.byGoal[''] ?? 0)) / prevTime : null;
     out.push(`${pct(share)} of your time went to your goals${prevShare != null ? `, ${Math.abs(share - prevShare) < 0.05 ? 'about the same as' : share > prevShare ? `up from ${pct(prevShare)}` : `down from ${pct(prevShare)}`} ${than}` : ''}.`);
-    const idle = r.goals.filter(g => g.id && g.status === 'active' && !g.minutes);
+    // A top goal is idle when neither it nor anything under it (the rows after it, deeper down) got time.
+    const idle = r.goals.filter((g, i) => {
+      if (!g.id || g.depth || g.status !== 'active') return false;
+      let end = i + 1;
+      while (end < r.goals.length && r.goals[end].depth > 0) end++;
+      return !r.goals.slice(i, end).some(x => x.minutes);
+    });
     if (idle.length === 1) out.push(`Nothing moved “${idle[0].name}” in this stretch.`);
     else if (idle.length > 1) out.push(`${plural(idle.length, 'goal')} got no time in this stretch.`);
   }

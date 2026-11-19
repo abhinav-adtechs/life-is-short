@@ -301,3 +301,16 @@ export function useVoice(opts: {
     supported: () => !!speechCtor() && !blocked.current,
   };
 }
+
+/** Why the mic can't listen, and what to do about it. */
+export function noVoiceText(why: NoVoice): string {
+  if (why === 'denied') {
+    const app = native();
+    if (app) return `Life is short can’t use the mic. Allow Microphone and Speech Recognition for it in ${app.platform === 'macos' ? 'System Settings' : 'Settings'} → Privacy & Security.`;
+    return 'The mic is blocked for this site. Allow it in your browser’s site settings, then try again.';
+  }
+  if (why === 'no-mic') return 'No microphone found. Plug one in, or type it here.';
+  return window.matchMedia('(pointer: coarse)').matches
+    ? 'Tap the mic on your keyboard and talk. It types straight into this box.'
+    : 'This browser can’t take dictation. Type it here instead.';
+}

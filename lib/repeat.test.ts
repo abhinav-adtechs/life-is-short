@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import {
-  applyOps, describeRepeat, describeRule, dueNow, firstDay, followTask, lastOn, makeRepeating, markMade, nextOn, nextWhen,
-  normalizeRepeats, occurrence, occurrenceId, occurrenceOf, occursOn, repeatChoices, startRepeat, takeRepeat, toRule,
-  undoOps, upcoming, upcomingOn, type Repeat, type Rule,
+  applyOps, describeRepeat, describeRule, dueNow, firstDay, followTask, lastOn, liveRepeats, makeRepeating, markMade, nextOn, nextWhen,
+  nextQuota, normalizeRepeats, occurrence, occurrenceId, occurrenceOf, occursOn, repeatChoices, repeatPeriod, repeatOver, repeatsDone, ruleForModel, sameRule, startRepeat, tallies,
+  takeRepeat, toRule, undoOps, upcoming, upcomingOn, type Repeat, type Rule,
 } from './repeat';
 import { localParse } from './parse';
 import { applyCapture } from './capture';
@@ -352,5 +352,111 @@ describe('the review', () => {
     expect(rv.lists.missed[0]).toMatchObject({ id: 'rgroc.2026-10-29', slot: false, how: 'replaced' });
     expect(rv.buckets.reduce((n, b) => n + b.missed, 0)).toBe(0);
     expect(occurrenceId('rgroc', '2026-10-29')).toBe(slip.id);
+  });
+});
+
+describe('repeats that end', () => {
+  it('stop landing after their last day', () => {
+    const r = R({ rule: { ...WEEKLY([1, 4]), until: '2026-11-05' } });
+    expect(occursOn(r, '2026-11-05')).toBe(true);
+    expect(occursOn(r, '2026-11-09')).toBe(false);
+    expect(nextOn(r, '2026-11-05')).toBeNull();
+    expect(upcomingOn([{ ...r, time: '07:00' }], '2026-11-09', NOW)).toEqual([]);
+  });
+
+  it('stop coming once done as many times as they had to be; missed ones don’t count', () => {
+    const r = R({ rule: { ...WEEKLY([1, 4]), times: 2 } });
+    const done = (day: string) => task({ id: occurrenceId(r.id, day), status: 'done', doneAt: 1 });
+    const missed = task({ id: occurrenceId(r.id, '2026-10-26'), status: 'open' });
+    expect(repeatsDone([done('2026-10-29'), missed, task()]).get(r.id)).toBe(1);
+    // One done: Monday's still comes.
+    expect(dueNow([r], [done('2026-10-29')], NOW).puts.map(t => t.id)).toEqual(['rgroc.2026-11-02']);
+    // Two done: it's over, and leaves the calendar.
+    const two = [done('2026-10-26'), done('2026-10-29')];
+    expect(dueNow([r], two, NOW).puts).toEqual([]);
+    expect(repeatOver(r, 2, '2026-11-02')).toBe(true);
+    expect(liveRepeats([r, R({ id: 'rgym' })], two, NOW).map(x => x.id)).toEqual(['rgym']);
+    // An end date is over once it's passed and nothing of it is left open.
+    const u = R({ rule: { ...WEEKLY([1]), until: '2026-11-01' } });
+    expect(repeatOver(u, 0, '2026-11-02')).toBe(true);
+    expect(repeatOver(u, 0, '2026-11-02', true)).toBe(false);
+    expect(repeatOver(R(), 50, '2030-01-01')).toBe(false);
+  });
+
+  it('say how they end, and keep it through the model and storage', () => {
+    expect(describeRule({ ...WEEKLY([1, 3, 5]), times: 20 })).toBe('Every Mon, Wed and Fri, 20 times');
+    expect(describeRule({ ...WEEKLY([1], 2), until: '2026-12-31' })).toBe('Every other week on Monday, until 31 Dec 2026');
+    expect(describeRule({ freq: 'day', every: 1, days: [], monthDay: null, times: 1 })).toBe('Every day, 1 time');
+    expect(toRule({ freq: 'week', every: 2, days: ['tue'], until: '2026-12-31', times: '12' })).toEqual({ ...WEEKLY([2], 2), until: '2026-12-31', times: 12 });
+    expect(toRule({ freq: 'week', days: ['tue'], until: 'soon', times: 0 })).toEqual(WEEKLY([2]));
+    expect(ruleForModel({ ...WEEKLY([2]), times: 5 })).toMatchObject({ until: null, times: 5 });
+    expect(sameRule(WEEKLY([1]), { ...WEEKLY([1]), times: 3 })).toBe(false);
+    expect(normalizeRepeats([R({ rule: { ...WEEKLY([1]), until: '2027-01-31', times: 8 } })])[0].rule).toMatchObject({ until: '2027-01-31', times: 8 });
+  });
+
+  it('the keyword parser takes a count', () => {
+    expect(takeRepeat('run every mon wed fri 20 times')).toEqual({ rule: { ...WEEKLY([1, 3, 5]), times: 20 }, rest: 'run' });
+    expect(takeRepeat('physio every other tuesday for ten sessions')).toEqual({ rule: { ...WEEKLY([2], 2), times: 10 }, rest: 'physio' });
+  });
+});
+
+describe('a number of times a week', () => {
+  // Check support tickets 3 times a week, any day. Monday 2 Nov 2026 is NOW.
+  const per = (extra: Partial<Rule> = {}): Rule => ({ freq: 'week', every: 1, days: [], monthDay: null, per: 3, ...extra });
+  const r = R({ id: 'rsup', title: 'Check support tickets', rule: per(), from: '2026-10-26', made: '2026-11-01' });
+  const occ = (day: string, extra: Partial<Task> = {}) => task({ id: occurrenceId('rsup', day), title: 'Check support tickets', ...extra });
+  const done = (day: string) => occ(day, { status: 'done', doneAt: 1 });
+
+  it('says so, and keeps it through the model and storage', () => {
+    expect(describeRule(per())).toBe('3 times a week');
+    expect(describeRule(per({ per: 2, days: [1, 2, 3, 4, 5] }))).toBe('Twice a week, on weekdays');
+    expect(describeRule({ freq: 'month', every: 1, days: [], monthDay: null, per: 1, times: 12 })).toBe('Once a month, 12 times');
+    expect(toRule({ freq: 'week', every: 3, days: [], per: 4 })).toEqual(per({ per: 4 }));
+    expect(toRule({ freq: 'week', days: ['mon', 'tue'], per: 5 })).toEqual(per({ days: [1, 2], per: 2 }));
+    expect(ruleForModel(per())).toMatchObject({ per: 3 });
+    expect(sameRule(per(), per({ per: 4 }))).toBe(false);
+    expect(startRepeat({ ...r, raw: '' }, NOW).rule.days).toEqual([]);
+    expect(takeRepeat('check support tickets 4 times a week')).toEqual({ rule: per({ per: 4 }), rest: 'check support tickets' });
+    expect(takeRepeat('call mum twice a week')?.rule).toEqual(per({ per: 2 }));
+  });
+
+  it('weeks run Monday to Sunday; months, first to last', () => {
+    expect(repeatPeriod({ freq: 'week' }, '2026-11-04')).toEqual({ start: '2026-11-02', end: '2026-11-08' });
+    expect(repeatPeriod({ freq: 'month' }, '2026-02-14')).toEqual({ start: '2026-02-01', end: '2026-02-28' });
+  });
+
+  it('one at a time, due at the end of the week, until that many are done', () => {
+    const d = dueNow([r], [], NOW);
+    expect(d.puts).toMatchObject([{ id: 'rsup.2026-11-02', due: '2026-11-08', start: null }]);
+    // One open already: no second one.
+    expect(dueNow([r], [occ('2026-11-02')], at(10, 3, 9)).puts).toEqual([]);
+    // Ticked yesterday: the next comes today.
+    expect(dueNow([r], [done('2026-11-02')], at(10, 3, 9)).puts.map(t => t.id)).toEqual(['rsup.2026-11-03']);
+    // Three done this week: nothing till Monday.
+    const three = [done('2026-11-02'), done('2026-11-03'), done('2026-11-04')];
+    expect(dueNow([r], three, at(10, 5, 9)).puts).toEqual([]);
+    expect(nextQuota(r, three, at(10, 5, 9))).toBe('2026-11-09');
+    expect(nextQuota(r, [done('2026-11-02')], at(10, 3, 9))).toBe('2026-11-04');
+    // Last week's still open on Monday: replaced, and missed.
+    const left = dueNow([r], [occ('2026-10-30')], NOW);
+    expect(left.removes).toEqual(['rsup.2026-10-30']);
+    expect(left.slips).toMatchObject([{ id: 'rsup.2026-10-30', how: 'replaced', due: true }]);
+    expect(left.puts.map(t => t.id)).toEqual(['rsup.2026-11-02']);
+    // Nothing on the calendar ahead: it has no set days.
+    expect(upcomingOn([{ ...r, time: '09:00' }], '2026-11-03', NOW)).toEqual([]);
+  });
+
+  it('only on its days, when it has some', () => {
+    const wk = R({ ...r, rule: per({ per: 2, days: [1, 2, 3, 4, 5] }) });
+    // Saturday: not a weekday, so none today.
+    expect(dueNow([wk], [], at(10, 7, 9)).puts).toEqual([]);
+    expect(dueNow([wk], [], NOW).puts.map(t => t.id)).toEqual(['rsup.2026-11-02']);
+  });
+
+  it('keeps each week’s count', () => {
+    const tasks = [done('2026-10-26'), done('2026-10-28'), done('2026-10-30'), done('2026-11-02'), occ('2026-11-03')];
+    const t = tallies(r, tasks, at(10, 3, 9));
+    expect(t.list.map(x => [x.start, x.done, x.per])).toEqual([['2026-11-02', 1, 3], ['2026-10-26', 3, 3]]);
+    expect(t.left).toBe(6);
   });
 });

@@ -2,8 +2,9 @@ import { newId, type Priority, type Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
-import { GOALS_KEY, activeGoals, goalRanker, normalizeGoals, pickGoal, type Goal } from '../goals';
-import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type RepeatOp } from '../repeat';
+import { GOALS_KEY, activeGoals, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
+import { buildFlow, toJson } from '../flow';
+import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type Repeat, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
 
@@ -135,8 +136,11 @@ function goalFor(goals: Goal[], v: string | null): Goal | null {
 }
 
 /** What a task becomes on a goal: the goal, and the goal's section as its project unless one was given. */
-const onGoal = (g: Goal | null, projectGiven: boolean): Partial<Task> =>
-  g ? { goal: g.id, ...(g.section && !projectGiven ? { label: g.section } : {}) } : { goal: null };
+/** What a task becomes on a goal: the goal, and its top goal's section unless a project was given. */
+const onGoal = (g: Goal | null, projectGiven: boolean, goals: Goal[]): Partial<Task> => {
+  const section = g ? goalSection({ goal: g.id }, new Map(goals.map(x => [x.id, x]))) : null;
+  return g ? { goal: g.id, ...(section && !projectGiven ? { label: section } : {}) } : { goal: null };
+};
 
 function dayOrThrow(v: string, what: string): string {
   const d = validDay(v.trim());
@@ -311,7 +315,7 @@ export async function createTask(c: Ctx, v: CreateInput): Promise<TaskDetail> {
     due: v.due ? dayOrThrow(v.due, 'due') : null,
     status: done ? 'done' : 'open', created: now, order: now, doneAt: done ? now : null,
     label: labelFor(labels, v.project ?? null), updatedAt: now,
-    ...onGoal(goalFor(goals, v.goal ?? null), v.project != null),
+    ...onGoal(goalFor(goals, v.goal ?? null), v.project != null, goals),
   };
   const [saved] = await write(c, [{ before: null, after: task }]);
   return detail(c, saved, byLabel, byGoal);
@@ -350,7 +354,7 @@ export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<Ta
   if (v.description !== undefined) next.notes = v.description.trim();
   if (v.priority !== undefined) next.priority = PRI[v.priority];
   if (v.project !== undefined) next.label = labelFor(labels, v.project);
-  if (v.goal !== undefined) Object.assign(next, onGoal(goalFor(goals, v.goal), v.project !== undefined));
+  if (v.goal !== undefined) Object.assign(next, onGoal(goalFor(goals, v.goal), v.project !== undefined, goals));
   if (v.due !== undefined) next.due = v.due ? dayOrThrow(v.due, 'due') : null;
   if (v.scheduled !== undefined) next.start = v.scheduled ? whenOrThrow(v.scheduled, c.tz, 'scheduled') : null;
   if (v.minutes !== undefined) next.minutes = v.minutes;
@@ -386,28 +390,51 @@ export interface GoalSummary {
   /** The section (label) it sits in, by name. */
   section: string | null;
   status: Goal['status'];
-  /** Rank among the active goals, 1 first; null for achieved and dropped ones. */
+  /** Rank among the active top goals, 1 first; null for sub-goals and for achieved and dropped ones. */
   rank: number | null;
+  /** The goal it's a sub-goal of, or null for a top goal. */
+  parent: string | null;
+  /** The key result of its parent it serves (an id in the parent's done_when), or null. */
+  parent_kr: string | null;
+  /** How far along it is, 0 to 1, from its key results and sub-goals; null with neither. */
+  progress: number | null;
   /** YYYY-MM-DD to get it done by, or null. */
   by: string | null;
-  /** What has to be true for it to count as done. */
-  done_when: { text: string; done: boolean }[];
+  /** What has to be true for it to count as done: its key results, depth first, each with the one it's under. */
+  done_when: { id: string; text: string; done: boolean; under: string | null }[];
   open_tasks: number;
   done_tasks: number;
+  /**
+   * Its flow chart: every step (tasks on it, things it's waiting on, and its done-when lines as milestones) with its
+   * state and what it needs first, the arrows between them, and the critical path.
+   */
+  flow: Pick<ReturnType<typeof toJson>, 'steps' | 'arrows' | 'critical_path'>;
 }
 
 /** The user's goals, most important first; with include_closed, the achieved and dropped ones after them. */
 export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): Promise<{ goals: GoalSummary[]; off_goal_open_tasks: number }> {
   const { tasks, byLabel, goals } = await load(c);
+  const now = clock(c);
+  // A repeating task is one step on its goal's chart; without the repeats, each of its tasks is one.
+  let repeats: Repeat[] = [];
+  try { repeats = normalizeRepeats(await c.repo.getSetting(REPEATS_KEY)); } catch { /* an older database: no repeats */ }
   const live = activeGoals(goals);
+  const tops = topGoals(goals);
+  const index = new Map(goals.map(g => [g.id, g]));
   const mine = tasks.filter(t => !isEvent(t));
   const count = (id: string, status: Status) => mine.filter(t => t.goal === id && t.status === status).length;
-  const shown = f.include_closed ? [...live, ...goals.filter(g => g.status !== 'active')] : live;
+  // Each goal followed by its sub-goals.
+  const tree = goalTree(goals, g => g.status === 'active').map(x => x.goal);
+  const shown = f.include_closed ? [...tree, ...goals.filter(g => !tree.includes(g))] : tree;
   return {
     goals: shown.map(g => ({
-      id: g.id, title: g.title, section: (g.section && byLabel.get(g.section)?.name) || null, status: g.status,
-      rank: g.status === 'active' ? live.indexOf(g) + 1 : null, by: g.by,
-      done_when: g.results.map(r => ({ text: r.text, done: r.done })), open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
+      id: g.id, title: g.title, section: (() => { const s = goalSection({ goal: g.id }, index); return (s && byLabel.get(s)?.name) || null; })(),
+      status: g.status, rank: g.status === 'active' && !g.parent ? tops.indexOf(g) + 1 : null, by: g.by,
+      parent: g.parent ?? null, parent_kr: g.parentKr ?? null,
+      progress: (p => (p == null ? null : Math.round(p * 100) / 100))(goalProgress(g, goals)),
+      done_when: flatResults(g.results).map(({ kr, parent }) => ({ id: kr.id, text: kr.text, done: resultDone(kr), under: parent })),
+      open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
+      flow: (({ steps, arrows, critical_path }) => ({ steps, arrows, critical_path }))(toJson(g, buildFlow(g, tasks, now, { goals, repeats }))),
     })),
     off_goal_open_tasks: mine.filter(t => t.status === 'open' && !(t.goal && live.some(g => g.id === t.goal))).length,
   };

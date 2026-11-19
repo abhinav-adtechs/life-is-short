@@ -2,7 +2,7 @@
  * Parse the model's reply, tolerating a stray code fence. `reply` is the one line it says back to you, `heard` what it
  * took a dictation to mean, and `learn` what it suggests remembering about how you talk (checked by lib/voice.ts).
  */
-export function parseReply(text: string | undefined): { add: unknown[]; update: unknown[]; reply?: string; heard?: string; learn?: unknown } | null {
+export function parseReply(text: string | undefined): { add: unknown[]; update: unknown[]; reply?: string; heard?: string; learn?: unknown; workflow?: unknown[] } | null {
   if (!text) return null;
   const body = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   try {
@@ -16,6 +16,8 @@ export function parseReply(text: string | undefined): { add: unknown[]; update: 
     return {
       add: Array.isArray(o.add) ? o.add : [], update: Array.isArray(o.update) ? o.update : [],
       ...(reply ? { reply } : {}), ...(heard ? { heard } : {}), ...(learn ? { learn } : {}),
+      // Changes to goals and their charts (lib/workflow.ts), when they asked for any.
+      ...(Array.isArray(o.workflow) && o.workflow.length ? { workflow: o.workflow } : {}),
     };
   } catch {
     return null;

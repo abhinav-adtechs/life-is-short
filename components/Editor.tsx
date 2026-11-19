@@ -7,9 +7,9 @@ import { findSlot } from '@/lib/place';
 import { fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { gcalUrl } from '@/lib/links';
 import { addDays, fromYmd, startOfDay, ymd } from '@/lib/time';
-import { describeRepeat, makeRepeating, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
+import { describeRepeat, makeRepeating, repeatsDone, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
 import { usePlanner } from './Planner';
-import { RepeatField } from './Repeating';
+import { RepeatField, WeekLog } from './Repeating';
 import { GoalPicker } from './Goals';
 
 export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
@@ -36,7 +36,7 @@ function dueChoices(now: number) {
  * nothing else waits on it. On one of a repeat's tasks, what the task is goes to the ones to come too.
  */
 export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }) {
-  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet } = usePlanner();
+  const { store, wide, now, toast, undoable, hours, sourceOf, busyTasks, prefs, labelOf, schedule, repeatOf, applyRepeats, deletedText, goalById, activeGoals, openSheet, blocked, tasks } = usePlanner();
   const repeat = repeatOf(t);
   const [title, setTitle] = useState(t.title);
   const [priority, setPriority] = useState<Priority>(t.priority);
@@ -149,7 +149,9 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
             {activeGoals.length || goal ? (
               <>
                 <GoalPicker labelledBy="ed-goal" value={goal} onChange={setGoal} />
-                <p className="note">{goal ? 'Time on this counts towards the goal.' : 'Not on a goal. Fine, as long as it’s a choice.'}</p>
+                <p className="note">
+                  {goal ? <>Time on this counts towards the goal. <button type="button" className="link" onClick={() => openSheet('flow', goal)}>{blocked.has(t.id) ? 'Blocked: see' : 'See'} its flow chart</button></> : 'Not on a goal. Fine, as long as it’s a choice.'}
+                </p>
               </>
             ) : (
               <p className="note">No goals yet. <button type="button" className="link" onClick={() => openSheet('goals')}>Set your goals</button> and every task can move one.</p>
@@ -196,8 +198,11 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
           </div>
 
           {!src && (
-            <RepeatField rule={rule} time={time} day={t.start != null ? ymd(t.start) : t.due ?? ymd(now)} repeating={!!repeat}
-              onRule={setRule} onTime={setTime} />
+            <>
+              <RepeatField rule={rule} time={time} day={t.start != null ? ymd(t.start) : t.due ?? ymd(now)} repeating={!!repeat}
+                done={repeat ? repeatsDone(tasks).get(repeat.id) ?? 0 : 0} onRule={setRule} onTime={setTime} />
+              {repeat?.rule.per && <WeekLog repeat={repeat} />}
+            </>
           )}
 
           <div className="ed-f">

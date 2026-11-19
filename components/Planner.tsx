@@ -15,7 +15,8 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { resolveLabel, type Label } from '@/lib/labels';
-import { activeGoalOf, activeGoals, goalRanker, goalSection, type Goal, type GoalsFn } from '@/lib/goals';
+import { activeGoalOf, activeGoals, goalRanker, goalSection, rootOf, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
+import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
 import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
@@ -23,13 +24,14 @@ import { pendingCount } from '@/lib/share-client';
 import { haptic, nativeReady, onNativeCommand } from '@/lib/native';
 import type { WorkHours } from '@/lib/place';
 import type { Change as Write, Slip } from '@/lib/slips';
-import { dueNow, followTask, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
+import { dueNow, followTask, liveRepeats, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
 import { prefersReducedMotion, useMedia, useNow, useWidth } from './hooks';
 import { usePrefs } from './prefs';
 import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
 import { useGoals } from './goalStore';
+import { useGoalLog } from './goalLog';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
 import { useChat, type Chat } from './Chat';
@@ -41,7 +43,7 @@ import { Phone } from './Phone';
  * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
  * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
  */
-export type SheetKind = 'goals' | 'analytics' | 'review' | 'share' | 'settings';
+export type SheetKind = 'goals' | 'flow' | 'analytics' | 'review' | 'share' | 'settings';
 
 /** A cell of the matrix: one goal ('' for off-goal) at one priority. */
 export interface Cell { goal: string; priority: Priority }
@@ -105,21 +107,34 @@ export interface PlannerApi {
   schedule: (id: string) => void;
   unslot: (id: string) => void;
   place: (id: string, start: number) => void;
-  /** Change a backlog task's goal and priority, as dropping it on a matrix cell does. */
-  moveToCell: (id: string, cell: Cell) => void;
+  /**
+   * Change a task's goal and priority, as dropping it on a goal's card or a priority chip does. A calendar block
+   * dropped there goes back to the backlog; a task moved between cards keeps its time.
+   */
+  moveToCell: (id: string, cell: Cell, opts?: { keepTime?: boolean }) => void;
   /** Every goal, active ones first in your order (lib/goals.ts). */
   goals: Goal[];
-  /** The ones you're working on, in your order. */
+  /** The ones you're working on, in your order, sub-goals included. */
   activeGoals: Goal[];
+  /** The active goals that aren't anyone's sub-goal: the rows of the matrix. */
+  topGoals: Goal[];
   goalsLoaded: boolean;
   /** Change your goals. Returns what undoes it. */
   changeGoals: (fn: GoalsFn) => () => void;
   /** The active goal a task moves, or null for off-goal work. */
   goalOf: (t: Task) => Goal | null;
+  /** The top goal above the goal a task moves (the goal itself when it's a top goal), or null for off-goal work. */
+  rootGoalOf: (t: Task) => Goal | null;
   /** Any goal by id, achieved and dropped ones too. */
   goalById: (id: string | null | undefined) => Goal | null;
   /** Give tasks a goal (null takes them off-goal); a goal brings its section. */
   setGoal: (ids: string[], goal: string | null) => void;
+  /** Open tasks held up by a step before them on their goal's chart (lib/flow.ts). */
+  blocked: Set<string>;
+  /** Note changes to a goal's chart in its history. Task changes are noted on their own. */
+  logGoal: (entries: LogEntry[]) => void;
+  /** The history of your goals' charts, oldest first. */
+  readGoalLog: () => Promise<LogEntry[]>;
   chat: Chat;
   /** How you talk: the mic's language, your words, what it mishears (lib/voice.ts). */
   voice: VoiceApi;
@@ -182,7 +197,7 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(goals|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
+const SHEET_HASH = /^#(goals|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -194,6 +209,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slipLog = useSlips(repo);
   const repeats = useRepeats(repo, toast);
   const goals = useGoals(repo, toast);
+  const goalLog = useGoalLog(repo);
+  const { add: logGoal } = goalLog;
   const voice = useVoiceProfile(repo, toast);
   const { record: recordSlips, note: noteSlips } = slipLog;
   const { get: getRepeat, read: readRepeats, change: changeRepeats } = repeats;
@@ -201,13 +218,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   // made anywhere in the planner, goes on to the ones to come.
   const heard = useCallback((changes: Write[]) => {
     recordSlips(changes);
+    logGoal(logFromWrites(changes, Date.now()));
     for (const { after } of changes) {
       const o = after && occurrenceOf(after.id);
       const r = o ? getRepeat(o.repeat) : null;
       if (!after || !r || !followTask(r, after, Date.now())) continue;
       changeRepeats(l => l.map(x => (x.id === r.id ? followTask(x, after, Date.now()) ?? x : x)));
     }
-  }, [recordSlips, getRepeat, changeRepeats]);
+  }, [recordSlips, getRepeat, changeRepeats, logGoal]);
   const store = useTaskStore(repo, msg => toast(msg), heard);
   const now = useNow();
   const wide = useMedia('(min-width: 860px)');
@@ -248,7 +266,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const goalIndex = useMemo(() => new Map(goals.list.map(g => [g.id, g])), [goals.list]);
   const liveGoals = useMemo(() => activeGoals(goals.list), [goals.list]);
   const rank = useMemo(() => goalRanker(goals.list), [goals.list]);
+  const tops = useMemo(() => topGoals(goals.list), [goals.list]);
   const goalOf = useCallback((t: Task) => activeGoalOf(t, goalIndex), [goalIndex]);
+  const rootGoalOf = useCallback((t: Task) => { const g = activeGoalOf(t, goalIndex); return g ? rootOf(goalIndex, g) : null; }, [goalIndex]);
   const goalById = useCallback((id: string | null | undefined) => (id ? goalIndex.get(id) ?? null : null), [goalIndex]);
   // A task on a goal is in that goal's section; otherwise its own label, or a Google event's calendar's or account's.
   const labelOf = useCallback((t: Task) => resolveLabel({ label: goalSection(t, goalIndex) ?? t.label }, labelIndex, srcOf(t)), [goalIndex, labelIndex, srcOf]);
@@ -256,8 +276,10 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const liveTasks = useCallback(() => store.all().filter(t => !isOff(t)), [store, isOff]);
   const repeatIndex = useMemo(() => new Map(repeats.list.map(r => [r.id, r])), [repeats.list]);
   const repeatOf = useCallback((t: Task) => { const o = occurrenceOf(t.id); return o ? repeatIndex.get(o.repeat) ?? null : null; }, [repeatIndex]);
-  const busyTasks = useCallback(() => [...liveTasks(), ...upcoming(repeats.list, Date.now())], [liveTasks, repeats.list]);
-  const upcomingDay = useCallback((d: Date) => upcomingOn(repeats.list, ymd(d), now), [repeats.list, now]);
+  // A repeat that's over (done enough times, or past its last day) has nothing more to come.
+  const going = useMemo(() => liveRepeats(repeats.list, store.tasks, now), [repeats.list, store.tasks, now]);
+  const busyTasks = useCallback(() => [...liveTasks(), ...upcoming(going, Date.now())], [liveTasks, going]);
+  const upcomingDay = useCallback((d: Date) => upcomingOn(going, ymd(d), now), [going, now]);
   const deletedText = useCallback((t: Task) => {
     const r = repeatOf(t), next = r && nextWhen(r, Date.now());
     return r ? `Skipped · ${shortTitle(t.title, 30)}${next ? ` · next one ${next}` : ''}` : `Deleted · ${shortTitle(t.title, 34)}`;
@@ -323,14 +345,25 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     dropHash();
   }, [dropHash]);
 
+  /** The panel the editor was opened from (a goal's chart, or Goals): it comes back when the editor closes. */
+  const returnTo = useRef<{ kind: SheetKind; section: string | null } | null>(null);
   const openEditor = useCallback((id: string) => {
     if (!editorId && !hashSheet) lastFocus.current = document.activeElement as HTMLElement | null;
-    if (hashSheet) { sheetOpenedHere.current = false; dropHash(); }
+    if (hashSheet) {
+      returnTo.current = hashSheet.kind === 'flow' || hashSheet.kind === 'goals' ? hashSheet : null;
+      sheetOpenedHere.current = false;
+      dropHash();
+    } else if (!editorId) returnTo.current = null;
     setPickedState(null);
     setEditorId(id);
   }, [editorId, hashSheet, dropHash]);
 
-  const closeEditor = useCallback(() => setEditorId(null), []);
+  const closeEditor = useCallback(() => {
+    setEditorId(null);
+    const back = returnTo.current;
+    returnTo.current = null;
+    if (back) openSheet(back.kind, back.section ?? undefined);
+  }, [openSheet]);
 
   // Back where you were when the last panel closes; after a trip to Google, the Settings button.
   const panelOpen = !!editorId || !!hashSheet;
@@ -376,20 +409,21 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   /** What a task becomes on a goal: the goal, and its section when it has one. */
   const onGoal = useCallback((goal: string | null): Partial<Task> => {
     const g = goal ? goalIndex.get(goal) : undefined;
-    return g ? { goal: g.id, ...(g.section ? { label: g.section } : {}) } : { goal: null };
+    const section = g ? rootOf(goalIndex, g).section : null;
+    return g ? { goal: g.id, ...(section ? { label: section } : {}) } : { goal: null };
   }, [goalIndex]);
 
-  const moveToCell = useCallback((id: string, cell: Cell) => {
+  const moveToCell = useCallback((id: string, cell: Cell, opts: { keepTime?: boolean } = {}) => {
     const t = store.get(id);
     if (!t) return;
     const patch: Partial<Task> = { priority: cell.priority };
-    // Only a change of row changes the goal.
-    if ((goalOf(t)?.id ?? '') !== cell.goal) Object.assign(patch, onGoal(cell.goal || null));
-    if (t.start != null) patch.start = null;
+    // Only a change of card changes the goal: a task on a sub-goal stays on it within its top goal's card.
+    if ((rootGoalOf(t)?.id ?? '') !== cell.goal) Object.assign(patch, onGoal(cell.goal || null));
+    if (t.start != null && !opts.keepTime) patch.start = null;
     if (patch.priority === t.priority && !('goal' in patch) && !('start' in patch)) return;
     const name = goalIndex.get(cell.goal)?.title ?? 'Off-goal';
     undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${shortTitle(name, 30)} · ${PRI[cell.priority]}`, store.patch(id, patch));
-  }, [store, goalOf, onGoal, goalIndex, undoable]);
+  }, [store, rootGoalOf, onGoal, goalIndex, undoable]);
 
   const setGoal = useCallback((ids: string[], goal: string | null) => {
     const list = ids.map(id => store.get(id)).filter((t): t is Task => !!t).map(t => ({ ...t, ...onGoal(goal) }));
@@ -430,7 +464,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
   const chatRepeats = useMemo(() => ({ list: repeats.list, repeatOf, apply: repeats.apply }), [repeats.list, repeatOf, repeats.apply]);
-  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, goals: goals.list, repeats: chatRepeats, voice });
+  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, goals: goals.list, repeats: chatRepeats, voice, changeGoals: goals.change, logGoal });
 
   const plan = useMemo<PlanView>(() => {
     const out: PlanView = { ticks: new Set(), moves: new Set(), added: [], proposed: [] };
@@ -459,9 +493,12 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     lengthOf: id => store.get(id)?.minutes ?? 30,
     onDrop: (id: string, dayKey: string, min: number) => place(id, atMinutes(fromYmd(dayKey), Math.max(0, min))),
     onDropBacklog: id => unslot(id),
-    onDropCell: (id, cell) => {
-      const [goal, p] = cell.split('|');
-      moveToCell(id, { goal, priority: Number(p) as Priority });
+    // A goal's card is "<goal>|*" (keep the priority); a priority chip is "*|<priority>" (keep the goal).
+    onDropCell: (id, cell, kind) => {
+      const [g, p] = cell.split('|');
+      const t = store.get(id);
+      if (!t) return;
+      moveToCell(id, { goal: g === '*' ? rootGoalOf(t)?.id ?? '' : g, priority: p === '*' ? t.priority : (Number(p) as Priority) }, { keepTime: kind === 'row' });
     },
     // Rows tick off with their check-and-strike; a block just goes.
     onDropZone: (id, zone, kind) => {
@@ -705,14 +742,16 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     return label?.color ?? a.color;
   }, [prefs.colorBy, labelIndex]);
 
-  const derived = useMemo(() => lists(store.tasks, now, isOff, rank), [store.tasks, now, isOff, rank]);
+  const blocked = useMemo(() => blockedTasks(goals.list, store.tasks, now, repeats.list), [goals.list, store.tasks, now, repeats.list]);
+  const derived = useMemo(() => lists(store.tasks, now, isOff, rank, blocked), [store.tasks, now, isOff, rank, blocked]);
 
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
-    goals: goals.list, activeGoals: liveGoals, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, goalById, setGoal,
+    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, rootGoalOf, goalById, setGoal,
+    blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,
     repeats: repeats.list, repeatOf, applyRepeats: repeats.apply, upcomingOn: upcomingDay, deletedText, busyTasks,
@@ -739,10 +778,10 @@ function Ghost({ id, x, y }: { id: string; x: number; y: number }) {
 }
 
 /** Now, Next, the backlog and Done, shared by phone and laptop. Google events are calendar items, not tasks to do. */
-function lists(all: Task[], now: number, isOff: (t: Task) => boolean, rank?: Rank) {
+function lists(all: Task[], now: number, isOff: (t: Task) => boolean, rank?: Rank, blocked?: Set<string>) {
   const live = all.filter(t => !isOff(t));
   const mine = live.filter(t => !isEvent(t));
-  const f = focus(mine, now, rank);
+  const f = focus(mine, now, rank, blocked?.size ? t => blocked.has(t.id) : undefined);
   // Free until the next thing on the calendar today, or busy in a meeting right now.
   const dayEnd = startOfDay(now).getTime() + 864e5;
   const sched = live.filter(t => t.status === 'open' && t.start != null).sort((a, b) => (a.start as number) - (b.start as number));
