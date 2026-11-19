@@ -262,6 +262,23 @@ describe('goals', () => {
     expect(m.rows.get('chore')?.goal).toBeNull();
   });
 
+  it('lists sub-goals under their goal, with the key result each serves and how far along it is', async () => {
+    const sub = { id: 'gbank', title: 'Open the escrow account', section: null, results: [{ id: 'kb', text: 'Account open', done: false, results: [{ id: 'kb1', text: 'KYC done', done: true }] }],
+      by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1, parent: 'gexit', parentKr: 'k2' };
+    const m = memRepo([task('kyc', { goal: 'gbank' })], { prefs: LABELS, goals: [...GOALS, sub] });
+    const out = await listGoals(ctx(m));
+    expect(out.goals.map(g => [g.id, g.rank, g.parent, g.parent_kr])).toEqual([['gexit', 1, null, null], ['gbank', null, 'gexit', 'k2'], ['grun', 2, null, null]]);
+    // In its top goal's section; its key results depth first, each with the one it's under.
+    expect(out.goals[1]).toMatchObject({ section: 'Work', progress: 1, open_tasks: 1 });
+    expect(out.goals[1].done_when).toEqual([{ id: 'kb', text: 'Account open', done: true, under: null }, { id: 'kb1', text: 'KYC done', done: true, under: 'kb' }]);
+    // On the goal's chart, the sub-goal is a step leading to the key result it serves.
+    expect(out.goals[0].flow.steps.find(s => s.id === 'goal:gbank')).toMatchObject({ kind: 'goal', progress: 1 });
+    expect(out.goals[0].flow.arrows).toContainEqual({ from: 'goal:gbank', to: 'kr:k2', structure: true });
+    // A new task on a sub-goal takes its top goal's section.
+    const t = await createTask(ctx(m), { title: 'Send the passport scan', goal: 'gbank' });
+    expect(m.rows.get(t.id)).toMatchObject({ goal: 'gbank', label: 'work' });
+  });
+
   it('has no goals on a database from before them', async () => {
     const m = seed();
     m.repo.getSetting = async <T,>(k: string) => { if (k === 'goals') throw new Error('mcp: setting not available'); return (k === 'prefs' ? LABELS : null) as T; };

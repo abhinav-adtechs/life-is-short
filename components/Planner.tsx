@@ -15,7 +15,7 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { resolveLabel, type Label } from '@/lib/labels';
-import { activeGoalOf, activeGoals, goalRanker, goalSection, type Goal, type GoalsFn } from '@/lib/goals';
+import { activeGoalOf, activeGoals, goalRanker, goalSection, rootOf, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
 import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
 import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
@@ -111,13 +111,17 @@ export interface PlannerApi {
   moveToCell: (id: string, cell: Cell) => void;
   /** Every goal, active ones first in your order (lib/goals.ts). */
   goals: Goal[];
-  /** The ones you're working on, in your order. */
+  /** The ones you're working on, in your order, sub-goals included. */
   activeGoals: Goal[];
+  /** The active goals that aren't anyone's sub-goal: the rows of the matrix. */
+  topGoals: Goal[];
   goalsLoaded: boolean;
   /** Change your goals. Returns what undoes it. */
   changeGoals: (fn: GoalsFn) => () => void;
   /** The active goal a task moves, or null for off-goal work. */
   goalOf: (t: Task) => Goal | null;
+  /** The top goal above the goal a task moves (the goal itself when it's a top goal), or null for off-goal work. */
+  rootGoalOf: (t: Task) => Goal | null;
   /** Any goal by id, achieved and dropped ones too. */
   goalById: (id: string | null | undefined) => Goal | null;
   /** Give tasks a goal (null takes them off-goal); a goal brings its section. */
@@ -259,7 +263,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const goalIndex = useMemo(() => new Map(goals.list.map(g => [g.id, g])), [goals.list]);
   const liveGoals = useMemo(() => activeGoals(goals.list), [goals.list]);
   const rank = useMemo(() => goalRanker(goals.list), [goals.list]);
+  const tops = useMemo(() => topGoals(goals.list), [goals.list]);
   const goalOf = useCallback((t: Task) => activeGoalOf(t, goalIndex), [goalIndex]);
+  const rootGoalOf = useCallback((t: Task) => { const g = activeGoalOf(t, goalIndex); return g ? rootOf(goalIndex, g) : null; }, [goalIndex]);
   const goalById = useCallback((id: string | null | undefined) => (id ? goalIndex.get(id) ?? null : null), [goalIndex]);
   // A task on a goal is in that goal's section; otherwise its own label, or a Google event's calendar's or account's.
   const labelOf = useCallback((t: Task) => resolveLabel({ label: goalSection(t, goalIndex) ?? t.label }, labelIndex, srcOf(t)), [goalIndex, labelIndex, srcOf]);
@@ -387,20 +393,21 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   /** What a task becomes on a goal: the goal, and its section when it has one. */
   const onGoal = useCallback((goal: string | null): Partial<Task> => {
     const g = goal ? goalIndex.get(goal) : undefined;
-    return g ? { goal: g.id, ...(g.section ? { label: g.section } : {}) } : { goal: null };
+    const section = g ? rootOf(goalIndex, g).section : null;
+    return g ? { goal: g.id, ...(section ? { label: section } : {}) } : { goal: null };
   }, [goalIndex]);
 
   const moveToCell = useCallback((id: string, cell: Cell) => {
     const t = store.get(id);
     if (!t) return;
     const patch: Partial<Task> = { priority: cell.priority };
-    // Only a change of row changes the goal.
-    if ((goalOf(t)?.id ?? '') !== cell.goal) Object.assign(patch, onGoal(cell.goal || null));
+    // Only a change of row changes the goal: a task on a sub-goal stays on it within its top goal's row.
+    if ((rootGoalOf(t)?.id ?? '') !== cell.goal) Object.assign(patch, onGoal(cell.goal || null));
     if (t.start != null) patch.start = null;
     if (patch.priority === t.priority && !('goal' in patch) && !('start' in patch)) return;
     const name = goalIndex.get(cell.goal)?.title ?? 'Off-goal';
     undoable(`${patch.start === null ? 'Back in the backlog · ' : 'Moved to '}${shortTitle(name, 30)} · ${PRI[cell.priority]}`, store.patch(id, patch));
-  }, [store, goalOf, onGoal, goalIndex, undoable]);
+  }, [store, rootGoalOf, onGoal, goalIndex, undoable]);
 
   const setGoal = useCallback((ids: string[], goal: string | null) => {
     const list = ids.map(id => store.get(id)).filter((t): t is Task => !!t).map(t => ({ ...t, ...onGoal(goal) }));
@@ -724,7 +731,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
-    goals: goals.list, activeGoals: liveGoals, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, goalById, setGoal,
+    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, rootGoalOf, goalById, setGoal,
     blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,

@@ -13,10 +13,11 @@ const pct = (a: number, b: number) => `${b ? ((a / b) * 100).toFixed(1) : 0}%`;
 
 /** How the week is going: what got done each day, where the time went, and what waits. The review goes further. */
 export function Analytics() {
-  const { tasks, now, prefs, labelOf, wide, slips, openSheet, activeGoals } = usePlanner();
+  const { tasks, now, prefs, labelOf, wide, slips, openSheet, topGoals } = usePlanner();
   const gw = useGoalWeek();
-  const goalRows = [...activeGoals.map(g => ({ key: g.id, name: g.title, color: prefs.labels.find(l => l.id === g.section)?.color ?? null })), { key: '', name: 'Off-goal', color: null }]
-    .map(r => ({ ...r, minutes: gw.week.get(r.key)?.spent ?? 0 }));
+  // Top goals, each with its sub-goals' time.
+  const goalRows = [...topGoals.map(g => ({ key: g.id, name: g.title, color: prefs.labels.find(l => l.id === g.section)?.color ?? null })), { key: '', name: 'Off-goal', color: null }]
+    .map(r => ({ ...r, minutes: gw.rolled.get(r.key)?.spent ?? 0 }));
   const mostGoal = Math.max(1, ...goalRows.map(r => r.minutes));
   const s = weekStats(tasks, now, { firstDow: prefs.weekStart, labelOf: t => labelOf(t)?.id ?? null, slips });
   const unit = 96 / Math.max(3, ...s.days.map(d => d.total));
@@ -64,7 +65,7 @@ export function Analytics() {
           <span className="spacer" />
           <button type="button" className="link sm" onClick={() => openSheet('goals')}>Goals</button>
         </div>
-        {activeGoals.length ? (
+        {topGoals.length ? (
           <div className="an-rows">
             {goalRows.map(r => (
               <div key={r.key || '-'} className="an-row" style={cols}>

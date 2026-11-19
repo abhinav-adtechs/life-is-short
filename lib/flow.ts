@@ -1,5 +1,5 @@
 import type { Task } from './model';
-import type { Goal, KeyResult } from './goals';
+import { flatResults, goalProgress, resultDone, type Goal, type KeyResult } from './goals';
 import { isEvent } from './select';
 import { DAY_MS, endOf } from './time';
 
@@ -19,8 +19,12 @@ import { DAY_MS, endOf } from './time';
 /** Something you're waiting on that holds steps up: a reply, a signature, someone else's work. */
 export interface Wait { id: string; title: string; done: boolean; created: number; doneAt: number | null }
 
-/** `from` has to be done before `to` can start. Ids are a task's id, a waiting step's, or "kr:" and a key result's. */
-export interface Link { from: string; to: string }
+/**
+ * `from` has to be done before `to` can start. Ids are a task's id, a waiting step's, "kr:" and a key result's, or
+ * "goal:" and a sub-goal's. `auto` marks one the goal's own structure draws (a key result under another, a sub-goal
+ * for a key result): it isn't stored and can't be removed from the chart.
+ */
+export interface Link { from: string; to: string; auto?: true }
 
 export interface Plan { links: Link[]; waits: Wait[] }
 
@@ -30,9 +34,10 @@ export const MAX_WAITS = 60;
 export const WAIT_TITLE_MAX = 120;
 
 export const krNode = (k: Pick<KeyResult, 'id'>) => `kr:${k.id}`;
+export const goalNode = (g: Pick<Goal, 'id'>) => `goal:${g.id}`;
 export const newWaitId = () => 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-const NODE_ID = /^(?:kr:)?[A-Za-z0-9_@:.-]{1,80}$/;
+const NODE_ID = /^(?:kr:|goal:)?[A-Za-z0-9_@:.-]{1,80}$/;
 const WAIT_ID = /^w[A-Za-z0-9]{1,40}$/;
 
 /** A stored plan, cleaned up: well-formed waits, one copy of each arrow, no arrow to itself, and none that closes a loop. */
@@ -81,7 +86,8 @@ export function wouldLoop(links: Link[], from: string, to: string): boolean {
 
 /* ---------- the chart ---------- */
 
-export type StepKind = 'task' | 'wait' | 'milestone';
+/** A task; something you're waiting on; a sub-goal (a "predefined process", with its own chart); a key result. */
+export type StepKind = 'task' | 'wait' | 'goal' | 'milestone';
 /** done; ready to start; blocked by a step before it; a milestone everything before which is done; a milestone still to reach. */
 export type StepState = 'done' | 'ready' | 'blocked' | 'reached' | 'open';
 
@@ -92,7 +98,12 @@ export interface Step {
   task?: Task;
   result?: KeyResult;
   wait?: Wait;
-  /** Its length, for a task; 0 for the others. */
+  /** For a sub-goal: the goal, and how far along it is (0 to 1, or null with nothing to measure). */
+  goal?: Goal;
+  progress?: number | null;
+  /** For a key result under another: how deep (0 at the top). */
+  depth?: number;
+  /** Its length, for a task; for a sub-goal, the open work on it and under it; 0 for the others. */
   minutes: number;
   done: boolean;
   state: StepState;
@@ -140,8 +151,9 @@ const taskDone = (t: Task, now: number) => (isEvent(t) ? t.start != null && endO
  * critical path. `all` keeps every finished task; otherwise ones done more than RECENT_DONE ago with no arrows are
  * counted in `older` instead.
  */
-export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: boolean } = {}): Flow {
+export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: boolean; goals?: Goal[] } = {}): Flow {
   const plan = planOf(goal);
+  const goals = opts.goals ?? [];
   const linked = new Set(plan.links.flatMap(l => [l.from, l.to]));
   const mine = tasks.filter(t => t.goal === goal.id);
   let older = 0;
@@ -155,10 +167,25 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
     steps.push({ ...blank, needs: [], unblocks: [], id: t.id, kind: 'task', title: t.title, task: t, minutes: t.minutes, done });
   }
   for (const w of plan.waits) steps.push({ ...blank, needs: [], unblocks: [], id: w.id, kind: 'wait', title: w.title, wait: w, minutes: 0, done: w.done });
-  for (const k of goal.results) steps.push({ ...blank, needs: [], unblocks: [], id: krNode(k), kind: 'milestone', title: k.text, result: k, minutes: 0, done: k.done });
+  // Sub-goals: one step each, with the open work on it and under it as its length.
+  const under = (id: string): string[] => goals.filter(c => c.parent === id).flatMap(c => [c.id, ...under(c.id)]);
+  const kids = goals.filter(c => c.parent === goal.id && c.status !== 'dropped');
+  for (const c of kids) {
+    const ids = new Set([c.id, ...under(c.id)]);
+    const left = tasks.filter(t => t.goal && ids.has(t.goal) && t.status === 'open' && !isEvent(t)).reduce((n, t) => n + t.minutes, 0);
+    steps.push({ ...blank, needs: [], unblocks: [], id: goalNode(c), kind: 'goal', title: c.title, goal: c, progress: goalProgress(c, goals), minutes: c.status === 'achieved' ? 0 : left, done: c.status === 'achieved' });
+  }
+  // Every key result, nested ones too.
+  const flat = flatResults(goal.results);
+  for (const { kr, depth } of flat) steps.push({ ...blank, needs: [], unblocks: [], id: krNode(kr), kind: 'milestone', title: kr.text, result: kr, depth, minutes: 0, done: resultDone(kr) });
 
   const byId = new Map(steps.map(s => [s.id, s]));
-  const links = plan.links.filter(l => byId.has(l.from) && byId.has(l.to));
+  // The goal's own structure: a key result leads to the one it's under; a sub-goal to the key result it's for.
+  const auto: Link[] = [
+    ...flat.filter(x => x.parent).map(x => ({ from: krNode(x.kr), to: `kr:${x.parent}`, auto: true as const })),
+    ...kids.filter(c => c.parentKr && byId.has(`kr:${c.parentKr}`)).map(c => ({ from: goalNode(c), to: `kr:${c.parentKr}`, auto: true as const })),
+  ];
+  const links = [...auto, ...plan.links.filter(l => byId.has(l.from) && byId.has(l.to) && !auto.some(a => a.from === l.from && a.to === l.to))];
   for (const l of links) { (byId.get(l.to) as Step).needs.push(l.from); (byId.get(l.from) as Step).unblocks.push(l.to); }
 
   for (const s of steps) {
@@ -182,7 +209,8 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
     col.set(id, c);
     return c;
   };
-  for (const s of steps) if (!(s.kind === 'milestone' && !s.needs.length)) s.col = colOf(s.id, new Set());
+  const loose = (s: Step) => s.kind === 'milestone' && !s.needs.length && !s.unblocks.length;
+  for (const s of steps) if (!loose(s)) s.col = colOf(s.id, new Set());
   const last = Math.max(1, ...steps.filter(s => s.col).map(s => s.col));
   for (const s of steps) if (!s.col) s.col = steps.some(x => x.col && x.kind !== 'milestone') ? last + 1 : last;
   const cols = Math.max(1, ...steps.map(s => s.col));
@@ -259,15 +287,19 @@ export function blockedTasks(goals: Goal[], tasks: Task[], now: number): Set<str
     const plan = planOf(g);
     if (g.status !== 'active' || !plan.links.length) continue;
     const waits = new Map(plan.waits.map(w => [w.id, w]));
-    const krs = new Map(g.results.map(k => [krNode(k), k]));
+    const krs = new Map(flatResults(g.results).map(({ kr }) => [krNode(kr), kr]));
+    // A dropped sub-goal is off the chart, so it holds nothing up.
+    const kids = new Map(goals.filter(c => c.parent === g.id && c.status !== 'dropped').map(c => [goalNode(c), c]));
     /** Whether a step on this goal is done; undefined when it isn't on this goal's chart. */
     const done = (id: string): boolean | undefined => {
       const t = byId.get(id);
       if (t) return t.goal === g.id ? taskDone(t, now) : undefined;
       const w = waits.get(id);
       if (w) return w.done;
+      const c = kids.get(id);
+      if (c) return c.status === 'achieved';
       const k = krs.get(id);
-      return k ? k.done : undefined;
+      return k ? resultDone(k) : undefined;
     };
     for (const l of plan.links) {
       const t = byId.get(l.to);
@@ -285,6 +317,7 @@ export const withLink = (p: Plan, l: Link): Plan =>
   p.links.some(e => e.from === l.from && e.to === l.to) || wouldLoop(p.links, l.from, l.to) ? p : { ...p, links: [...p.links, l] };
 export const withoutLink = (p: Plan, l: Link): Plan => ({ ...p, links: p.links.filter(e => !(e.from === l.from && e.to === l.to)) });
 /** Take a step off the chart: its arrows go, and a waiting step goes with them. */
+// Arrows the goal's structure draws aren't stored, so there's nothing to take off for those.
 export const withoutStep = (p: Plan, id: string): Plan => ({ links: p.links.filter(e => e.from !== id && e.to !== id), waits: p.waits.filter(w => w.id !== id) });
 export const withWait = (p: Plan, w: Wait): Plan => ({ ...p, waits: [...p.waits.filter(x => x.id !== w.id), w] });
 export const patchWait = (p: Plan, id: string, patch: Partial<Omit<Wait, 'id'>>): Plan => ({ ...p, waits: p.waits.map(w => (w.id === id ? { ...w, ...patch } : w)) });
@@ -305,17 +338,18 @@ const mmId = (id: string) => 'n_' + id.replace(/[^A-Za-z0-9_]/g, '_');
 
 /**
  * The chart as a Mermaid flowchart, the plain-text format GitHub, Notion and most docs tools draw: the goal as a stadium,
- * tasks as boxes, waiting steps as flags and milestones as diamonds, left to right.
+ * tasks as boxes, sub-goals as subroutines (the predefined-process box), waiting steps as flags and milestones as
+ * diamonds, left to right.
  */
 export function toMermaid(goal: Goal, flow: Flow): string {
   const shape = (s: Step) => {
     const t = mm(s.kind === 'wait' ? `Waiting on: ${s.title}` : s.title);
-    return s.kind === 'milestone' ? `{"${t}"}` : s.kind === 'wait' ? `>"${t}"]` : `["${t}"]`;
+    return s.kind === 'milestone' ? `{"${t}"}` : s.kind === 'wait' ? `>"${t}"]` : s.kind === 'goal' ? `[["${t}"]]` : `["${t}"]`;
   };
   const lines = ['flowchart LR', `  goal(["${mm(goal.title)}"])`];
   for (const s of flow.steps) lines.push(`  ${mmId(s.id)}${shape(s)}${s.done ? ':::done' : s.state === 'blocked' ? ':::blocked' : ''}`);
   for (const id of flow.roots) lines.push(`  goal --> ${mmId(id)}`);
-  for (const l of flow.links) lines.push(`  ${mmId(l.from)} --> ${mmId(l.to)}`);
+  for (const l of flow.links) lines.push(`  ${mmId(l.from)} ${l.auto ? '-.->' : '-->'} ${mmId(l.to)}`);
   lines.push('  classDef done fill:#e8f5e9,stroke:#2e7d32,color:#555;', '  classDef blocked stroke-dasharray: 4 3;');
   return lines.join('\n');
 }
@@ -327,8 +361,9 @@ export function toJson(goal: Goal, flow: Flow) {
     steps: flow.steps.map(s => ({
       id: s.id, kind: s.kind, title: s.title, state: s.state, minutes: s.minutes || undefined,
       needs: s.needs.length ? s.needs : undefined, critical: s.critical || undefined,
+      ...(s.kind === 'goal' && s.progress != null ? { progress: Math.round(s.progress * 100) / 100 } : {}),
     })),
-    arrows: flow.links,
+    arrows: flow.links.map(l => ({ from: l.from, to: l.to, ...(l.auto ? { structure: true as const } : {}) })),
     critical_path: flow.critical.steps,
   };
 }

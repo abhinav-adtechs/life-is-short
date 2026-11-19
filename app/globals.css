@@ -1155,7 +1155,60 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .rv-lab .ell{max-width:220px}
 .sheet .goal-acts{gap:0;margin:2px -8px 0}
 .sheet .goal-acts .btn.sec{margin:0 2px 0 8px}
-.sheet .goal-acts .ib{width:30px}
+.sheet .goal-acts .ib{width:26px}
+
+/* ---------- the goal tree: key results under key results, sub-goals under both ---------- */
+.goal-th{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.goal-th .gprog{margin-top:5px}
+.gprog{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:var(--t-12);line-height:16px;color:var(--muted)}
+.gprog-b{position:relative;width:52px;height:4px;border-radius:2px;background:var(--hair2);overflow:hidden}
+.gprog-b i{position:absolute;inset:0 auto 0 0;border-radius:2px;background:var(--c,var(--ink));transition:width var(--fast)}
+.krs>li{display:flex;flex-direction:column}
+.kr-row{position:relative;display:flex;align-items:flex-start;gap:8px;min-width:0}
+.kr-row .kr{flex:1;width:auto;min-width:0}
+.kr-row .gprog{margin-top:5px}
+.kr[aria-disabled="true"]{cursor:default}
+/* With a pointer, a key result's actions float over the end of its line when you're on it, so they take no room. */
+.kr-acts{display:flex;gap:10px;flex:none;margin-top:4px;font-size:var(--t-12);opacity:0;transition:opacity var(--fast)}
+@media (hover:hover){.kr-acts{position:absolute;top:0;right:0;padding-left:18px;background:linear-gradient(to right,transparent,var(--kr-bg,var(--raised)) 14px);pointer-events:none}.kr-row:hover .kr-acts,.kr-row:focus-within .kr-acts{pointer-events:auto}}
+.gsub{--kr-bg:var(--bg)}
+.kr-acts .link{font-weight:400;color:var(--muted)}
+.kr-acts .link:hover{color:var(--ink)}
+.kr-row:hover .kr-acts,.kr-row:focus-within .kr-acts{opacity:1}
+/* Touch: one + per line instead of the two links, opening them under it. */
+.kr-more{display:none}
+.kr-menu{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 4px 25px}
+@media (hover:none){.kr-acts{opacity:1;margin-top:-4px}.kr-acts .link{display:none}.kr-more{display:inline-grid;width:28px;height:28px;color:var(--muted)}}
+/* What sits under a key result lines up with its text, past the box. */
+.krs-in,.krs>li>.gsubs,.krs>li>.gcard{margin-left:25px}
+.krs-in{display:flex;flex-direction:column;gap:2px;padding-left:0}
+.kr-new{display:flex;align-items:center;gap:9px;padding:2px 0}
+.kr-new input{flex:1;min-width:0;height:28px;padding:0 8px;border:1px solid var(--hair2);border-radius:var(--r-sm);background:var(--raised);font:inherit;font-size:var(--t-14);color:var(--ink)}
+.kr-new input:focus{outline:none;border-color:var(--c,var(--ink))}
+.kr-adds{display:flex;flex-wrap:wrap;gap:4px 16px}
+.kr-add{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;font-size:var(--t-12);font-weight:400;color:var(--muted)}
+.kr-add:hover{color:var(--ink)}
+.gsubs{display:flex;flex-direction:column;gap:6px;margin:4px 0 2px;padding:0;list-style:none}
+/* A sub-goal: a predefined process in flow-chart terms, so a doubled edge on the left. */
+.gsub{display:flex;flex-direction:column;gap:4px;padding:8px 10px 6px 12px;border:1px solid var(--hair);border-radius:var(--r-sm);background:var(--bg);box-shadow:inset 3px 0 0 -1px var(--c,var(--faint)),inset 5px 0 0 -1px var(--bg),inset 6px 0 0 -1px var(--c,var(--faint))}
+.gsub.done{opacity:.7}
+.gsub.done .gsub-t>span:last-child{text-decoration:line-through;text-decoration-color:var(--faint);color:var(--muted)}
+.gsub.editing{padding:12px}
+.gsub-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+.gsub-t{display:block;min-width:0;padding:0;border:0;background:none;font:inherit;font-size:var(--t-14);line-height:20px;font-weight:600;text-align:left;color:var(--ink);cursor:pointer}
+.gsub-t svg{display:inline-block;vertical-align:-1px;width:12px;height:12px;margin-right:5px;color:var(--muted);transition:transform var(--fast)}
+.gsub-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
+.gsub-k{margin-right:6px;font-size:var(--t-11);font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.gsub-h .gprog{margin-top:3px}
+.gsub-acts{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;font-size:var(--t-12);line-height:18px}
+.gsub-acts .link{font-weight:400;color:var(--muted)}
+.gsub-acts .link:hover{color:var(--ink)}
+.gsub .krs{margin-top:2px}
+.gcard.sub{margin:6px 0 2px;background:var(--bg)}
+.gcard.sub::before{display:none}
+.goal-chips .gchip.sub{padding-left:8px}
+.gchip-in{color:var(--muted);font-size:var(--t-12);margin-right:1px}
+.gform-kr{font-family:var(--font-code);font-size:var(--t-13);line-height:19px;tab-size:2}
 
 /* ---------- a goal's flow chart ---------- */
 
@@ -1284,3 +1337,16 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .flowc.ph .flow-body{grid-template-rows:minmax(360px,1fr) auto}
 .flowc.ph .flow-side{max-height:40vh}
 .fi-hint{padding:12px 16px}
+
+/* Goals that nest: a sub-goal on the chart is a predefined process (a box with doubled sides). */
+.fe.auto{stroke-dasharray:5 4}
+.fn.fn-sub{padding-left:40px;padding-right:22px}
+.fn-pp{position:absolute;top:0;bottom:0;left:22px;right:10px;border-left:1.5px solid var(--hair2);border-right:1.5px solid var(--hair2);pointer-events:none}
+.fn.fn-sub.sel .fn-pp,.fn.fn-sub.crit .fn-pp{border-color:var(--accent)}
+.fn.fn-sub .fn-ck{left:4px;border-radius:var(--r-xs)}
+.fn.fn-sub .fn-t{font-weight:650}
+.fn-bar{display:inline-flex;width:42px;height:4px;border-radius:2px;background:var(--soft);overflow:hidden}
+.fn-bar i{display:block;background:var(--c,var(--accent))}
+.flow-trail{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;min-width:0}
+.flow-crumb{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-13);color:var(--muted)}
+.flow-crumb .link{font-weight:500;color:var(--muted)}

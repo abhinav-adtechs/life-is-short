@@ -20,7 +20,7 @@ const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
 /** The ••• menu: how the day and week are going and how much went to goals, then Goals, Analytics, Share and Settings. */
 function Menu({ onClose }: { onClose: () => void }) {
-  const { tasks, now, prefs, openSheet, inbox, activeGoals } = usePlanner();
+  const { tasks, now, prefs, openSheet, inbox, topGoals: activeGoals } = usePlanner();
   const m = progress(tasks, now, prefs.weekStart);
   const g = useGoalWeek();
   const share = g.share == null ? null : Math.round(g.share * 100);

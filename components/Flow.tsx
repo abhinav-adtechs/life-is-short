@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { newId, PRI, type Priority, type Task } from '@/lib/model';
-import { patchGoal, type Goal } from '@/lib/goals';
+import { addGoal, addResult, ancestorsOf, makeGoal, newResultId, patchGoal, patchResult, setGoalStatus, type Goal } from '@/lib/goals';
 import {
-  buildFlow, describeEntry, linkKey, type Flow, newWaitId, parallelLinks, patchWait, planOf, toJson, toMermaid, withLink, withWait, withoutLink,
+  buildFlow, describeEntry, goalNode, linkKey, type Flow, newWaitId, parallelLinks, patchWait, planOf, toJson, toMermaid, withLink, withWait, withoutLink,
   withoutStep, wouldLoop, WAIT_TITLE_MAX, type Link, type LogEntry, type Plan, type Step,
 } from '@/lib/flow';
 import { fmtDur, fmtWhen, longDate, shortTitle } from '@/lib/format';
@@ -56,9 +56,14 @@ function curve(a: Box, b: Box, via: Box[] = []) {
 
 /* ---------- words ---------- */
 
-const KIND = { task: 'Task', wait: 'Waiting on', milestone: 'Milestone' } as const;
+const KIND = { task: 'Task', wait: 'Waiting on', goal: 'Sub-goal', milestone: 'Key result' } as const;
 
 function stateText(s: Step, byId: Map<string, Step>, now: number) {
+  if (s.kind === 'goal') {
+    if (s.done) return 'Achieved';
+    if (s.state === 'blocked') return `Blocked by ${s.needs.filter(id => !byId.get(id)?.done).length}`;
+    return `${s.progress != null ? `${Math.round(s.progress * 100)}% done` : 'Not started'}${s.minutes ? ` · ${fmtDur(s.minutes)} left` : ''}`;
+  }
   if (s.kind === 'milestone') return s.done ? 'Reached' : s.state === 'reached' ? 'Ready to tick' : s.needs.length ? `After ${s.needs.length} step${s.needs.length === 1 ? '' : 's'}` : 'Nothing leads here yet';
   if (s.kind === 'wait') return s.done ? 'Resolved' : s.state === 'blocked' ? 'Waiting, held up' : 'Waiting';
   if (s.done) return 'Done';
@@ -89,9 +94,10 @@ export function FlowPanel() {
 type Sel = { kind: 'step'; id: string } | { kind: 'link'; key: string } | null;
 
 function FlowChart({ goal }: { goal: Goal }) {
-  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet } = usePlanner();
+  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById } = usePlanner();
   const [all, setAll] = useState(false);
-  const flow = useMemo(() => buildFlow(goal, tasks, now, { all }), [goal, tasks, now, all]);
+  const flow = useMemo(() => buildFlow(goal, tasks, now, { all, goals }), [goal, tasks, now, all, goals]);
+  const trail = useMemo(() => ancestorsOf(new Map(goals.map(g => [g.id, g])), goal).reverse(), [goals, goal]);
   const layout = useLayout(flow);
   const [sel, setSel] = useState<Sel>(null);
   const [zoom, setZoom] = useState(1);
@@ -179,11 +185,38 @@ function FlowChart({ goal }: { goal: Goal }) {
       return;
     }
     if (s.result) {
-      const id = s.result.id;
-      const back = changeGoals(patchGoal(goal.id, { results: goal.results.map(r => (r.id === id ? { ...r, text: v.slice(0, 120) } : r)) }));
+      const back = changeGoals(patchResult(goal.id, s.result.id, { text: v.slice(0, 120) }));
+      log({ op: 'rename', step: s.id, title: v, was: s.title });
+      remember('rename', back);
+      return;
+    }
+    if (s.goal) {
+      const back = changeGoals(patchGoal(s.goal.id, { title: v.slice(0, 80) }));
       log({ op: 'rename', step: s.id, title: v, was: s.title });
       remember('rename', back);
     }
+  };
+
+  /** A sub-goal of this one: for one of its key results, or for the goal as a whole. */
+  const addSubGoal = (kr?: string) => {
+    const g = makeGoal({ title: 'New sub-goal', section: goal.section, parent: goal.id, parentKr: kr ?? null });
+    const back = changeGoals(addGoal(g));
+    log({ op: 'add', step: goalNode(g), title: g.title });
+    remember('add the sub-goal', back);
+    setSel({ kind: 'step', id: goalNode(g) });
+    setSide('inspect');
+    setFocusId(goalNode(g));
+  };
+
+  /** A key result: under another one, or for the goal itself. */
+  const addKr = (under: string | null) => {
+    const id = newResultId();
+    const back = changeGoals(addResult(goal.id, under, 'New key result', Date.now(), id));
+    log({ op: 'add', step: `kr:${id}`, title: 'New key result' });
+    remember('add the key result', back);
+    setSel({ kind: 'step', id: `kr:${id}` });
+    setSide('inspect');
+    setFocusId(`kr:${id}`);
   };
 
   const toggle = (s: Step) => {
@@ -202,10 +235,18 @@ function FlowChart({ goal }: { goal: Goal }) {
       return;
     }
     if (s.result) {
-      const id = s.result.id, done = !s.result.done;
-      const back = changeGoals(patchGoal(goal.id, { results: goal.results.map(r => (r.id === id ? { ...r, done } : r)) }));
+      if (!s.result.done && s.done) { say('It’s done because everything under it is. Untick one of those instead.'); return; }
+      const done = !s.result.done;
+      const back = changeGoals(patchResult(goal.id, s.result.id, { done }));
       log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title });
-      remember(done ? 'tick the milestone' : 'untick the milestone', back);
+      remember(done ? 'tick the key result' : 'untick the key result', back);
+      return;
+    }
+    if (s.goal) {
+      const done = s.goal.status !== 'achieved';
+      const back = changeGoals(setGoalStatus(s.goal.id, done ? 'achieved' : 'active'));
+      log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title });
+      remember(done ? 'achieve the sub-goal' : 'bring it back', back);
     }
   };
 
@@ -213,6 +254,11 @@ function FlowChart({ goal }: { goal: Goal }) {
   const removeStep = (s: Step, how: 'off' | 'delete') => {
     const back = plan(p => withoutStep(p, s.id));
     if (s.kind === 'wait') { log({ op: 'remove', step: s.id, title: s.title }); remember('remove it', back); }
+    else if (s.goal) {
+      const off = changeGoals(setGoalStatus(s.goal.id, 'dropped'));
+      log({ op: 'remove', step: s.id, title: s.title });
+      remember('drop the sub-goal', () => { back(); off(); });
+    }
     else if (s.task) {
       const before = how === 'delete' ? store.remove([s.id]) : store.patch(s.id, { goal: null });
       remember(how === 'delete' ? 'delete it' : 'take it off the goal', () => { back(); store.restore(before); });
@@ -287,7 +333,7 @@ function FlowChart({ goal }: { goal: Goal }) {
     if (typing) return;
     if (e.key === 'Tab' && selStep && !e.shiftKey) { e.preventDefault(); addTask(selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }); return; }
     if (e.key === 'Enter' && selStep && selStep.kind !== 'milestone') { e.preventDefault(); addTask({ beside: selStep.id }); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selLink) { e.preventDefault(); unlink(selLink); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selLink && !selLink.auto) { e.preventDefault(); unlink(selLink); return; }
     if (selStep && e.key.startsWith('Arrow')) {
       e.preventDefault();
       const col = flow.steps.filter(s => s.col === selStep.col).sort((a, b) => a.row - b.row);
@@ -362,10 +408,17 @@ function FlowChart({ goal }: { goal: Goal }) {
     <div className={'flowc' + (wide ? '' : ' ph')} onKeyDown={onKey}>
       <div className="flow-bar">
         <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><ChevronLeft size={13} />Goals</button>
-        <span className="flow-goal ell" style={tint}><span className={'dot' + (section ? '' : ' none')} />{goal.title}</span>
+        <nav className="flow-trail" aria-label="Goal and the goals it's part of">
+          {trail.map(a => (
+            <span key={a.id} className="flow-crumb"><button type="button" className="link" onClick={() => openSheet('flow', a.id)}>{shortTitle(a.title, 28)}</button><span aria-hidden="true">›</span></span>
+          ))}
+          <span className="flow-goal ell" style={tint}><span className={'dot' + (section ? '' : ' none')} />{goal.title}</span>
+        </nav>
         <span className="spacer" />
         <button type="button" className="btn sec sm" onClick={() => addTask(selStep && selStep.kind !== 'milestone' ? { after: selStep.id } : {})} title="Add a step (Tab adds one after the selected step)"><PlusIcon size={13} />Step</button>
         <button type="button" className="btn sec sm" onClick={() => addWait(selStep && selStep.kind !== 'wait' ? selStep.id : undefined)} title="Something outside your control that holds steps up"><PlusIcon size={13} />Waiting on</button>
+        <button type="button" className="btn sec sm" onClick={() => addSubGoal(selStep?.result?.id)} title="An objective under this one, with its own key results and chart"><PlusIcon size={13} />Sub-goal</button>
+        <button type="button" className="btn sec sm wide-only" onClick={() => addKr(selStep?.result?.id ?? null)} title="A key result for this goal, or under the selected one"><PlusIcon size={13} />Key result</button>
         <span className="vsep wide-only" aria-hidden="true" />
         <label className="flow-check wide-only"><input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} />All done steps</label>
         <div className="flow-zoom wide-only" role="group" aria-label="Zoom">
@@ -402,7 +455,7 @@ function FlowChart({ goal }: { goal: Goal }) {
                   const cls = sel?.kind === 'link' && sel.key === key ? 's' : flow.critical.links.has(key) ? 'c' : from.done ? 'd' : 'n';
                   return (
                     <g key={key}>
-                      <path d={c.d} className={`fe fe-${cls}`} markerEnd={`url(#fa-${cls})`} />
+                      <path d={c.d} className={`fe fe-${cls}${l.auto ? ' auto' : ''}`} markerEnd={`url(#fa-${cls})`} />
                       <path d={c.d} className="fe-hit" onClick={e => { e.stopPropagation(); scroller.current?.focus({ preventScroll: true }); setSel({ kind: 'link', key }); }}>
                         <title>{`${from.title} → ${titleOf(l.to)}`}</title>
                       </path>
@@ -421,17 +474,21 @@ function FlowChart({ goal }: { goal: Goal }) {
               {flow.steps.map(s => {
                 const b = box(s.id);
                 const on = sel?.kind === 'step' && sel.id === s.id;
-                const cls = `fn fn-${s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}`;
+                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}`;
                 return (
                   <div key={s.id} className={cls} data-step={s.id} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...tint }}
-                    onClick={e => { e.stopPropagation(); clickStep(s.id); }}>
+                    onClick={e => { e.stopPropagation(); clickStep(s.id); }}
+                    onDoubleClick={s.goal ? e => { e.stopPropagation(); openSheet('flow', (s.goal as Goal).id); } : undefined}
+                    title={s.goal ? 'Double-click to open its own chart' : undefined}>
                     {s.kind === 'milestone' && <span className="fn-ms" aria-hidden="true" />}
+                    {s.kind === 'goal' && <span className="fn-pp" aria-hidden="true" />}
                     <button type="button" className={'fn-ck' + (s.done ? ' on' : '')} aria-label={`${s.done ? 'Not done' : 'Done'}: ${s.title}`}
-                      title={s.kind === 'milestone' ? (s.done ? 'Untick it' : 'Tick it: reached') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Tick it off'}
+                      title={s.kind === 'milestone' ? (s.done ? 'Untick it' : 'Tick it: reached') : s.kind === 'goal' ? (s.done ? 'Bring it back' : 'Achieved') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Tick it off'}
                       onClick={e => { e.stopPropagation(); toggle(s); }}><CheckIcon size={10} w={2.6} /></button>
                     <span className="fn-t">{s.kind === 'wait' && <span className="fn-k">Waiting on </span>}{s.title}</span>
                     <span className="fn-m">
                       {s.kind === 'task' && <span className="num">{fmtDur(s.minutes)}</span>}
+                      {s.kind === 'goal' && s.progress != null && <span className="fn-bar" aria-hidden="true"><i style={{ width: `${Math.round(s.progress * 100)}%` }} /></span>}
                       <span className={'fn-st ' + s.state}>{stateText(s, flow.byId, now)}</span>
                     </span>
                     {s.kind !== 'milestone' && (
@@ -445,7 +502,7 @@ function FlowChart({ goal }: { goal: Goal }) {
                 );
               })}
 
-              {selLink && (() => {
+              {selLink && !selLink.auto && (() => {
                 const c = curve(box(selLink.from), box(selLink.to), layout.lanes.get(linkKey(selLink)));
                 return (
                   <button type="button" className="fe-x" style={{ left: c.mid.x - 11, top: c.mid.y - 11 }} aria-label="Remove this arrow" title="Remove this arrow (Delete)"
@@ -465,12 +522,18 @@ function FlowChart({ goal }: { goal: Goal }) {
         <aside className="flow-side" aria-label={side === 'history' ? 'History' : 'Step'}>
           {side === 'history' ? <History goal={goal} />
             : selStep ? <Inspector key={selStep.id} s={selStep} flow={flow} focus={focusId === selStep.id} onFocused={() => setFocusId(null)} goal={goal}
-              act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask }} />
+              act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask, addSubGoal, addKr, open: id => openSheet('flow', id), goalById }} />
             : selLink ? (
               <div className="fi">
                 <p className="rv-k">Arrow</p>
-                <p className="fi-link"><b>{titleOf(selLink.from)}</b> has to be done before <b>{titleOf(selLink.to)}</b> can start.</p>
-                <button type="button" className="btn sec sm" onClick={() => unlink(selLink)}>Remove the arrow</button>
+                {selLink.auto ? (
+                  <p className="fi-link"><b>{titleOf(selLink.from)}</b> is part of <b>{titleOf(selLink.to)}</b>: it’s one of the things that has to be true for it. This arrow comes from the goal’s structure.</p>
+                ) : (
+                  <>
+                    <p className="fi-link"><b>{titleOf(selLink.from)}</b> has to be done before <b>{titleOf(selLink.to)}</b> can start.</p>
+                    <button type="button" className="btn sec sm" onClick={() => unlink(selLink)}>Remove the arrow</button>
+                  </>
+                )}
               </div>
             ) : wide ? <Guide goal={goal} /> : <p className="note fi-hint">Tap a step to edit it. Drag from its dot to the step that comes after it.</p>}
         </aside>
@@ -501,6 +564,11 @@ interface Acts {
   addWait: (holds?: string) => void;
   removeStep: (s: Step, how: 'off' | 'delete') => void;
   patchTask: (s: Step, part: Partial<Task>, label: string) => void;
+  addSubGoal: (kr?: string) => void;
+  addKr: (under: string | null) => void;
+  /** Open a goal's own chart. */
+  open: (goal: string) => void;
+  goalById: (id: string | null | undefined) => Goal | null;
 }
 
 const LENGTHS = [15, 30, 60, 90, 120, 240];
@@ -520,6 +588,8 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
   const canNeed = others.filter(x => x.kind !== 'milestone' && !s.needs.includes(x.id) && !wouldLoop(links, x.id, s.id));
   const canUnblock = s.kind === 'milestone' ? [] : others.filter(x => !s.unblocks.includes(x.id) && !wouldLoop(links, s.id, x.id));
   const name = (id: string) => flow.byId.get(id)?.title ?? 'a step';
+  /** An arrow the goal's structure draws: shown, but changed by moving the key result or sub-goal, not here. */
+  const fixed = (from: string, to: string) => flow.links.some(l => l.from === from && l.to === to && l.auto);
   const t = s.task;
 
   return (
@@ -537,8 +607,9 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
 
       <div className="acts">
         <button type="button" className={'btn sm ' + (s.done ? 'sec' : 'pri')} onClick={() => act.toggle(s)}>
-          {s.kind === 'milestone' ? (s.done ? 'Untick' : 'Tick: reached') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Done'}
+          {s.kind === 'milestone' ? (s.done ? 'Untick' : 'Tick: reached') : s.kind === 'goal' ? (s.done ? 'Bring it back' : 'Achieved') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Done'}
         </button>
+        {s.goal && <button type="button" className="btn sec sm" onClick={() => act.open((s.goal as Goal).id)}>Open its chart</button>}
         {t && t.status === 'open' && !t.externalId && (t.start == null
           ? <button type="button" className="btn sec sm" onClick={() => slot(t.id)}>Next free slot</button>
           : <span className="muted sm">{fmtWhen(t.start, now)}</span>)}
@@ -567,7 +638,8 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
           <ul className="fi-list">
             {s.needs.map(id => (
               <li key={id}><span className={'fi-dot ' + (flow.byId.get(id)?.state ?? '')} /><span className="ell">{name(id)}</span>
-                <button type="button" className="ib bare" aria-label={`Doesn’t need ${name(id)}`} onClick={() => act.unlink({ from: id, to: s.id })}><XIcon size={11} /></button></li>
+                {fixed(id, s.id) ? <span className="muted sm" title="Part of the goal’s structure">under it</span>
+                  : <button type="button" className="ib bare" aria-label={`Doesn’t need ${name(id)}`} onClick={() => act.unlink({ from: id, to: s.id })}><XIcon size={11} /></button>}</li>
             ))}
           </ul>
         ) : <p className="note">{s.kind === 'milestone' ? 'Nothing leads here yet.' : 'Nothing: it can start now.'}</p>}
@@ -587,7 +659,8 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
             <ul className="fi-list">
               {s.unblocks.map(id => (
                 <li key={id}><span className={'fi-dot ' + (flow.byId.get(id)?.state ?? '')} /><span className="ell">{name(id)}</span>
-                  <button type="button" className="ib bare" aria-label={`Doesn’t unblock ${name(id)}`} onClick={() => act.unlink({ from: s.id, to: id })}><XIcon size={11} /></button></li>
+                  {fixed(s.id, id) ? <span className="muted sm" title="Part of the goal’s structure">for it</span>
+                    : <button type="button" className="ib bare" aria-label={`Doesn’t unblock ${name(id)}`} onClick={() => act.unlink({ from: s.id, to: id })}><XIcon size={11} /></button>}</li>
               ))}
             </ul>
           ) : <p className="note">Nothing yet.</p>}
@@ -600,9 +673,20 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
         </div>
       )}
 
+      {s.goal && (
+        <p className="note">
+          {s.goal.results.length ? `${s.goal.results.length} key result${s.goal.results.length === 1 ? '' : 's'} of its own. ` : 'No key results of its own yet: open its chart to add them. '}
+          {s.goal.parentKr ? <>It’s there for “{shortTitle(flow.byId.get(`kr:${s.goal.parentKr}`)?.title ?? '', 40)}”.</> : 'It’s for this goal as a whole.'}
+        </p>
+      )}
+
       <div className="acts fi-acts">
         {s.kind === 'milestone'
-          ? <button type="button" className="btn sec sm" onClick={() => act.addTask({ before: s.id })}><PlusIcon size={12} />A step that leads here</button>
+          ? <>
+            <button type="button" className="btn sec sm" onClick={() => act.addTask({ before: s.id })}><PlusIcon size={12} />A step that leads here</button>
+            {(s.depth ?? 0) < 2 && <button type="button" className="btn sec sm" onClick={() => act.addKr(s.result?.id ?? null)}><PlusIcon size={12} />Key result under it</button>}
+            <button type="button" className="btn sec sm" onClick={() => act.addSubGoal(s.result?.id)}><PlusIcon size={12} />Sub-goal for it</button>
+          </>
           : <>
             <button type="button" className="btn sec sm" onClick={() => act.addTask({ after: s.id })}><PlusIcon size={12} />Next step</button>
             <button type="button" className="btn sec sm" onClick={() => act.addTask({ beside: s.id })}><PlusIcon size={12} />Parallel step</button>
@@ -613,6 +697,7 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
         {t && <button type="button" className="btn text sm" onClick={() => openEditor(t.id)}>Open in the editor</button>}
         <span className="spacer" />
         {s.kind === 'wait' && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Remove</button>}
+        {s.goal && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Drop this sub-goal</button>}
         {t && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Take off this goal</button>}
         {t && !t.externalId && (
           <button type="button" className="btn text sm warn" onBlur={() => setArmed(false)} onClick={() => { if (!armed) { setArmed(true); return; } act.removeStep(s, 'delete'); }}>
@@ -620,7 +705,7 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
           </button>
         )}
       </div>
-      {s.kind === 'milestone' && <p className="note">Milestones are the goal’s “Done when” lines. Change them in <b>Goals → Edit</b>.</p>}
+      {s.kind === 'milestone' && <p className="note">Key results are the goal’s “Done when” lines, as milestones. One with key results under it is done when they all are.</p>}
     </div>
   );
 }
@@ -635,7 +720,8 @@ function Guide({ goal }: { goal: Goal }) {
         <li><b>An arrow</b> means the first step has to be done before the next can start. Drag from the dot on a step’s right edge to the step that comes after it.</li>
         <li><b>Parallel steps</b> have no arrow between them: work on them in any order. Select a step and press <kbd>Enter</kbd>.</li>
         <li><b>Waiting on</b> (the D-shaped step) is something outside your control that holds steps up, like a reply or a signature. Resolve it when it comes through.</li>
-        <li><b>Milestones</b> (the pointed ones) are the goal’s “Done when” lines, reached once everything before them is done.</li>
+        <li><b>Key results</b> (the pointed ones) are the goal’s “Done when” lines, reached once everything before them is done. One can have key results under it, with a dotted arrow up to it.</li>
+        <li><b>Sub-goals</b> (the box with doubled sides, a “predefined process”) are objectives of their own, with their own key results and chart. Double-click one to open it; the trail at the top takes you back up.</li>
         <li><b>Blocked</b> steps don’t come up as your Next task. The <b>critical path</b>, the chain with the most work left, is in your accent colour.</li>
       </ul>
       <p className="note">Every step here is a task in your planner, on this goal. History keeps every change to the chart.</p>
@@ -682,6 +768,6 @@ function History({ goal }: { goal: Goal }) {
 
 /** The goal's step count, for buttons that open its chart. */
 export function useFlowCount(goal: Goal) {
-  const { tasks, now } = usePlanner();
-  return useMemo(() => buildFlow(goal, tasks, now).counts, [goal, tasks, now]);
+  const { tasks, now, goals } = usePlanner();
+  return useMemo(() => buildFlow(goal, tasks, now, { goals }).counts, [goal, tasks, now, goals]);
 }

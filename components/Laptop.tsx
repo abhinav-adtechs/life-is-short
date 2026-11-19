@@ -20,13 +20,13 @@ const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
 /** How much of this week's time went to your goals. Opens Goals. */
 export function OnGoals() {
-  const { activeGoals, openSheet, goalsLoaded } = usePlanner();
+  const { topGoals, openSheet, goalsLoaded } = usePlanner();
   const g = useGoalWeek();
   if (!goalsLoaded) return null;
-  if (!activeGoals.length) {
+  if (!topGoals.length) {
     return <button type="button" className="metric mlink" onClick={() => openSheet('goals')}><TargetIcon size={13} /><span>No goals yet</span><b>Set them</b></button>;
   }
-  const on = activeGoals.reduce((n, x) => n + (g.week.get(x.id)?.spent ?? 0), 0);
+  const on = topGoals.reduce((n, x) => n + (g.rolled.get(x.id)?.spent ?? 0), 0);
   const share = g.share ?? 0;
   return (
     <button type="button" className="metric mlink" onClick={() => openSheet('goals')} title={`${fmtDur(on)} on goals this week`}>

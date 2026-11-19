@@ -7,7 +7,7 @@ import type { TaskRepo } from '@/lib/repo/types';
 import { applyCapture, promptContext, type Via } from '@/lib/capture';
 import { changesOf, changedFields, commitChanges, draftOf, kindOf, shownIn, type Change, type ChangeKind } from '@/lib/plan';
 import type { Label } from '@/lib/labels';
-import { activeGoals, type Goal } from '@/lib/goals';
+import { activeGoals, findResult, goalTree, openResults, resultPath, type Goal } from '@/lib/goals';
 import { buildPrompt, type PromptVoice } from '@/lib/prompt';
 import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
@@ -250,7 +250,12 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
       const refOf = new Map([...refs].map(([ref, id]) => [id, ref]));
       const convo = plan ? { earlier, draft: draftOf(live, refOf) } : undefined;
       const v: PromptVoice = { spoken, doubts: you.doubts, learn: profile.learn, ...voiceHints(profile) };
-      const pg = live0.map(g => ({ id: g.id, title: g.title, section: g.section, results: g.results.filter(r => !r.done).map(r => r.text), by: g.by }));
+      // Parents first, sub-goals under them, with what each one's key result is.
+      const pg = goalTree(goals, g => g.status === 'active').map(({ goal: g }) => {
+        const up = g.parent ? goals.find(x => x.id === g.parent) : undefined;
+        const kr = up && g.parentKr ? findResult(up.results, g.parentKr) : null;
+        return { id: g.id, title: g.title, section: g.section, results: openResults(g), by: g.by, parent: g.parent ?? null, forResult: kr ? resultPath(up as Goal, kr.id) : null };
+      });
       const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo, v, pg));
       if (thread.current !== t0) return;
       heard = spoken && via === 'ai' ? heardOf(result?.heard, text) : null;

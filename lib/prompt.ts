@@ -18,8 +18,14 @@ export interface PromptTask {
   repeats?: string;
 }
 
-/** A goal as the model sees it: what it is, where it sits, and what "done" means. */
-export interface PromptGoal { id: string; title: string; section?: string | null; results?: string[]; by?: string | null }
+/**
+ * A goal as the model sees it: what it is, where it sits, and what "done" means. A sub-goal names the goal it's part
+ * of and, when it serves one, that goal's key result. List them parent first.
+ */
+export interface PromptGoal {
+  id: string; title: string; section?: string | null; results?: string[]; by?: string | null;
+  parent?: string | null; forResult?: string | null;
+}
 
 /** A conversation in progress: what they said before, and the changes proposed so far, as {add, update}. */
 export interface PromptDraft {
@@ -84,9 +90,14 @@ export function buildPrompt(
     : '(none yet)';
   const labelList = labels.map(l => `${l.id} = ${l.name}`).join(', ');
   const sectionName = (id: string | null | undefined) => labels.find(l => l.id === id)?.name ?? null;
+  const depthOf = (g: PromptGoal, n = 0): number => {
+    const up = g.parent ? goals.find(x => x.id === g.parent) : undefined;
+    return up && n < 6 ? depthOf(up, n + 1) : n;
+  };
   const goalList = goals.map(g => [
-    `- ${g.id} = ${String(g.title).replace(/\s+/g, ' ').slice(0, 100)}`,
-    sectionName(g.section) ? ` (${sectionName(g.section)})` : '',
+    `${'  '.repeat(depthOf(g))}- ${g.id} = ${String(g.title).replace(/\s+/g, ' ').slice(0, 100)}`,
+    g.parent ? ` (sub-goal of ${g.parent}${g.forResult ? `, for its key result "${String(g.forResult).slice(0, 100)}"` : ''})` : '',
+    !g.parent && sectionName(g.section) ? ` (${sectionName(g.section)})` : '',
     g.results?.length ? `. Done when: ${g.results.map(r => String(r).slice(0, 100)).join('; ')}` : '',
     g.by ? `. By ${g.by}` : '',
   ].join(''));
@@ -96,7 +107,7 @@ export function buildPrompt(
     `Dates for the next 14 days: ${days.join(', ')}.`,
     labels.length ? `They sort tasks into these labels (id = name): ${labelList}.` : 'They have no labels.',
     ...(goals.length ? [
-      'Their goals: the few specific outcomes they are working towards right now, most important first (id = goal):',
+      'Their goals: the few specific outcomes they are working towards right now, most important first (id = goal). Sub-goals are indented under the goal they are part of:',
       ...goalList,
     ] : ['They have no goals set yet, so every task is off-goal.']),
     '',
@@ -146,7 +157,7 @@ export function buildPrompt(
       ? ' "label": the id of the label the task belongs to, from their labels above. Pick the closest fit from what it is about; null only when none fits. A #tag naming a label picks that label: leave the tag out of the title,'
       : ' "label": null,',
     goals.length
-      ? ' "goal": the id of the goal this task directly moves forward, from their goals above, else null for off-goal work. Be strict: only when doing it gets that goal closer to done, not because it is loosely related. When they name a goal ("for the exit", "towards the launch") or a #tag names one, use it. A task on a goal takes the goal\'s section as its label,'
+      ? ' "goal": the id of the goal this task directly moves forward, from their goals above, else null for off-goal work. Be strict: only when doing it gets that goal closer to done, not because it is loosely related. Pick the most specific one: a sub-goal over the goal it is part of, when the task moves the sub-goal. When they name a goal ("for the exit", "towards the launch") or a #tag names one, use it. A task on a goal takes the goal\'s section as its label,'
       : ' "goal": null,',
     ' "repeat": null, unless it happens again and again. Then {"freq": "day", "week" or "month", "every": 1, or 2 for every other, 3 for every third, "days": for "week" the weekdays as ["mon", "thu"], else [], "monthday": for "month" the day of the month, else null}.',
     '   For a repeat, "date" is the first day it happens (null for the next day it falls on), "time" is when each one happens (null keeps each one in the backlog on its day), and the title leaves out the schedule ("Order groceries", not "Order groceries every Monday")}',

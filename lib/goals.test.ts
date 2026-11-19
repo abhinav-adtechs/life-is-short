@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import {
-  MAX_ACTIVE, activeGoalOf, addGoal, goalNamed, goalRanker, goalSection, makeGoal, moveGoal, normalizeGoals, onGoalShare, patchGoal,
-  pickGoal, removeGoal, resultsLine, setGoalStatus, tallyGoals, type Goal,
+  MAX_ACTIVE, MAX_GOAL_DEPTH, activeGoalOf, addGoal, addResult, ancestorsOf, descendantsOf, findResult, goalNamed, goalProgress, goalRanker,
+  goalSection, goalTree, makeGoal, mergeResults, moveGoal, normalizeGoals, onGoalShare, openResults, outlineOf, parseOutline, patchGoal,
+  patchResult, pickGoal, removeGoal, resultDone, resultPath, resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal,
 } from './goals';
 import { OFF_GOAL, backlogList, focus } from './select';
 import { applyCapture, promptContext } from './capture';
@@ -250,5 +251,167 @@ describe('the review, by goal', () => {
 
   it('has no goal rows without goals', () => {
     expect(review({ tasks, labels: LABELS, now: NOW }, periodOf('week', NOW)).goals).toEqual([]);
+  });
+});
+
+describe('the goal tree', () => {
+  // Exit, with a key result that has two under it, a sub-goal for one of those, and a sub-goal for the goal as a whole.
+  const exit = goal('gexit', 'Give Sam an exit', {
+    section: 'sj',
+    results: [
+      { id: 'k1', text: 'Share transfer signed', done: false, results: [
+        { id: 'k1a', text: 'Buyer’s lawyer approves the SPA', done: true },
+        { id: 'k1b', text: 'Board approves', done: false },
+      ] },
+      { id: 'k2', text: 'Money in the bank', done: false },
+    ],
+  });
+  const lawyer = goal('glaw', 'Close the board', { parent: 'gexit', parentKr: 'k1b', results: [{ id: 'kb', text: 'Minutes signed', done: false }] });
+  const comms = goal('gcomms', 'Tell the team', { parent: 'gexit' });
+  const deep = goal('gdeep', 'Book the room', { parent: 'glaw' });
+  const TREE = [exit, RUN, lawyer, comms, deep];
+  const index = new Map(TREE.map(g => [g.id, g]));
+
+  it('keeps parents that are there, drops ones that loop or are missing, and keeps a key result only when it is the parent’s', () => {
+    const list = normalizeGoals([
+      ...TREE,
+      { id: 'ga', title: 'A', parent: 'gb' }, { id: 'gb', title: 'B', parent: 'ga' },
+      { id: 'gself', title: 'Self', parent: 'gself' },
+      { id: 'gorphan', title: 'Orphan', parent: 'gnone' },
+      { id: 'gbadkr', title: 'Bad key result', parent: 'gexit', parentKr: 'knope' },
+    ]);
+    const by = new Map(list.map(g => [g.id, g]));
+    expect(by.get('glaw')).toMatchObject({ parent: 'gexit', parentKr: 'k1b' });
+    expect(by.get('gdeep')?.parent).toBe('glaw');
+    // One of a loop stays under the other; the other becomes a top goal.
+    expect([by.get('ga')?.parent, by.get('gb')?.parent].filter(Boolean)).toHaveLength(1);
+    expect(by.get('gself')?.parent).toBeUndefined();
+    expect(by.get('gorphan')?.parent).toBeUndefined();
+    expect(by.get('gbadkr')).toMatchObject({ parent: 'gexit' });
+    expect(by.get('gbadkr')?.parentKr).toBeUndefined();
+    expect(findResult(by.get('gexit')?.results ?? [], 'k1b')?.text).toBe('Board approves');
+  });
+
+  it('only counts top goals towards the most at once, and closes a sub-goal left open under a closed goal', () => {
+    const many = Array.from({ length: MAX_ACTIVE }, (_, i) => goal(`g${i}`, `Goal ${i}`));
+    const subs = Array.from({ length: 4 }, (_, i) => goal(`s${i}`, `Sub ${i}`, { parent: 'g0' }));
+    const list = normalizeGoals([...many, ...subs, goal('gdone', 'Done', { status: 'achieved', closedAt: 4 }), goal('gstray', 'Stray', { parent: 'gdone' })]);
+    expect(list.filter(g => g.status === 'active')).toHaveLength(MAX_ACTIVE + 4);
+    expect(list.find(g => g.id === 'gstray')).toMatchObject({ status: 'achieved', closedAt: 4 });
+  });
+
+  it('keeps a sub-goal in its top goal’s section, also when the section changes', () => {
+    const list = normalizeGoals([exit, { ...lawyer, section: 'personal' }, { ...deep, section: null }]);
+    expect(list.map(g => g.section)).toEqual(['sj', 'sj', 'sj']);
+    const moved = patchGoal('gexit', { section: 'personal' }, 5)(list);
+    expect(moved.map(g => g.section)).toEqual(['personal', 'personal', 'personal']);
+    expect(patchGoal('glaw', { title: 'Close the board, fast' }, 6)(list)[0]).toBe(list[0]);
+  });
+
+  it('walks up and down the tree', () => {
+    expect(topGoals(TREE).map(g => g.id)).toEqual(['gexit', 'grun']);
+    expect(descendantsOf(TREE, 'gexit').map(g => g.id)).toEqual(['glaw', 'gdeep', 'gcomms']);
+    expect(ancestorsOf(index, deep).map(g => g.id)).toEqual(['glaw', 'gexit']);
+    expect(rootOf(index, deep).id).toBe('gexit');
+    expect(rootOf(index, exit).id).toBe('gexit');
+    expect(goalTree(TREE).map(x => `${x.depth}:${x.goal.id}`)).toEqual(['0:gexit', '1:glaw', '2:gdeep', '1:gcomms', '0:grun']);
+    expect(MAX_GOAL_DEPTH).toBeGreaterThanOrEqual(3);
+  });
+
+  it('a task on a sub-goal takes its top goal’s section and rank', () => {
+    expect(goalSection({ goal: 'gdeep' }, index)).toBe('sj');
+    const rank = goalRanker(TREE);
+    expect(rank({ goal: 'gdeep' })).toBe(0);
+    expect(rank({ goal: 'grun' })).toBe(1);
+    expect(activeGoalOf({ goal: 'glaw' }, index)?.id).toBe('glaw');
+  });
+
+  it('works out how far along each goal is, key results counting what is under them and the sub-goals that serve them', () => {
+    expect(resultDone(exit.results[0])).toBe(false);
+    expect(resultDone({ id: 'x', text: 'x', done: false, results: [{ id: 'y', text: 'y', done: true }] })).toBe(true);
+    expect(goalProgress(deep, TREE)).toBeNull();
+    expect(goalProgress(lawyer, TREE)).toBe(0);
+    // k1: mean of k1a (1) and k1b (mean of its sub-goal, 0) = 0.5; k2: 0; comms (nothing to count): 0. (0.5 + 0 + 0) / 3.
+    expect(goalProgress(exit, TREE)).toBeCloseTo(1 / 6);
+    const won = TREE.map(g => (g.id === 'glaw' ? { ...g, status: 'achieved' as const } : g));
+    // k1b now 1, so k1 = 1: (1 + 0 + 0) / 3.
+    expect(goalProgress(exit, won)).toBeCloseTo(1 / 3);
+    expect(goalProgress({ ...exit, status: 'achieved' }, TREE)).toBe(1);
+  });
+
+  it('lists the open key results with their parents, and paths for one', () => {
+    expect(openResults(exit)).toEqual(['Share transfer signed › Board approves', 'Money in the bank']);
+    expect(resultPath(exit, 'k1b')).toBe('Share transfer signed › Board approves');
+    expect(resultPath(exit, 'knope')).toBe('');
+    expect(resultsLine(exit)).toBe('0 of 2');
+  });
+
+  it('closing a goal closes what is under it; bringing one back brings back what is above it', () => {
+    let list = setGoalStatus('gexit', 'achieved', 20)(TREE);
+    expect(list.filter(g => g.status === 'achieved').map(g => g.id).sort()).toEqual(['gcomms', 'gdeep', 'gexit', 'glaw']);
+    list = setGoalStatus('gdeep', 'active', 21)(list);
+    expect(list.filter(g => g.status === 'active').map(g => g.id)).toEqual(['grun', 'gexit', 'glaw', 'gdeep']);
+    // A sibling that went with it stays closed.
+    expect(list.find(g => g.id === 'gcomms')?.status).toBe('achieved');
+    // Dropping a sub-goal leaves its parent alone.
+    list = setGoalStatus('glaw', 'dropped', 22)(list);
+    expect(list.find(g => g.id === 'gexit')?.status).toBe('active');
+    expect(list.find(g => g.id === 'gdeep')?.status).toBe('dropped');
+  });
+
+  it('moves a goal among its siblings only, and deletes a goal with everything under it', () => {
+    const list = moveGoal('gcomms', -1)(TREE);
+    expect(list.map(g => g.id)).toEqual(['gexit', 'grun', 'gcomms', 'glaw', 'gdeep']);
+    expect(moveGoal('gcomms', 1)(TREE)).toBe(TREE);
+    expect(moveGoal('gexit', 1)(TREE).map(g => g.id)).toEqual(['grun', 'gexit', 'glaw', 'gcomms', 'gdeep']);
+    expect(removeGoal('glaw')(TREE).map(g => g.id)).toEqual(['gexit', 'grun', 'gcomms']);
+  });
+
+  it('adds, ticks, renames and removes key results anywhere in the tree', () => {
+    let list = addResult('gexit', 'k2', 'Escrow released', 30, 'k2a')(TREE);
+    expect(findResult(list[0].results, 'k2')?.results).toEqual([{ id: 'k2a', text: 'Escrow released', done: false }]);
+    list = addResult('gexit', null, '  Press release out ', 31, 'k3')(list);
+    expect(list[0].results.map(r => r.text)).toEqual(['Share transfer signed', 'Money in the bank', 'Press release out']);
+    list = patchResult('gexit', 'k1b', { done: true }, 32)(list);
+    expect(resultDone(list[0].results[0])).toBe(true);
+    list = patchResult('gexit', 'k1', null, 33)(list);
+    expect(list[0].results.map(r => r.id)).toEqual(['k2', 'k3']);
+    expect(list[0].updatedAt).toBe(33);
+  });
+
+  it('reads and writes key results as an indented outline, keeping ticks on lines kept as they were', () => {
+    expect(outlineOf(exit.results)).toBe('Share transfer signed\n  Buyer’s lawyer approves the SPA\n  Board approves\nMoney in the bank');
+    expect(parseOutline('- One\n  - One a\n\tOne b\n      One b i\n        Too deep\nTwo\n\n')).toEqual([
+      { text: 'One', results: [{ text: 'One a' }, { text: 'One b', results: [{ text: 'One b i' }, { text: 'Too deep' }] }] },
+      { text: 'Two' },
+    ]);
+    const merged = mergeResults(exit.results, parseOutline('Share transfer signed\n  Buyer’s lawyer approves the SPA\n  Board approves by vote\nMoney in the bank'));
+    expect(merged[0]).toMatchObject({ id: 'k1', done: false });
+    expect(merged[0].results?.[0]).toMatchObject({ id: 'k1a', done: true });
+    expect(merged[0].results?.[1].id).not.toBe('k1b');
+    expect(merged[1].id).toBe('k2');
+    const made = makeGoal({ title: 'Sub', section: 'sj', results: parseOutline('A\n  B'), parent: 'gexit', parentKr: 'k2' }, 1, 'gsub');
+    expect(made).toMatchObject({ parent: 'gexit', parentKr: 'k2' });
+    expect(made.results[0].results?.[0].text).toBe('B');
+  });
+
+  it('tells the model sub-goals under their goals, with the key result each serves', () => {
+    const p = buildPrompt('book the board room', NOW, [], undefined, LABELS, undefined, undefined, [
+      { id: 'gexit', title: 'Give Sam an exit', section: 'sj', results: openResults(exit) },
+      { id: 'glaw', title: 'Close the board', section: 'sj', parent: 'gexit', forResult: 'Share transfer signed › Board approves' },
+      { id: 'gdeep', title: 'Book the room', section: 'sj', parent: 'glaw' },
+    ]);
+    expect(p).toContain('- gexit = Give Sam an exit (Superjoin). Done when: Share transfer signed › Board approves; Money in the bank');
+    expect(p).toContain('  - glaw = Close the board (sub-goal of gexit, for its key result "Share transfer signed › Board approves")');
+    expect(p).toContain('    - gdeep = Book the room (sub-goal of glaw)');
+    expect(p).toContain('Pick the most specific one');
+  });
+
+  it('the review lists sub-goals under their goal, and a goal whose sub-goal got time isn’t idle', () => {
+    const tasks = [task('Room', { goal: 'gdeep', status: 'done', start: at(17, 10), doneAt: at(17, 11), minutes: 60 })];
+    const r = review({ tasks, labels: LABELS, goals: TREE, now: NOW }, periodOf('week', NOW));
+    expect(r.goals.map(g => `${g.depth}:${g.id || '-'}:${g.minutes}`)).toEqual(['0:gexit:0', '1:glaw:0', '2:gdeep:60', '1:gcomms:0', '0:grun:0']);
+    expect(r.goals.find(g => g.id === 'gdeep')?.color).toBe('#4F5BD5');
+    expect(r.insights).toContain('Nothing moved “Run a half marathon” in this stretch.');
   });
 });

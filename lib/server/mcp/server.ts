@@ -50,7 +50,7 @@ const changed = detail.extend({ changed: z.boolean().describe('False when the ta
 const TIME_NOTE = 'Times without an offset are read in the user’s time zone (list_tasks returns it).';
 
 const INSTRUCTIONS = `Life is short is the user's own to-do planner, organised around a few goals: specific outcomes they are working
-towards, each with what "done" means (list_goals). Every task either moves one goal or is off-goal, which is fine as long as
+towards, each with what "done" means and often sub-goals under it (list_goals). Every task either moves one goal or is off-goal, which is fine as long as
 the user knows. Each task is either in the backlog (no time) or on the calendar (scheduled), can have a deadline (due), a
 priority (urgent, important or later), a goal, and a project, which the app calls a section (the user's own, like their
 company, Personal or Helping others); a task on a goal takes the goal's section. The app shows the user one task to do now:
@@ -114,26 +114,35 @@ export function buildServer(auth: AuthInfo): McpServer {
 
   server.registerTool('list_goals', {
     title: 'List goals',
-    description: 'The user’s goals, most important first: what each is, its section, its target date, what has to be true for it '
-      + 'to be done (done_when, with what’s ticked), how many tasks are open and done on it, and its flow chart: the steps in '
-      + 'order of what depends on what, which are blocked, and the critical path. Plus how many open tasks are off-goal. Goals '
-      + 'and their charts are set in the app; this can’t change them.',
+    description: 'The user’s goals, most important first, each followed by its sub-goals (OKR style: a goal can have sub-goals, '
+      + 'a sub-goal can serve one of its parent’s key results, and key results can have key results under them). For each: what '
+      + 'it is, its section, its target date, its parent, what has to be true for it to be done (done_when, with what’s ticked), '
+      + 'how far along it is, how many tasks are open and done on it, and its flow chart: the steps in order of what depends on '
+      + 'what, which are blocked, and the critical path. Plus how many open tasks are off-goal. Put a task on the most specific '
+      + 'goal it moves. Goals and their charts are set in the app; this can’t change them.',
     inputSchema: z.object({ include_closed: z.boolean().optional().describe('Also list achieved and dropped goals. Default false.') }),
     outputSchema: z.object({
       goals: z.array(z.object({
         id: z.string(), title: z.string(), section: orNull('Its section, or null.'),
-        status: z.enum(['active', 'achieved', 'dropped']), rank: z.number().nullable().describe('1 for the most important active goal; null when closed.'),
+        status: z.enum(['active', 'achieved', 'dropped']), rank: z.number().nullable().describe('1 for the most important active top goal; null for sub-goals and closed ones.'),
         by: orNull('Target date, YYYY-MM-DD, or null.'),
-        done_when: z.array(z.object({ text: z.string(), done: z.boolean() })),
+        parent: orNull('The id of the goal this is a sub-goal of, or null for a top goal.'),
+        parent_kr: orNull('The id of the parent’s key result (in its done_when) this sub-goal serves, or null.'),
+        progress: z.number().nullable().describe('0 to 1, from its key results and sub-goals; null with neither.'),
+        done_when: z.array(z.object({
+          id: z.string(), text: z.string(), done: z.boolean().describe('Ticked, or everything under it is'),
+          under: z.string().nullable().describe('The key result it sits under, or null at the top'),
+        })).describe('Its key results, depth first.'),
         open_tasks: z.number(), done_tasks: z.number(),
         flow: z.object({
           steps: z.array(z.object({
-            id: z.string(), kind: z.enum(['task', 'wait', 'milestone']).describe('task: a task on the goal; wait: something outside the user’s control it waits on; milestone: one of its done-when lines'),
+            id: z.string(), kind: z.enum(['task', 'wait', 'goal', 'milestone']).describe('task: a task on the goal; wait: something outside the user’s control it waits on; goal: one of its sub-goals; milestone: one of its done-when lines'),
             title: z.string(), state: z.enum(['done', 'ready', 'blocked', 'reached', 'open']),
             minutes: z.number().optional(), needs: z.array(z.string()).optional().describe('Step ids that have to be done first'),
             critical: z.boolean().optional().describe('On the critical path: the chain with the most work left'),
+            progress: z.number().optional().describe('For a sub-goal: how far along it is, 0 to 1'),
           })),
-          arrows: z.array(z.object({ from: z.string(), to: z.string() })).describe('from has to be done before to can start'),
+          arrows: z.array(z.object({ from: z.string(), to: z.string(), structure: z.literal(true).optional().describe('Drawn by the goal’s structure (a key result under another, a sub-goal for a key result), not by the user') })).describe('from has to be done before to can start'),
           critical_path: z.array(z.string()),
         }).describe('The goal’s flow chart, left to right from the goal: steps, what each needs first, and the critical path.'),
       })),

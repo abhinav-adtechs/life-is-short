@@ -24,12 +24,15 @@ const heat = (n: number) => (n === 0 ? 'var(--bg)' : `color-mix(in srgb, var(--i
 
 interface Row { id: string; name: string; color: string | null; section: string | null }
 
-/** The matrix's rows: your goals, most important first, in their sections' colours; then everything off-goal. */
+/**
+ * The matrix's rows: your top goals, most important first, in their sections' colours; then everything off-goal. A
+ * sub-goal's tasks sit in its top goal's row.
+ */
 function useRows(): Row[] {
-  const { prefs, activeGoals } = usePlanner();
+  const { prefs, topGoals } = usePlanner();
   const section = (g: Goal) => prefs.labels.find(l => l.id === g.section) ?? null;
   return [
-    ...activeGoals.map(g => ({ id: g.id, name: g.title, color: section(g)?.color ?? null, section: section(g)?.name ?? null })),
+    ...topGoals.map(g => ({ id: g.id, name: g.title, color: section(g)?.color ?? null, section: section(g)?.name ?? null })),
     { id: '', name: 'Off-goal', color: null, section: null },
   ];
 }
@@ -37,8 +40,8 @@ function useRows(): Row[] {
 const goalName = (goals: Goal[], id: string) => goals.find(g => g.id === id)?.title ?? 'Off-goal';
 /** What the filter shows, in words: a goal, or a goal at one priority. */
 const filterName = (goals: Goal[], f: Filter) => `${shortTitle(goalName(goals, f.goal), 34)}${f.priority ? ` · ${PRI[f.priority]}` : ''}`;
-/** The row a task sits in: its active goal, or '' for off-goal. */
-const useRowOf = () => { const { goalOf } = usePlanner(); return (t: Task) => goalOf(t)?.id ?? ''; };
+/** The row a task sits in: its active goal's top goal, or '' for off-goal. */
+const useRowOf = () => { const { rootGoalOf } = usePlanner(); return (t: Task) => rootGoalOf(t)?.id ?? ''; };
 
 /* ---------- one task ---------- */
 
@@ -198,7 +201,7 @@ function CountGrid({ phone, head }: { phone?: boolean; head: number }) {
   const { backlog } = useLists();
   const rows = useRows();
   const rowOf = useRowOf();
-  const { week } = useGoalWeek();
+  const { rolled: week } = useGoalWeek();
   const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
   const n = (r: Row, p: Priority) => backlog.filter(t => rowOf(t) === r.id && t.priority === p).length;
   return (
@@ -238,8 +241,8 @@ function CountGrid({ phone, head }: { phone?: boolean; head: number }) {
 
 /** Before any goals: what they're for, and the way in. */
 function SetGoals({ phone }: { phone?: boolean }) {
-  const { openSheet, activeGoals, goalsLoaded } = usePlanner();
-  if (!goalsLoaded || activeGoals.length) return null;
+  const { openSheet, topGoals, goalsLoaded } = usePlanner();
+  if (!goalsLoaded || topGoals.length) return null;
   return (
     <div className={'mx-goals' + (phone ? ' ph' : '')}>
       <span className="gempty-i"><TargetIcon size={18} /></span>
@@ -313,7 +316,7 @@ function FullMatrix() {
   const { drag, plan } = usePlanner();
   const { backlog } = useLists();
   const rows = useRows();
-  const { week } = useGoalWeek();
+  const { rolled: week } = useGoalWeek();
   const target = drag.view && drag.view.kind !== 'resize' ? drag.view.cell : null;
   const lab = useRowOf();
   const stagger = useStagger(26, 24);
