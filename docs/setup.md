@@ -20,8 +20,8 @@ Without Supabase keys the app runs in local-only mode (tasks in this browser). W
 ### 1. Supabase (primary)
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001` to `0010` in order, then `supabase/roles/primary_backup_reader.sql`.
-   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it; `0007` lets a passkey sign-in in, and `0008` lets Face ID stand in for the code after the PIN; the backup job compares both rules between the two; `0009` adds connecting Claude, and the backup job compares its functions too; `0010` adds goals: a task's goal column, which the app writes and the backup job copies, and lets Claude read your goals. It needs `0009` first).
+2. SQL editor: run `supabase/migrations/0001` to `0011` in order, then `supabase/roles/primary_backup_reader.sql`.
+   Already running an older copy? Run each new migration on the primary **and** the backup before you deploy the code that needs it (`0006` adds labels: the app writes the new column and the backup job copies it; `0007` lets a passkey sign-in in, and `0008` lets Face ID stand in for the code after the PIN; the backup job compares both rules between the two; `0009` adds connecting Claude, and the backup job compares its functions too; `0010` adds goals: a task's goal column, which the app writes and the backup job copies, and lets Claude read your goals. It needs `0009` first; `0011` lets Claude build goals and their charts, and the backup job compares its functions, so run it on both).
 3. Authentication → Users → **Add user**: your email and a long random password, with auto-confirm on.
 4. Authentication → Sign In / Providers: turn off **Allow new users to sign up**, and turn off email OTP / magic links. It's a single-user app with password + authenticator only.
 5. Authentication → Multi-Factor: keep **TOTP** enabled (the default).
@@ -118,7 +118,7 @@ Settings → Account lists your passkeys, with when each was added and last used
 
 Lets Claude read and change your tasks as a custom connector: an MCP server at `/mcp` (Streamable HTTP), with its own OAuth 2.1 sign-in that is your planner's sign-in. How it's locked down is in [`security.md`](security.md#connecting-claude).
 
-1. Run `supabase/migrations/0009_connectors.sql` in the SQL editor, on the primary and on the backup, if you haven't (step 1), and `0010_goals.sql` after it.
+1. Run `supabase/migrations/0009_connectors.sql` in the SQL editor, on the primary and on the backup, if you haven't (step 1), and `0010_goals.sql` and `0011_connector_goals.sql` after it.
 2. Make a server key and keep it for Vercel (step 6). It's a different key from sharing's:
 
    ```sh

@@ -183,17 +183,26 @@ describe('what a connection can do', () => {
     expect(await server('select public.mcp_remove($1, $2, $3)', [KEY, sha(token), ['new1', 'nope']])).toBe(1);
     expect((await list(token)).map(r => r.id)).not.toContain('new1');
   });
-  it('reads your labels, goals, repeats and slips, and writes only repeats and slips', async () => {
+  it('reads your labels, goals, their history, repeats and slips; writes goals, history, repeats and slips, never prefs', async () => {
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'prefs'])).toMatchObject({ labels: [{ id: 'work' }] });
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'goals'])).toBeNull();
-    await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'goals', '[]'])).rejects.toThrow(/not available/);
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'repeats'])).toBeNull();
     for (const name of ['google', 'history', 'voice']) {
       await expect(server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), name])).rejects.toThrow(/not available/);
     }
+    // 0011: Claude builds goals and their charts, and adds to the charts' history.
+    const goals = [{ id: 'gship', title: 'Ship it', section: 'work', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 }];
+    expect(await server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'goals', JSON.stringify(goals)])).toBe('ok');
+    expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'goals'])).toEqual(goals);
+    expect(await server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'goal-log', '[{"at":1,"goal":"gship","op":"add"}]'])).toBe('ok');
+    expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'goal-log'])).toHaveLength(1);
     expect(await server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'slips', '[]'])).toBe('ok');
-    await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'prefs', '[]'])).rejects.toThrow(/not available/);
-    await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'repeats', '{}'])).rejects.toThrow(/expected a list/);
+    for (const name of ['prefs', 'google', 'history', 'voice']) {
+      await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), name, '[]'])).rejects.toThrow(/not available/);
+    }
+    await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'goals', '{}'])).rejects.toThrow(/expected a list/);
+    // Only for the connection's own account.
+    expect((await db.query(`select user_id from public.settings where key = 'goals'`)).rows).toEqual([{ user_id: OWNER }]);
   });
   it('a made-up token gets nothing', async () => {
     await expect(list(rand())).rejects.toThrow(/invalid token/);

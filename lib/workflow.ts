@@ -344,6 +344,8 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
     return true;
   };
   const chartOf = (op: WorkflowOp, ...ns: (Node | null)[]) => findGoal(op.goal) ?? goalOf(ns.find(n => n?.goal)?.goal ?? null);
+  /** The goal a step named by its title is looked for on first: the operation's own goal, else the one in focus. */
+  const scope = (op: WorkflowOp) => (op.goal ? findGoal(op.goal)?.id : null) ?? opts.focus ?? null;
 
   for (const op of ops) {
     const miss = (what: string) => skipped.push(`Couldn’t ${DOING[op.op]}: ${what}.`);
@@ -389,7 +391,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         break;
       }
       case 'edit_result': case 'remove_result': {
-        const n = resolve(op.ref, opts.focus);
+        const n = resolve(op.ref, scope(op));
         if (!n || n.kind !== 'kr' || !n.goal) { miss(`there’s no key result “${op.ref ?? ''}”`); break; }
         if (op.op === 'remove_result') {
           const g = goalOf(n.goal) as Goal;
@@ -456,7 +458,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         break;
       }
       case 'link': case 'unlink': {
-        const a = resolve(op.from, opts.focus), b = resolve(op.to, opts.focus);
+        const a = resolve(op.from, scope(op)), b = resolve(op.to, scope(op));
         if (!a || !b) { miss(`there’s no step “${!a ? op.from ?? '' : op.to ?? ''}”`); break; }
         const g = chartOf(op, b, a);
         if (!g) { miss('there’s no goal to draw it on'); break; }
@@ -469,7 +471,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         break;
       }
       case 'edit_step': {
-        const n = resolve(op.ref, opts.focus);
+        const n = resolve(op.ref, scope(op));
         if (!n) { miss(`there’s no step “${op.ref ?? ''}”`); break; }
         const title = op.title?.slice(0, 160);
         const said: string[] = [];
@@ -506,7 +508,7 @@ export function applyWorkflow(ops: WorkflowOp[], st: WorkflowState, refs: Workfl
         break;
       }
       case 'remove_step': {
-        const n = resolve(op.ref, opts.focus);
+        const n = resolve(op.ref, scope(op));
         if (!n) { miss(`there’s no step “${op.ref ?? ''}”`); break; }
         if (n.goal) plan(n.goal, p => withoutStep(p, n.node));
         if (n.kind === 'task') {

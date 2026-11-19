@@ -3,7 +3,8 @@ import type { TaskRepo } from '../repo/types';
 import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
 import { GOALS_KEY, activeGoals, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
-import { buildFlow, toJson } from '../flow';
+import { LOG_KEY, MAX_LOG, buildFlow, coalesce, describeEntry, logFromWrites, normalizeLog, planOf, toJson, toMermaid, type LogEntry } from '../flow';
+import { applyWorkflow, normalizeOps, recordedIds, type WorkflowOp, type WorkflowRefs } from '../workflow';
 import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type Repeat, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
@@ -11,8 +12,9 @@ import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
 /*
  * What the MCP tools do (lib/server/mcp/server.ts), over the same TaskRepo the planner writes through
  * (lib/repo/types.ts). Writes follow the planner's rules (components/store.ts and Planner.tsx): each one is stamped
- * newer than what it replaces so open screens take it, a missed slot moved or deleted is noted for the review, and an
- * edit to a repeat's open task carries on to the ones to come.
+ * newer than what it replaces so open screens take it, a missed slot moved or deleted is noted for the review, an
+ * edit to a repeat's open task carries on to the ones to come, and a change to a task on a goal goes in that goal's
+ * chart history. Goals and their charts change through the app's own chart builder (lib/workflow.ts).
  */
 
 export const PRIORITIES = ['urgent', 'important', 'later'] as const;
@@ -171,7 +173,7 @@ function find(tasks: Task[], id: string): Task {
 /* ---------- writing, the way the planner does ---------- */
 
 /** Write tasks and deletions, then do the planner's bookkeeping. Returns the tasks as written. */
-async function write(c: Ctx, changes: Change[]): Promise<Task[]> {
+async function write(c: Ctx, changes: Change[], log: LogEntry[] = []): Promise<Task[]> {
   const now = clock(c);
   const stamped: Change[] = changes.map(({ before, after }) => ({
     before, after: after && { ...after, updatedAt: Math.max(now, (before?.updatedAt || 0) + 1) },
@@ -181,10 +183,23 @@ async function write(c: Ctx, changes: Change[]): Promise<Task[]> {
   if (puts.length) await c.repo.put(puts);
   if (gone.length) await c.repo.remove(gone);
   // The write is in; the bookkeeping is best effort, as on a device that's offline.
-  await Promise.all([noteSlips(c, stamped, now), followRepeats(c, puts, now)]).catch(e => {
-    console.warn('mcp: saved, but could not update slips or repeats:', e instanceof Error ? e.message : e);
-  });
+  const done = await Promise.allSettled([noteSlips(c, stamped, now), followRepeats(c, puts, now), noteLog(c, [...log, ...logFromWrites(stamped, now)])]);
+  for (const r of done) {
+    if (r.status === 'rejected') console.warn('mcp: saved, but could not update slips, repeats or chart history:', r.reason instanceof Error ? r.reason.message : r.reason);
+  }
   return puts;
+}
+
+/** Add to the goals' chart history, laid over what's stored. A database from before 0011 doesn't let a connection write it. */
+async function noteLog(c: Ctx, entries: LogEntry[]) {
+  if (!entries.length) return;
+  try {
+    const stored = normalizeLog(await c.repo.getSetting(LOG_KEY));
+    await c.repo.setSetting(LOG_KEY, coalesce([...stored, ...entries]).slice(-MAX_LOG));
+  } catch (e) {
+    if (e instanceof Error && /not available/.test(e.message)) return;
+    throw e;
+  }
 }
 
 async function noteSlips(c: Ctx, changes: Change[], now: number) {
@@ -411,31 +426,173 @@ export interface GoalSummary {
   flow: Pick<ReturnType<typeof toJson>, 'steps' | 'arrows' | 'critical_path'>;
 }
 
+/** Your repeats, or none on a database that doesn't hand them out. */
+async function repeatsOf(c: Ctx): Promise<Repeat[]> {
+  try { return normalizeRepeats(await c.repo.getSetting(REPEATS_KEY)); } catch { return []; }
+}
+
+/** How each goal is described: the same in list_goals, get_goal and change_goals. */
+function goalSummarizer(goals: Goal[], tasks: Task[], byLabel: Map<string, Label>, repeats: Repeat[], now: number) {
+  const tops = topGoals(goals);
+  const index = new Map(goals.map(g => [g.id, g]));
+  const mine = tasks.filter(t => !isEvent(t));
+  const count = (id: string, status: Status) => mine.filter(t => t.goal === id && t.status === status).length;
+  return (g: Goal): GoalSummary => ({
+    id: g.id, title: g.title, section: (() => { const s = goalSection({ goal: g.id }, index); return (s && byLabel.get(s)?.name) || null; })(),
+    status: g.status, rank: g.status === 'active' && !g.parent ? tops.indexOf(g) + 1 : null, by: g.by,
+    parent: g.parent ?? null, parent_kr: g.parentKr ?? null,
+    progress: (p => (p == null ? null : Math.round(p * 100) / 100))(goalProgress(g, goals)),
+    done_when: flatResults(g.results).map(({ kr, parent }) => ({ id: kr.id, text: kr.text, done: resultDone(kr), under: parent })),
+    open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
+    flow: (({ steps, arrows, critical_path }) => ({ steps, arrows, critical_path }))(toJson(g, buildFlow(g, tasks, now, { goals, repeats }))),
+  });
+}
+
 /** The user's goals, most important first; with include_closed, the achieved and dropped ones after them. */
 export async function listGoals(c: Ctx, f: { include_closed?: boolean } = {}): Promise<{ goals: GoalSummary[]; off_goal_open_tasks: number }> {
   const { tasks, byLabel, goals } = await load(c);
   const now = clock(c);
   // A repeating task is one step on its goal's chart; without the repeats, each of its tasks is one.
-  let repeats: Repeat[] = [];
-  try { repeats = normalizeRepeats(await c.repo.getSetting(REPEATS_KEY)); } catch { /* an older database: no repeats */ }
+  const repeats = await repeatsOf(c);
   const live = activeGoals(goals);
-  const tops = topGoals(goals);
-  const index = new Map(goals.map(g => [g.id, g]));
-  const mine = tasks.filter(t => !isEvent(t));
-  const count = (id: string, status: Status) => mine.filter(t => t.goal === id && t.status === status).length;
   // Each goal followed by its sub-goals.
   const tree = goalTree(goals, g => g.status === 'active').map(x => x.goal);
   const shown = f.include_closed ? [...tree, ...goals.filter(g => !tree.includes(g))] : tree;
+  const describe = goalSummarizer(goals, tasks, byLabel, repeats, now);
   return {
-    goals: shown.map(g => ({
-      id: g.id, title: g.title, section: (() => { const s = goalSection({ goal: g.id }, index); return (s && byLabel.get(s)?.name) || null; })(),
-      status: g.status, rank: g.status === 'active' && !g.parent ? tops.indexOf(g) + 1 : null, by: g.by,
-      parent: g.parent ?? null, parent_kr: g.parentKr ?? null,
-      progress: (p => (p == null ? null : Math.round(p * 100) / 100))(goalProgress(g, goals)),
-      done_when: flatResults(g.results).map(({ kr, parent }) => ({ id: kr.id, text: kr.text, done: resultDone(kr), under: parent })),
-      open_tasks: count(g.id, 'open'), done_tasks: count(g.id, 'done'),
-      flow: (({ steps, arrows, critical_path }) => ({ steps, arrows, critical_path }))(toJson(g, buildFlow(g, tasks, now, { goals, repeats }))),
-    })),
-    off_goal_open_tasks: mine.filter(t => t.status === 'open' && !(t.goal && live.some(g => g.id === t.goal))).length,
+    goals: shown.map(describe),
+    off_goal_open_tasks: tasks.filter(t => !isEvent(t) && t.status === 'open' && !(t.goal && live.some(g => g.id === t.goal))).length,
+  };
+}
+
+/** A goal by id or title, any status; unknown ones say which exist. */
+function findGoal(goals: Goal[], v: string): Goal {
+  const want = v.trim().replace(/^goal:/, '');
+  const hit = goals.find(g => g.id === want) ?? goals.find(g => g.id === pickGoal(goals, want))
+    ?? goals.find(g => g.title.toLowerCase() === want.toLowerCase());
+  if (hit) return hit;
+  const live = activeGoals(goals).map(g => `"${g.title}" (${g.id})`).join(', ') || 'none yet';
+  throw new TaskError(`There's no goal "${v}". The user's goals: ${live}.`, 'not_found');
+}
+
+export interface GoalDetail extends GoalSummary {
+  /** The chart as a Mermaid flowchart, to draw it. */
+  mermaid: string;
+  /** What happened to the chart lately, newest last. */
+  history: { at: string; what: string }[];
+}
+
+/** One goal in full: its summary and chart, the chart as Mermaid, and its recent history. */
+export async function getGoal(c: Ctx, f: { goal: string; history?: number }): Promise<GoalDetail> {
+  const { tasks, byLabel, goals } = await load(c);
+  const now = clock(c);
+  const repeats = await repeatsOf(c);
+  const g = findGoal(goals, f.goal);
+  let log: LogEntry[] = [];
+  try { log = normalizeLog(await c.repo.getSetting(LOG_KEY)); } catch { /* a database from before 0011: no history to show */ }
+  const keep = Math.max(0, Math.min(50, Math.floor(f.history ?? 15)));
+  const mine = coalesce(log.filter(e => e.goal === g.id));
+  return {
+    ...goalSummarizer(goals, tasks, byLabel, repeats, now)(g),
+    mermaid: toMermaid(g, buildFlow(g, tasks, now, { goals, repeats })),
+    history: keep ? mine.slice(-keep).map(e => ({ at: isoIn(e.at, c.tz), what: describeEntry(e) })) : [],
+  };
+}
+
+/* ---------- building goals and their charts ---------- */
+
+/** Fields of an operation that name a goal or a step. */
+const REF_FIELDS = ['goal', 'ref', 'from', 'to', 'under', 'parent', 'for_result', 'after', 'before', 'beside', 'holds'] as const;
+
+/**
+ * The chart builder's refs (lib/workflow.ts) as the ids list_goals and get_goal show: a task's id, a waiting step's
+ * id, "kr:" and a key result's id (or "<goal id>/kr:<id>" where two goals share one), "rep:" and a repeat's id for a
+ * repeating task, and a goal's id, with or without "goal:", for a sub-goal.
+ */
+export function refsFor(goals: Goal[], tasks: Task[], repeats: Repeat[]): WorkflowRefs {
+  const refs: WorkflowRefs = { tasks: new Map(tasks.map(t => [t.id, t.id])), waits: new Map(), results: new Map(), series: new Map() };
+  const seen = new Map<string, number>();
+  for (const g of goals) {
+    for (const w of planOf(g).waits) refs.waits.set(w.id, { goal: g.id, id: w.id });
+    for (const { kr } of flatResults(g.results)) {
+      refs.results.set(`${g.id}/kr:${kr.id}`, { goal: g.id, id: kr.id });
+      seen.set(kr.id, (seen.get(kr.id) ?? 0) + 1);
+    }
+  }
+  for (const g of goals) {
+    for (const { kr } of flatResults(g.results)) {
+      if (seen.get(kr.id) !== 1) continue;
+      refs.results.set(`kr:${kr.id}`, { goal: g.id, id: kr.id });
+      if (!refs.tasks.has(kr.id)) refs.results.set(kr.id, { goal: g.id, id: kr.id });
+    }
+  }
+  for (const r of repeats) if (r.goal) refs.series.set(`rep:${r.id}`, { goal: r.goal, id: r.id });
+  return refs;
+}
+
+export interface ChangeOutput {
+  /** What changed, one line each. */
+  changed: string[];
+  /** What couldn't be done, and why. */
+  skipped: string[];
+  /** The goals this touched, as list_goals shows them, with the ids of anything new on their charts. */
+  goals: GoalSummary[];
+}
+
+const googleOwned = (t: Task | undefined) => !!t && (isEvent(t) || !!t.externalId?.startsWith('gtask:'));
+
+/**
+ * Change goals and their flow charts: the chart builder's operations (lib/workflow.ts), applied as the app applies
+ * them. `goal` is the goal an operation without one means. Writes, in the app's order: goals, repeats, then tasks, and
+ * the chart history.
+ */
+export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }): Promise<ChangeOutput> {
+  const { tasks, byLabel, goals } = await load(c);
+  const now = clock(c);
+  const repeats = await repeatsOf(c);
+  const focus = f.goal ? findGoal(goals, f.goal).id : null;
+  // A step can be named the way list_goals shows it: a sub-goal as "goal:<id>".
+  const raw = (Array.isArray(f.ops) ? f.ops : []).map(o => {
+    const x = { ...(o && typeof o === 'object' ? o as Record<string, unknown> : {}) };
+    for (const k of REF_FIELDS) if (typeof x[k] === 'string') x[k] = (x[k] as string).replace(/^goal:/, '');
+    // Priorities as the other tools take them.
+    if (typeof x.priority === 'string' && x.priority in PRI) x.priority = PRI[x.priority as PriorityName];
+    return x;
+  });
+  const ops = normalizeOps(raw);
+  if (!ops.length) throw new TaskError('No operations to apply. Each needs an "op" the chart builder knows (add_goal, add_step, link…).', 'invalid');
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  // Google keeps a pulled item's title, length and very being: renaming or deleting it here would be undone by the next pull.
+  const skipped: string[] = [];
+  const allowed = ops.filter((op: WorkflowOp) => {
+    const t = op.ref ? byId.get(op.ref) : undefined;
+    if (!googleOwned(t)) return true;
+    if ((op.op === 'edit_step' && (op.title || op.minutes)) || (op.op === 'remove_step' && op.delete)) {
+      skipped.push(`“${t?.title}” comes from Google, so its title, length and whether it exists follow Google. Change it there, or tick it off.`);
+      return false;
+    }
+    return true;
+  });
+  const refs = refsFor(goals, tasks, repeats);
+  const out = applyWorkflow(allowed, { goals, tasks, repeats, now }, refs, { focus, ids: recordedIds() });
+
+  const nextGoals = normalizeGoals(out.goals);
+  if (JSON.stringify(nextGoals) !== JSON.stringify(goals)) await c.repo.setSetting(GOALS_KEY, nextGoals);
+  if (out.repeatOps.length) await c.repo.setSetting(REPEATS_KEY, applyOps(await repeatsOf(c), out.repeatOps));
+  const changes: Change[] = [
+    ...out.removes.flatMap(id => (byId.get(id) ? [{ before: byId.get(id) as Task, after: null }] : [])),
+    ...out.writes.map(t => ({ before: byId.get(t.id) ?? null, after: t })),
+  ];
+  await write(c, changes, out.log);
+
+  // The goals it touched: changed, or with a task added, moved or removed.
+  const before = new Map(goals.map(g => [g.id, JSON.stringify(g)]));
+  const touched = new Set(nextGoals.filter(g => before.get(g.id) !== JSON.stringify(g)).map(g => g.id));
+  for (const ch of changes) for (const t of [ch.before, ch.after]) if (t?.goal) touched.add(t.goal);
+  // Described as they are now, so the ids of anything new are there to build on.
+  const describe = goalSummarizer(nextGoals, await c.repo.list(), byLabel, await repeatsOf(c), clock(c));
+  return {
+    changed: out.lines, skipped: [...skipped, ...out.skipped],
+    goals: nextGoals.filter(g => touched.has(g.id)).slice(0, 6).map(describe),
   };
 }
