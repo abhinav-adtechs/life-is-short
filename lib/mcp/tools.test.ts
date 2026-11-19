@@ -3,7 +3,9 @@ import type { Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { normalizeRepeats, startRepeat, occurrence, REPEATS_KEY } from '../repeat';
 import { SLIPS_KEY } from '../slips';
-import { TaskError, completeTask, createTask, deleteTask, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx } from './tools';
+import { TaskError, changeGoals, completeTask, createTask, deleteTask, getGoal, getTask, listGoals, listTasks, refsFor, reopenTask, updateTask, type Ctx } from './tools';
+import { normalizeGoals } from '../goals';
+import { LOG_KEY, normalizeLog } from '../flow';
 
 const NOW = Date.parse('2026-11-11T10:00:00Z');
 const H = 3600000;
@@ -284,5 +286,135 @@ describe('goals', () => {
     m.repo.getSetting = async <T,>(k: string) => { if (k === 'goals') throw new Error('mcp: setting not available'); return (k === 'prefs' ? LABELS : null) as T; };
     expect(await listGoals(ctx(m))).toEqual({ goals: [], off_goal_open_tasks: 4 });
     expect((await listTasks(ctx(m), {})).tasks.every(t => t.goal === null)).toBe(true);
+  });
+});
+
+describe('building goals and their charts', () => {
+  const EXIT = { id: 'gexit', title: 'Give Sam an exit', section: 'work', results: [{ id: 'k1', text: 'Shares transferred', done: false }, { id: 'k2', text: 'Paid', done: false }],
+    by: '2026-12-31', status: 'active', created: 1, closedAt: null, updatedAt: 1, plan: { links: [{ from: 'lawyer', to: 'deck' }], waits: [] } };
+  const seed = (extra: Record<string, unknown> = {}) => memRepo([
+    task('lawyer', { goal: 'gexit', label: 'work' }),
+    task('deck', { goal: 'gexit', label: 'work' }),
+    task('stray', {}),
+    task('standup', { externalId: 'gcal:me:s1', start: NOW + H }),
+  ], { prefs: LABELS, goals: [EXIT], ...extra });
+  const goalsIn = (m: ReturnType<typeof memRepo>) => normalizeGoals(m.store.goals);
+
+  it('builds a new goal with key results, steps, a waiting step and arrows in one call', async () => {
+    const m = seed();
+    const out = await changeGoals(ctx(m), { ops: [
+      { op: 'add_goal', title: 'Launch the newsletter', results: ['First issue sent'], key: 'news' },
+      { op: 'add_step', goal: 'news', title: 'Pick a platform', minutes: 30, priority: 'urgent', key: 'pick' },
+      { op: 'add_step', goal: 'news', title: 'Write issue one', minutes: 120, after: 'pick', key: 'write' },
+      { op: 'add_wait', goal: 'news', title: 'Editor reviews it', holds: 'send', key: 'review' },
+      { op: 'add_step', goal: 'news', title: 'Send issue one', after: 'write', key: 'send' },
+      { op: 'link', from: 'review', to: 'send' },
+      { op: 'link', goal: 'news', from: 'send', to: 'First issue sent' },
+    ] });
+    const g = goalsIn(m).find(x => x.title === 'Launch the newsletter')!;
+    expect(g.results.map(r => r.text)).toEqual(['First issue sent']);
+    const tasks = [...m.rows.values()].filter(t => t.goal === g.id);
+    expect(tasks.map(t => [t.title, t.minutes, t.priority]).sort()).toEqual([['Pick a platform', 30, 1], ['Send issue one', 30, 2], ['Write issue one', 120, 2]]);
+    const id = (title: string) => tasks.find(t => t.title === title)!.id;
+    const wait = g.plan!.waits[0];
+    expect(wait.title).toBe('Editor reviews it');
+    expect(g.plan!.links).toEqual(expect.arrayContaining([
+      { from: id('Pick a platform'), to: id('Write issue one') }, { from: id('Write issue one'), to: id('Send issue one') },
+      { from: wait.id, to: id('Send issue one') }, { from: id('Send issue one'), to: `kr:${g.results[0].id}` },
+    ]));
+    // "holds: send" named a step not added yet, so it was said, and the explicit link drew it.
+    expect(out.changed).toContain('“Launch the newsletter”: waiting on “Editor reviews it”');
+    expect(out.goals.map(x => x.id)).toEqual([g.id]);
+    const send = out.goals[0].flow.steps.find(s => s.title === 'Send issue one')!;
+    expect(send).toMatchObject({ state: 'blocked', needs: expect.arrayContaining([wait.id, id('Write issue one')]) });
+    // The chart's history has it all, tasks included.
+    const log = normalizeLog(m.store[LOG_KEY]).filter(e => e.goal === g.id);
+    expect(log.filter(e => e.op === 'add').map(e => e.title).sort()).toEqual(['Pick a platform', 'Send issue one', 'Write issue one']);
+    expect(log.some(e => e.op === 'link' && e.fromTitle === 'Editor reviews it')).toBe(true);
+  });
+
+  it('changes an existing chart by the ids get_goal shows', async () => {
+    const m = seed();
+    const before = await getGoal(ctx(m), { goal: 'Give Sam an exit' });
+    expect(before.flow.steps.map(s => s.id).sort()).toEqual(['deck', 'kr:k1', 'kr:k2', 'lawyer']);
+    const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [
+      { op: 'link', from: 'deck', to: 'kr:k1' },
+      { op: 'add_wait', title: 'Sam signs', holds: 'kr:k1' },
+      { op: 'edit_step', ref: 'lawyer', done: true },
+      { op: 'move_step', ref: 'stray', after: 'deck' },
+      { op: 'edit_result', ref: 'k2', text: 'Paid in full' },
+    ] });
+    expect(out.skipped).toEqual([]);
+    const g = goalsIn(m)[0];
+    expect(g.plan!.links).toEqual(expect.arrayContaining([{ from: 'deck', to: 'kr:k1' }, { from: 'deck', to: 'stray' }]));
+    expect(g.results.find(r => r.id === 'k2')!.text).toBe('Paid in full');
+    expect(m.rows.get('lawyer')).toMatchObject({ status: 'done', doneAt: NOW });
+    expect(m.rows.get('stray')).toMatchObject({ goal: 'gexit', label: 'work' });
+    expect(out.goals[0].flow.steps.find(s => s.id === 'deck')).toMatchObject({ state: 'ready' });
+    expect(normalizeLog(m.store[LOG_KEY]).map(e => e.op)).toEqual(expect.arrayContaining(['link', 'wait', 'done', 'add']));
+  });
+
+  it('adds a sub-goal for a key result, and takes "goal:" ids', async () => {
+    const m = seed();
+    await changeGoals(ctx(m), { ops: [
+      { op: 'add_goal', title: 'Close the lawyer side', parent: 'gexit', for_result: 'kr:k1', key: 'sub' },
+      { op: 'add_step', goal: 'sub', title: 'Send the draft SPA' },
+    ] });
+    const sub = goalsIn(m).find(x => x.title === 'Close the lawyer side')!;
+    expect(sub).toMatchObject({ parent: 'gexit', parentKr: 'k1', section: 'work' });
+    const out = await changeGoals(ctx(m), { ops: [{ op: 'link', from: 'lawyer', to: `goal:${sub.id}` }] });
+    expect(out.changed).toEqual(['“Close the lawyer side” now waits on “lawyer”']);
+    expect(goalsIn(m).find(x => x.id === 'gexit')!.plan!.links).toContainEqual({ from: 'lawyer', to: `goal:${sub.id}` });
+  });
+
+  it('says what it couldn’t do, and leaves Google’s items to Google', async () => {
+    const m = seed();
+    const out = await changeGoals(ctx(m), { goal: 'gexit', ops: [
+      { op: 'link', from: 'deck', to: 'lawyer' },
+      { op: 'link', from: 'nowhere', to: 'deck' },
+      { op: 'edit_step', ref: 'standup', title: 'Renamed' },
+      { op: 'remove_step', ref: 'standup', delete: true },
+    ] });
+    expect(out.changed).toEqual([]);
+    expect(out.skipped).toHaveLength(4);
+    expect(out.skipped[0]).toMatch(/comes from Google/);
+    expect(out.skipped.join(' ')).toMatch(/would make a loop/);
+    expect(out.skipped.join(' ')).toMatch(/no step “nowhere”/);
+    expect(m.rows.get('standup')!.title).toBe('standup');
+    expect(m.log.settings).not.toContain('goals');
+  });
+
+  it('refuses an unknown goal or no operations', async () => {
+    await expect(changeGoals(ctx(seed()), { goal: 'Become an astronaut', ops: [{ op: 'add_step', title: 'x' }] })).rejects.toThrow(/no goal "Become an astronaut".*Give Sam an exit/);
+    await expect(changeGoals(ctx(seed()), { ops: [{ op: 'fly' }] })).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('shows one goal with its chart as Mermaid and its history', async () => {
+    const m = seed({ [LOG_KEY]: [{ at: NOW - H, goal: 'gexit', op: 'link', step: 'deck', title: 'deck', from: 'lawyer', fromTitle: 'lawyer' }, { at: NOW, goal: 'other', op: 'add', title: 'x' }] });
+    const g = await getGoal(ctx(m), { goal: 'gexit' });
+    expect(g).toMatchObject({ id: 'gexit', title: 'Give Sam an exit', section: 'Work', progress: 0 });
+    expect(g.mermaid).toMatch(/^flowchart LR/);
+    expect(g.mermaid).toContain('n_lawyer --> n_deck');
+    expect(g.history).toEqual([{ at: '2026-11-11T04:00:00-05:00', what: '“lawyer” now comes before “deck”' }]);
+    await expect(getGoal(ctx(m), { goal: 'nope' })).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('notes task changes on a goal in its chart history, and skips the history on an older database', async () => {
+    const m = seed();
+    await completeTask(ctx(m), 'deck');
+    expect(normalizeLog(m.store[LOG_KEY])).toEqual([expect.objectContaining({ goal: 'gexit', op: 'done', step: 'deck' })]);
+    const old = seed();
+    const get = old.repo.getSetting.bind(old.repo);
+    old.repo.getSetting = async <T,>(k: string) => { if (k === LOG_KEY) throw new Error('mcp_setting: mcp: setting not available'); return get<T>(k); };
+    await expect(completeTask(ctx(old), 'deck')).resolves.toMatchObject({ status: 'done' });
+  });
+
+  it('names key results by "kr:<id>", and by goal where two goals share an id', () => {
+    const twin = { ...EXIT, id: 'gtwin', title: 'Twin', plan: undefined };
+    const refs = refsFor(normalizeGoals([EXIT, twin]), [], []);
+    expect(refs.results.get('gexit/kr:k1')).toEqual({ goal: 'gexit', id: 'k1' });
+    expect(refs.results.get('gtwin/kr:k1')).toEqual({ goal: 'gtwin', id: 'k1' });
+    expect(refs.results.has('kr:k1')).toBe(false);
+    expect(refsFor(normalizeGoals([EXIT]), [], []).results.get('kr:k1')).toEqual({ goal: 'gexit', id: 'k1' });
   });
 });

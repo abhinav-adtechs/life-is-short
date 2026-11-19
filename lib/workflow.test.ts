@@ -85,6 +85,15 @@ describe('applying it', () => {
     expect(out.goals[0].plan?.links).toContainEqual({ from: 'wnew1', to: 'sign' });
   });
 
+  it('looks names up on the operation’s own goal when no chart is in focus', () => {
+    const op = { op: 'link' as const, from: 'Draft the SPA', to: 'Shares transferred' };
+    // With no chart in focus and no goal on it, a key result named by its text isn't found.
+    expect(applyWorkflow([op], st, refs(), { ids: ids() }).skipped).toEqual(['Couldn’t draw the arrow: there’s no step “Shares transferred”.']);
+    const out = applyWorkflow([{ ...op, goal: 'gexit' }], st, refs(), { ids: ids() });
+    expect(out.skipped).toEqual([]);
+    expect(out.goals.find(g => g.id === 'gexit')?.plan?.links).toContainEqual({ from: 'spa', to: 'kr:k1' });
+  });
+
   it('refuses loops and made-up refs, and says so', () => {
     const out = applyWorkflow(normalizeOps([{ op: 'link', from: 'T2', to: 'T1' }, { op: 'link', from: 'T9', to: 'T1' }, { op: 'unlink', from: 'T3', to: 'T1' }]), st, refs(), { ids: ids() });
     expect(out.goals[0].plan?.links).toEqual([{ from: 'lawyer', to: 'spa' }]);
