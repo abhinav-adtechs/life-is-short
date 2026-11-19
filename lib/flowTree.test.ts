@@ -16,32 +16,32 @@ const g = (id: string, title: string, parent: string | null, plan?: Plan): Recor
 });
 
 /*
- * Close 1Cr
- * ├─ Reach out to 20 capital raisers and syndicates
- * │   ├─ Utpal, Rakesh, Ishan (no tasks yet)
- * │   └─ Identify the rest of the 20 capital raisers and syndicates
- * ├─ Reach out to 20 angels and VCs
- * │   ├─ FinTech Yatra
- * │   │   └─ Prepare and send industry outlook and TAM doc to FinTech Yatra
- * │   └─ Identify the rest of the 20 angels and VCs
- * └─ Reach out to founders for advice
- *     └─ Identify founders to ask for advice
+ * Close the round
+ * ├─ Reach out to 20 capital raisers
+ * │   ├─ Raiser A, Raiser B, Raiser C (no tasks yet)
+ * │   └─ Find the rest of the 20 capital raisers
+ * ├─ Reach out to 20 angels
+ * │   ├─ Fund North
+ * │   │   └─ Send the market memo to Fund North
+ * │   └─ Find the rest of the 20 angels
+ * └─ Ask founders for advice
+ *     └─ List founders to ask
  */
 const closeGoals = (extra: { fty?: Plan; top?: Plan; people?: number } = {}): Goal[] => normalizeGoals([
-  g('g1cr', 'Close 1Cr', null, extra.top),
-  g('gcap', 'Reach out to 20 capital raisers and syndicates', 'g1cr'),
+  g('ground', 'Close the round', null, extra.top),
+  g('gcap', 'Reach out to 20 capital raisers', 'ground'),
   ...(extra.people
     ? Array.from({ length: extra.people }, (_, i) => g(`gp${i}`, `Person ${i + 1}`, 'gcap'))
-    : [g('gutpal', 'Utpal', 'gcap'), g('grakesh', 'Rakesh', 'gcap'), g('gishan', 'Ishan', 'gcap')]),
-  g('gang', 'Reach out to 20 angels and VCs', 'g1cr'),
-  g('gfty', 'FinTech Yatra', 'gang', extra.fty),
-  g('gfound', 'Reach out to founders for advice', 'g1cr'),
+    : [g('gra', 'Raiser A', 'gcap'), g('grb', 'Raiser B', 'gcap'), g('grc', 'Raiser C', 'gcap')]),
+  g('gang', 'Reach out to 20 angels', 'ground'),
+  g('gfund', 'Fund North', 'gang', extra.fty),
+  g('gfound', 'Ask founders for advice', 'ground'),
 ]);
 const closeTasks = (more: Task[] = []): Task[] => [
-  task('tcapid', 'gcap', { title: 'Identify the rest of the 20 capital raisers and syndicates' }),
-  task('ttam', 'gfty', { title: 'Prepare and send industry outlook and TAM doc to FinTech Yatra' }),
-  task('tangid', 'gang', { title: 'Identify the rest of the 20 angels and VCs' }),
-  task('tfound', 'gfound', { title: 'Identify founders to ask for advice' }),
+  task('tcapid', 'gcap', { title: 'Find the rest of the 20 capital raisers' }),
+  task('tmemo', 'gfund', { title: 'Send the market memo to Fund North' }),
+  task('tangid', 'gang', { title: 'Find the rest of the 20 angels' }),
+  task('tfound', 'gfound', { title: 'List founders to ask' }),
   ...more,
 ];
 const treeOf = (goals: Goal[], tasks: Task[], depth?: number) => buildTree(goals[0], tasks, NOW, { goals, depth });
@@ -100,9 +100,9 @@ describe('buildTree', () => {
     const t = treeOf(goals, closeTasks());
     expect([...t.subs.keys()]).toEqual(['goal:gcap', 'goal:gang', 'goal:gfound']);
     const cap = t.subs.get('goal:gcap')!;
-    expect(cap.flow.steps.map(s => s.id).sort()).toEqual(['goal:gishan', 'goal:grakesh', 'goal:gutpal', 'tcapid']);
-    expect(cap.subs.get('goal:gutpal')!.flow.steps).toEqual([]);
-    expect(t.subs.get('goal:gang')!.subs.get('goal:gfty')!.flow.steps.map(s => s.id)).toEqual(['ttam']);
+    expect(cap.flow.steps.map(s => s.id).sort()).toEqual(['goal:gra', 'goal:grb', 'goal:grc', 'tcapid']);
+    expect(cap.subs.get('goal:gra')!.flow.steps).toEqual([]);
+    expect(t.subs.get('goal:gang')!.subs.get('goal:gfund')!.flow.steps.map(s => s.id)).toEqual(['tmemo']);
     // Each chart is exactly the one that goal's own canvas shows.
     expect(cap.flow.steps.map(s => [s.id, s.state, s.minutes])).toEqual(buildFlow(goals[1], closeTasks(), NOW, { goals }).steps.map(s => [s.id, s.state, s.minutes]));
   });
@@ -131,11 +131,11 @@ describe('layoutTree', () => {
     expect(pathD(l.edges.find(e => e.key === 'root:a')!)).toMatch(/^M 212 \d+(\.\d+)? C /);
   });
 
-  it('opens every sub-goal in place: all three layers of Close 1Cr, each to the right of its card', () => {
+  it('opens every sub-goal in place: all three layers of Close the round, each to the right of its card', () => {
     const l = layoutTree(treeOf(closeGoals(), closeTasks()));
     expect([...l.cards.keys()].sort()).toEqual([
-      'gang/goal:gfty', 'gang/tangid', 'gcap/goal:gishan', 'gcap/goal:grakesh', 'gcap/goal:gutpal', 'gcap/tcapid',
-      'gfound/tfound', 'gfty/ttam', 'goal:gang', 'goal:gcap', 'goal:gfound',
+      'gang/goal:gfund', 'gang/tangid', 'gcap/goal:gra', 'gcap/goal:grb', 'gcap/goal:grc', 'gcap/tcapid',
+      'gfound/tfound', 'gfund/tmemo', 'goal:gang', 'goal:gcap', 'goal:gfound',
     ]);
     const c = (k: string) => l.cards.get(k)!;
     for (const card of l.cards.values()) {
@@ -144,14 +144,14 @@ describe('layoutTree', () => {
       const parent = [...l.cards.values()].find(p => p.sub === card.tree)!;
       expect(card.box.x).toBe(parent.box.x + NODE_W + GAP_X);
     }
-    expect([c('goal:gcap').depth, c('gcap/goal:gutpal').depth, c('gfty/ttam').depth]).toEqual([0, 1, 2]);
-    // Open, with a frame: the three threads and FinTech Yatra. The people with no tasks are plain cards.
-    expect(l.frames.map(f => f.key).sort()).toEqual(['gang/goal:gfty', 'goal:gang', 'goal:gcap', 'goal:gfound']);
-    expect(c('gcap/goal:gutpal')).toMatchObject({ open: false, sub: expect.objectContaining({ flow: expect.objectContaining({ steps: [] }) }) });
+    expect([c('goal:gcap').depth, c('gcap/goal:gra').depth, c('gfund/tmemo').depth]).toEqual([0, 1, 2]);
+    // Open, with a frame: the three threads and Fund North. The people with no tasks are plain cards.
+    expect(l.frames.map(f => f.key).sort()).toEqual(['gang/goal:gfund', 'goal:gang', 'goal:gcap', 'goal:gfound']);
+    expect(c('gcap/goal:gra')).toMatchObject({ open: false, sub: expect.objectContaining({ flow: expect.objectContaining({ steps: [] }) }) });
     // A dashed line from each head to the steps on its chart, and no arrows: the goals have none.
     expect(l.edges.filter(e => e.kind === 'root').map(e => `${e.from ?? 'goal'}>${e.to}`).sort()).toEqual([
-      'gang/goal:gfty>gfty/ttam', 'goal:gang>gang/goal:gfty', 'goal:gang>gang/tangid', 'goal:gcap>gcap/goal:gishan', 'goal:gcap>gcap/goal:grakesh',
-      'goal:gcap>gcap/goal:gutpal', 'goal:gcap>gcap/tcapid', 'goal:gfound>gfound/tfound', 'goal>goal:gang', 'goal>goal:gcap', 'goal>goal:gfound',
+      'gang/goal:gfund>gfund/tmemo', 'goal:gang>gang/goal:gfund', 'goal:gang>gang/tangid', 'goal:gcap>gcap/goal:gra', 'goal:gcap>gcap/goal:grb',
+      'goal:gcap>gcap/goal:grc', 'goal:gcap>gcap/tcapid', 'goal:gfound>gfound/tfound', 'goal>goal:gang', 'goal>goal:gcap', 'goal>goal:gfound',
     ]);
     expect(l.edges.filter(e => e.kind === 'link')).toEqual([]);
     expectClean(l);
@@ -174,29 +174,29 @@ describe('layoutTree', () => {
     expect(l.frames.some(f => f.key === 'goal:gcap')).toBe(false);
     expect(l.height).toBeLessThan(all.height);
     // Closing one deeper down leaves the rest open.
-    const deep = layoutTree(tree, { open: id => id !== 'gfty' });
-    expect(deep.cards.has('gfty/ttam')).toBe(false);
-    expect(deep.cards.has('gang/goal:gfty')).toBe(true);
+    const deep = layoutTree(tree, { open: id => id !== 'gfund' });
+    expect(deep.cards.has('gfund/tmemo')).toBe(false);
+    expect(deep.cards.has('gang/goal:gfund')).toBe(true);
     expectClean(deep);
   });
 
   it('draws a sub-goal’s arrows inside it as its own chart does, and none it doesn’t have', () => {
-    const goals = closeGoals({ fty: { waits: [{ id: 'wreply', title: 'Reply from FinTech Yatra', done: false, created: 1, doneAt: null }], links: [{ from: 'ttam', to: 'tcall' }, { from: 'wreply', to: 'tcall' }] } });
-    const l = layoutTree(treeOf(goals, closeTasks([task('tcall', 'gfty', { title: 'Call them' })])));
+    const goals = closeGoals({ fty: { waits: [{ id: 'wreply', title: 'Reply from Fund North', done: false, created: 1, doneAt: null }], links: [{ from: 'tmemo', to: 'tcall' }, { from: 'wreply', to: 'tcall' }] } });
+    const l = layoutTree(treeOf(goals, closeTasks([task('tcall', 'gfund', { title: 'Call them' })])));
     const links = l.edges.filter(e => e.kind === 'link');
     expect(links.map(e => [e.key, e.from, e.to])).toEqual([
-      ['gfty/ttam>tcall', 'gfty/ttam', 'gfty/tcall'], ['gfty/wreply>tcall', 'gfty/wreply', 'gfty/tcall'],
+      ['gfund/tmemo>tcall', 'gfund/tmemo', 'gfund/tcall'], ['gfund/wreply>tcall', 'gfund/wreply', 'gfund/tcall'],
     ]);
-    // Arrows run left to right, as on FinTech Yatra's own chart; the dashed lines go to the steps nothing comes before.
-    expect(l.cards.get('gfty/tcall')!.box.x).toBe(l.cards.get('gfty/ttam')!.box.x + NODE_W + GAP_X);
-    expect(l.edges.filter(e => e.from === 'gang/goal:gfty').map(e => e.to).sort()).toEqual(['gfty/ttam', 'gfty/wreply']);
+    // Arrows run left to right, as on Fund North's own chart; the dashed lines go to the steps nothing comes before.
+    expect(l.cards.get('gfund/tcall')!.box.x).toBe(l.cards.get('gfund/tmemo')!.box.x + NODE_W + GAP_X);
+    expect(l.edges.filter(e => e.from === 'gang/goal:gfund').map(e => e.to).sort()).toEqual(['gfund/tmemo', 'gfund/wreply']);
     expectClean(l);
   });
 
   it('an arrow leaves an open sub-goal from its frame, and a step beside a wide one runs straight past it first', () => {
-    // On Close 1Cr itself: the pitch deck goes out after the angels thread, and the term sheet after the deck.
+    // On Close the round itself: the pitch deck goes out after the angels thread, and the term sheet after the deck.
     const top: Plan = { waits: [], links: [{ from: 'goal:gang', to: 'tterm' }, { from: 'tdeck', to: 'tterm' }] };
-    const l = layoutTree(treeOf(closeGoals({ top }), closeTasks([task('tdeck', 'g1cr', { title: 'Pitch deck' }), task('tterm', 'g1cr', { title: 'Term sheet' })])));
+    const l = layoutTree(treeOf(closeGoals({ top }), closeTasks([task('tdeck', 'ground', { title: 'Pitch deck' }), task('tterm', 'ground', { title: 'Term sheet' })])));
     const ang = l.cards.get('goal:gang')!, frame = l.frames.find(f => f.key === 'goal:gang')!.box;
     const out = l.edges.find(e => e.key === 'goal:gang>tterm')!;
     expect(out.start).toEqual({ x: frame.x + frame.w, y: ang.box.y + NODE_H / 2 });
@@ -221,10 +221,10 @@ describe('layoutTree', () => {
   });
 
   it('keeps steps you moved by hand, and an open sub-goal you moved never covers them', () => {
-    const tree = treeOf(closeGoals(), closeTasks([task('tdeck', 'g1cr')]));
+    const tree = treeOf(closeGoals(), closeTasks([task('tdeck', 'ground')]));
     // The deck put right where the capital raisers thread opens out; the founders thread put on top of the deck.
     const plain = layoutTree(tree);
-    const people = plain.cards.get('gcap/goal:gutpal')!.box;
+    const people = plain.cards.get('gcap/goal:gra')!.box;
     const l = layoutTree(tree, { pos: { tdeck: { x: people.x, y: people.y }, 'goal:gfound': { x: people.x - 20, y: people.y + 10 } } });
     expect(l.cards.get('tdeck')!.box).toMatchObject({ x: people.x, y: people.y });
     const found = l.cards.get('goal:gfound')!;
@@ -265,18 +265,18 @@ describe('which sub-goals are closed', () => {
 });
 
 describe('exporting the tree', () => {
-  const goals = closeGoals({ fty: { waits: [], links: [{ from: 'ttam', to: 'tcall' }] } });
-  const tasks = closeTasks([task('tcall', 'gfty', { title: 'Call them' })]);
+  const goals = closeGoals({ fty: { waits: [], links: [{ from: 'tmemo', to: 'tcall' }] } });
+  const tasks = closeTasks([task('tcall', 'gfund', { title: 'Call them' })]);
 
   it('as data, each sub-goal with its own chart inside it', () => {
     const j = treeJson(treeOf(goals, tasks));
     const ang = j.steps.find(s => s.id === 'goal:gang')!;
-    expect(ang).toMatchObject({ kind: 'goal', title: 'Reach out to 20 angels and VCs' });
-    const fty = ang.flow!.steps.find(s => s.id === 'goal:gfty')!;
-    expect(fty.flow!.steps.map(s => s.id).sort()).toEqual(['tcall', 'ttam']);
-    expect(fty.flow!.arrows).toEqual([{ from: 'ttam', to: 'tcall' }]);
-    expect(fty.flow!.steps.find(s => s.id === 'tcall')).toMatchObject({ state: 'blocked', needs: ['ttam'] });
-    expect(j.steps.find(s => s.id === 'goal:gcap')!.flow!.steps.find(s => s.id === 'goal:gutpal')).toMatchObject({ flow: { steps: [], arrows: [] } });
+    expect(ang).toMatchObject({ kind: 'goal', title: 'Reach out to 20 angels' });
+    const fty = ang.flow!.steps.find(s => s.id === 'goal:gfund')!;
+    expect(fty.flow!.steps.map(s => s.id).sort()).toEqual(['tcall', 'tmemo']);
+    expect(fty.flow!.arrows).toEqual([{ from: 'tmemo', to: 'tcall' }]);
+    expect(fty.flow!.steps.find(s => s.id === 'tcall')).toMatchObject({ state: 'blocked', needs: ['tmemo'] });
+    expect(j.steps.find(s => s.id === 'goal:gcap')!.flow!.steps.find(s => s.id === 'goal:gra')).toMatchObject({ flow: { steps: [], arrows: [] } });
   });
 
   it('as Mermaid: a subgraph per sub-goal with steps, and the one-level chart when there are none', () => {
@@ -285,13 +285,13 @@ describe('exporting the tree', () => {
     const m = toMermaidTree(treeOf(goals, tasks));
     expect(m.split('\n')[0]).toBe('flowchart LR');
     expect(m).toContain('subgraph sg_gcap [" "]');
-    expect(m).toContain('subgraph sg_gfty [" "]');
-    expect(m).not.toContain('sg_gutpal');
-    expect(m).toContain('n_gcap__goal_gutpal[["Utpal"]]');
+    expect(m).toContain('subgraph sg_gfund [" "]');
+    expect(m).not.toContain('sg_gra');
+    expect(m).toContain('n_gcap__goal_gra[["Raiser A"]]');
     expect(m).toContain('  goal --> n_goal_gang');
-    expect(m).toContain('  n_goal_gang --> n_gang__goal_gfty');
-    expect(m).toContain('  n_gang__goal_gfty --> n_gfty__ttam');
-    expect(m).toContain('  n_gfty__ttam --> n_gfty__tcall');
+    expect(m).toContain('  n_goal_gang --> n_gang__goal_gfund');
+    expect(m).toContain('  n_gang__goal_gfund --> n_gfund__tmemo');
+    expect(m).toContain('  n_gfund__tmemo --> n_gfund__tcall');
     // Every subgraph is closed, and the edges come after them all.
     expect(m.match(/subgraph /g)!.length).toBe(m.match(/^\s*end$/gm)!.length);
     const lines = m.split('\n');

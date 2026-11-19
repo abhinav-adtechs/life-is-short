@@ -43,10 +43,10 @@ const T = (id: string, goal: string) => ({ id, title: id, raw: '', notes: '', pr
 
 describe('the MCP server', () => {
   settings.goals = [
-    G('g1cr', 'Close 1Cr', null), G('gang', 'Reach out to 20 angels and VCs', 'g1cr'),
-    G('gfty', 'FinTech Yatra', 'gang', { plan: { links: [{ from: 'ttam', to: 'tcall' }], waits: [] } }), G('gutpal', 'Utpal', 'gang'),
+    G('ground', 'Close the round', null), G('gang', 'Reach out to 20 angels', 'ground'),
+    G('gfund', 'Fund North', 'gang', { plan: { links: [{ from: 'tmemo', to: 'tcall' }], waits: [] } }), G('gra', 'Raiser A', 'gang'),
   ];
-  rows.push(T('ttam', 'gfty'), T('tcall', 'gfty'), T('tangid', 'gang'));
+  rows.push(T('tmemo', 'gfund'), T('tcall', 'gfund'), T('tangid', 'gang'));
 
   it('offers get_goal a depth, and its answer at any depth fits the schema it advertises', async () => {
     const call = await connect();
@@ -55,17 +55,17 @@ describe('the MCP server', () => {
     expect(tool.inputSchema.properties.depth).toMatchObject({ type: 'integer', minimum: 1, maximum: 5 });
     expect(JSON.stringify(tool.outputSchema)).toContain('$ref');
     for (const depth of [undefined, 1, 2, 3, 5]) {
-      const res = await call('tools/call', { name: 'get_goal', arguments: { goal: 'g1cr', ...(depth ? { depth } : {}) } });
+      const res = await call('tools/call', { name: 'get_goal', arguments: { goal: 'ground', ...(depth ? { depth } : {}) } });
       const out = res.result as { isError?: boolean; content: { text: string }[]; structuredContent: { flow: { steps: { id: string; flow?: { steps: { id: string; flow?: { arrows: unknown[] } }[] } }[] } } };
       expect(res.error, JSON.stringify(res.error)).toBeUndefined();
       expect(out.isError, out.content?.[0]?.text).toBeFalsy();
       const ang = out.structuredContent.flow.steps.find(s => s.id === 'goal:gang')!;
       if (!depth || depth === 1) expect(ang.flow).toBeUndefined();
-      else expect(ang.flow!.steps.map(s => s.id).sort()).toEqual(['goal:gfty', 'goal:gutpal', 'tangid']);
-      if (depth && depth >= 3) expect(ang.flow!.steps.find(s => s.id === 'goal:gfty')!.flow!.arrows).toEqual([{ from: 'ttam', to: 'tcall' }]);
+      else expect(ang.flow!.steps.map(s => s.id).sort()).toEqual(['goal:gfund', 'goal:gra', 'tangid']);
+      if (depth && depth >= 3) expect(ang.flow!.steps.find(s => s.id === 'goal:gfund')!.flow!.arrows).toEqual([{ from: 'tmemo', to: 'tcall' }]);
     }
     // Out of range is refused by the schema, with a message.
-    const bad = await call('tools/call', { name: 'get_goal', arguments: { goal: 'g1cr', depth: 9 } });
+    const bad = await call('tools/call', { name: 'get_goal', arguments: { goal: 'ground', depth: 9 } });
     expect(JSON.stringify(bad)).toMatch(/depth/);
   });
 });
