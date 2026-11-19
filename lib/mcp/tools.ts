@@ -2,8 +2,9 @@ import { newId, type Priority, type Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
-import { GOALS_KEY, activeGoals, findResult, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
+import { GOALS_KEY, MAX_GOAL_DEPTH, activeGoals, findResult, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
 import { LOG_KEY, MAX_LOG, buildFlow, coalesce, describeEntry, logFromWrites, normalizeLog, planOf, toJson, toMermaid, type LogEntry } from '../flow';
+import { buildTree, toMermaidTree, treeJson, type TreeFlowJson } from '../flowTree';
 import { OP_FIELDS, applyWorkflow, normalizeOps, opIssues, recordedIds, type WorkflowOp, type WorkflowOpKind, type WorkflowRefs } from '../workflow';
 import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type Repeat, type RepeatOp } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
@@ -475,15 +476,24 @@ function findGoal(goals: Goal[], v: string): Goal {
   throw new TaskError(`There's no goal "${v}". The user's goals: ${live}.`, 'not_found');
 }
 
-export interface GoalDetail extends GoalSummary {
+/** How many levels of charts get_goal can show: the goal's own, and one for each level of sub-goals under it. */
+export const MAX_CHART_DEPTH = MAX_GOAL_DEPTH + 1;
+
+export interface GoalDetail extends Omit<GoalSummary, 'flow'> {
+  /** Its flow chart; with depth over 1, each sub-goal's step has that sub-goal's own chart inside it. */
+  flow: TreeFlowJson;
   /** The chart as a Mermaid flowchart, to draw it. */
   mermaid: string;
   /** What happened to the chart lately, newest last. */
   history: { at: string; what: string }[];
 }
 
-/** One goal in full: its summary and chart, the chart as Mermaid, and its recent history. */
-export async function getGoal(c: Ctx, f: { goal: string; history?: number }): Promise<GoalDetail> {
+/**
+ * One goal in full: its summary and chart, the chart as Mermaid, and its recent history. With `depth` over 1, each
+ * sub-goal on the chart comes with its own chart inside it, that many levels down, and the Mermaid has a subgraph for
+ * each; 1 (the default) is the goal's own chart alone.
+ */
+export async function getGoal(c: Ctx, f: { goal: string; history?: number; depth?: number }): Promise<GoalDetail> {
   const { tasks, byLabel, goals } = await load(c);
   const now = clock(c);
   const repeats = await repeatsOf(c);
@@ -492,9 +502,13 @@ export async function getGoal(c: Ctx, f: { goal: string; history?: number }): Pr
   try { log = normalizeLog(await c.repo.getSetting(LOG_KEY)); } catch { /* a database from before 0011: no history to show */ }
   const keep = Math.max(0, Math.min(50, Math.floor(f.history ?? 15)));
   const mine = coalesce(log.filter(e => e.goal === g.id));
+  const depth = Math.max(1, Math.min(MAX_CHART_DEPTH, Math.floor(f.depth ?? 1)));
+  const base = goalSummarizer(goals, tasks, byLabel, repeats, now)(g);
+  const tree = depth > 1 ? buildTree(g, tasks, now, { goals, repeats, depth }) : null;
   return {
-    ...goalSummarizer(goals, tasks, byLabel, repeats, now)(g),
-    mermaid: toMermaid(g, buildFlow(g, tasks, now, { goals, repeats })),
+    ...base,
+    ...(tree ? { flow: treeJson(tree) } : {}),
+    mermaid: tree ? toMermaidTree(tree) : toMermaid(g, buildFlow(g, tasks, now, { goals, repeats })),
     history: keep ? mine.slice(-keep).map(e => ({ at: isoIn(e.at, c.tz), what: describeEntry(e) })) : [],
   };
 }

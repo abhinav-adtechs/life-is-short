@@ -7,95 +7,40 @@ import {
   buildFlow, describeEntry, goalNode, linkKey, type Flow, newWaitId, parallelLinks, patchWait, planOf, toJson, toMermaid, withLink, withPos, withWait,
   withoutLink, withoutPos, withoutStep, wouldLoop, WAIT_TITLE_MAX, type Link, type LogEntry, type Plan, type Pos, type Step, type StepKind,
 } from '@/lib/flow';
+import {
+  COL1_X, COLLAPSED_KEY, GAP_X, NODE_H, NODE_W, ROW_H, buildTree, clash, edgeKey, layoutTree, nodeKey, normalizeCollapsed, pathD, toggleCollapsed,
+  type Card, type FlowTree,
+} from '@/lib/flowTree';
 import { fmtDur, fmtWhen, longDate, shortTitle } from '@/lib/format';
 import { ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
 import { isEvent } from '@/lib/select';
 import { dayName, occurrenceOf, type Repeat } from '@/lib/repeat';
 import { WeekLog } from './Repeating';
-import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, MicIcon, PlusIcon, RepeatIcon, StopIcon, TargetIcon, XIcon } from './icons';
+import { CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ChevronRight, HistoryIcon, MicIcon, PlusIcon, RepeatIcon, StopIcon, TargetIcon, XIcon } from './icons';
 import { askWorkflow } from '@/lib/api';
 import { promptContext } from '@/lib/capture';
 import { joinWords } from '@/lib/speech';
 import { applyWorkflow, normalizeOps, recordedIds, taskLinesFor, workflowPrompt } from '@/lib/workflow';
 import { noVoiceText, useVoice } from './hooks';
 
-/* ---------- geometry ---------- */
+/* ---------- geometry: lib/flowTree.ts lays the chart out ---------- */
 
-const PAD = 36, GOAL_W = 176, GOAL_H = 76, NODE_W = 200, NODE_H = 72, GAP_X = 72, ROW_H = 96;
-const colX = (c: number) => (c === 0 ? PAD : PAD + GOAL_W + GAP_X + (c - 1) * (NODE_W + GAP_X));
 /** Steps moved by hand land on this grid, so rows line up. */
 const SNAP = 8;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
-interface Box { x: number; y: number; w: number; h: number }
-/** Two boxes too close for comfort. */
-const clash = (a: Box, b: Box, gap = 12) => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
-
-/**
- * Where everything goes: the goal on the left, each column (its lanes included) centred on the tallest. A step you've
- * moved by hand stays where you put it, and a laid-out step in its way moves down a row at a time. The step you're
- * dragging follows the pointer; the rest stay put until you let go.
- */
-function useLayout(flow: Flow, pos: Record<string, Pos> | undefined, drag: { id: string; x: number; y: number } | null) {
-  return useMemo(() => {
-    const counts = flow.rows;
-    const rows = Math.max(1, ...counts);
-    const height = PAD * 2 + rows * ROW_H - (ROW_H - NODE_H);
-    const at = (col: number, row: number): Box => ({ x: colX(col), y: PAD + ((rows - (counts[col] ?? 1)) * ROW_H) / 2 + row * ROW_H, w: NODE_W, h: NODE_H });
-    const boxes = new Map<string, Box>();
-    const goal: Box = { x: PAD, y: height / 2 - GOAL_H / 2, w: GOAL_W, h: GOAL_H };
-    // Steps not where the layout put them: their arrows go straight, not through lanes.
-    const moved = new Set<string>();
-    for (const s of flow.steps) {
-      const p = pos?.[s.id];
-      if (p) { boxes.set(s.id, { x: p.x, y: p.y, w: NODE_W, h: NODE_H }); moved.add(s.id); }
-    }
-    const placed = [goal, ...boxes.values()];
-    for (const s of [...flow.steps].sort((a, b) => a.col - b.col || a.row - b.row)) {
-      if (boxes.has(s.id)) continue;
-      let b = at(s.col, s.row);
-      if (moved.size && placed.some(o => clash(b, o))) {
-        moved.add(s.id);
-        for (let i = 0; i < 200 && placed.some(o => clash(b, o)); i++) b = { ...b, y: b.y + ROW_H };
-      }
-      boxes.set(s.id, b);
-      placed.push(b);
-    }
-    if (drag && boxes.has(drag.id)) { boxes.set(drag.id, { x: drag.x, y: drag.y, w: NODE_W, h: NODE_H }); moved.add(drag.id); }
-    // Each lane is a step-sized slot an arrow runs straight through.
-    const lanes = new Map<string, Box[]>();
-    for (const l of flow.links) {
-      const key = linkKey(l), list = flow.lanes.get(key);
-      if (list && !moved.has(l.from) && !moved.has(l.to)) lanes.set(key, list.map(x => at(x.col, x.row)));
-    }
-    const all = [...boxes.values()];
-    return {
-      boxes, lanes, goal,
-      width: Math.max(colX(Math.max(1, flow.cols)) + NODE_W, ...all.map(b => b.x + b.w)) + PAD,
-      height: Math.max(height, GOAL_H + PAD * 2, ...all.map(b => b.y + b.h + PAD)),
-    };
-  }, [flow, pos, drag]);
-}
-
-/**
- * A left-to-right arrow from the right edge of one box to the left edge of another, curving between columns and
- * running straight through any lanes on the way; and the middle of it, for the button that removes it.
- */
-function curve(a: Box, b: Box, via: Box[] = []) {
-  const stops = [a, ...via, b];
-  let d = '';
-  const mids: { x: number; y: number }[] = [];
-  for (let i = 0; i < stops.length - 1; i++) {
-    const p = stops[i], q = stops[i + 1];
-    const x1 = i === 0 ? p.x + p.w : p.x + p.w, y1 = p.y + p.h / 2;
-    const x2 = i === stops.length - 2 ? q.x - 4 : q.x, y2 = q.y + q.h / 2;
-    const dx = Math.max(28, (x2 - x1) / 2);
-    // Into a lane, then straight across it.
-    d += `${i ? ' L' : 'M'} ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-    mids.push({ x: (x1 + 3 * (x1 + dx) + 3 * (x2 - dx) + x2) / 8, y: (y1 + 3 * y1 + 3 * y2 + y2) / 8 });
-  }
-  return { d, mid: mids[Math.floor((mids.length - 1) / 2)] };
+/** Sub-goals you've closed on a chart, kept in this browser. Every other one opens in place, on every chart it's on. */
+function useCollapsed() {
+  const [list, setList] = useState<string[]>(() => {
+    try { return normalizeCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); } catch { return []; }
+  });
+  const toggle = useCallback((id: string) => setList(l => {
+    const next = toggleCollapsed(l, id);
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next)); } catch { /* private mode: for this visit only */ }
+    return next;
+  }), []);
+  return { closed: useMemo(() => new Set(list), [list]), fold: toggle };
 }
 
 /* ---------- words ---------- */
@@ -121,10 +66,12 @@ function Shape({ kind }: { kind: StepKind }) {
   );
 }
 
-function stateText(s: Step, byId: Map<string, Step>, now: number) {
+/** A step's state in words. `empty` is a sub-goal with nothing on its own chart yet. */
+function stateText(s: Step, byId: Map<string, Step>, now: number, empty = false) {
   if (s.kind === 'goal') {
     if (s.done) return 'Achieved';
     if (s.state === 'blocked') return `Blocked by ${s.needs.filter(id => !byId.get(id)?.done).length}`;
+    if (empty) return 'No tasks yet';
     return `${s.progress != null ? `${Math.round(s.progress * 100)}% done` : 'Not started'}${s.minutes ? ` · ${fmtDur(s.minutes)} left` : ''}`;
   }
   if (s.kind === 'milestone') return s.done ? 'Reached' : s.state === 'reached' ? 'Ready to tick' : s.needs.length ? `After ${s.needs.length} step${s.needs.length === 1 ? '' : 's'}` : 'Nothing leads here yet';
@@ -166,17 +113,26 @@ type Sel = { kind: 'step'; id: string } | { kind: 'link'; key: string } | null;
 /** A key press, from React or straight from the window. */
 type KeyLike = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'preventDefault'> & { target: EventTarget | null };
 
+/**
+ * Whose chart a change is on: this goal's, or a sub-goal's open inside it. Its plan, its key results and its tasks are
+ * the ones that change, as on its own canvas; `key` is how its steps are known on this one.
+ */
+interface On { goal: Goal; flow: Flow; top: boolean; key: (id: string) => string }
+
 function FlowChart({ goal }: { goal: Goal }) {
   const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice } = usePlanner();
   const [all, setAll] = useState(false);
-  const flow = useMemo(() => buildFlow(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
+  /** The goal's chart, with every sub-goal's own chart inside it. */
+  const tree = useMemo(() => buildTree(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
+  const flow = tree.flow;
   const trail = useMemo(() => ancestorsOf(new Map(goals.map(g => [g.id, g])), goal).reverse(), [goals, goal]);
   /** The step being dragged, where it is now. */
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
   /** A step held long enough on a touch screen to be dragged. */
   const [lifting, setLifting] = useState<string | null>(null);
   const pinned = goal.plan?.pos;
-  const layout = useLayout(flow, pinned, dragPos);
+  const { closed, fold } = useCollapsed();
+  const layout = useMemo(() => layoutTree(tree, { open: id => !closed.has(id), pos: pinned, drag: dragPos }), [tree, closed, pinned, dragPos]);
   const [sel, setSel] = useState<Sel>(null);
   /** The step Delete was pressed on, waiting for a yes. */
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -208,87 +164,118 @@ function FlowChart({ goal }: { goal: Goal }) {
     if (u) { u.run(); say(`Undid: ${u.label}`); }
   };
 
-  /** Change this goal's plan, laid over whatever it is by the time it's saved. Returns what undoes it. */
-  const plan = (f: (p: Plan) => Plan) =>
-    changeGoals(list => list.map(g => (g.id === goal.id ? { ...g, plan: f(planOf(g)), updatedAt: Date.now() } : g)));
-  const titleOf = (id: string) => flow.byId.get(id)?.title;
-  const log = (e: Omit<LogEntry, 'at' | 'goal'>) => logGoal([{ at: Date.now(), goal: goal.id, ...e }]);
+  /* ---------- whose chart: this goal's, or a sub-goal's inside it ---------- */
+
+  const onTree = (t: FlowTree): On => (t === tree
+    ? { goal, flow, top: true, key: id => id }
+    : { goal: t.goal, flow: t.flow, top: false, key: id => nodeKey(goal.id, t.goal.id, id) });
+  const TOP = onTree(tree);
+  const cardOf = (key: string | null | undefined): Card | null => (key ? layout.cards.get(key) ?? null : null);
+  const onOf = (c: Card | null): On => (c ? onTree(c.tree) : TOP);
+  /** The chart a spot on the canvas is in: the innermost open sub-goal around it, or this goal's. */
+  const onAt = (p: Pos): On => {
+    let best: (typeof layout.frames)[number] | null = null;
+    for (const f of layout.frames) {
+      const b = f.box;
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h && (!best || f.depth > best.depth)) best = f;
+    }
+    const sub = best ? cardOf(best.key)?.sub : null;
+    return sub ? onTree(sub) : TOP;
+  };
+
+  /** Change a goal's plan (this one's, or a sub-goal's), laid over whatever it is by the time it's saved. Returns what undoes it. */
+  const plan = (f: (p: Plan) => Plan, g: Goal = goal) =>
+    changeGoals(list => list.map(x => (x.id === g.id ? { ...x, plan: f(planOf(x)), updatedAt: Date.now() } : x)));
+  const titleOf = (id: string, on: On = TOP) => on.flow.byId.get(id)?.title;
+  const log = (e: Omit<LogEntry, 'at' | 'goal'>, on: On = TOP) => logGoal([{ at: Date.now(), goal: on.goal.id, ...e }]);
 
   /* ---------- changes ---------- */
 
-  const link = (l: Link) => {
-    const cur = planOf(goal);
+  const link = (l: Link, on: On = TOP) => {
+    const cur = planOf(on.goal);
     if (cur.links.some(e => e.from === l.from && e.to === l.to)) return;
     if (wouldLoop(cur.links, l.from, l.to)) { say('That arrow would make a loop: one of these already leads to the other.'); return; }
-    const back = plan(p => withLink(p, l));
-    log({ op: 'link', step: l.to, title: titleOf(l.to), from: l.from, fromTitle: titleOf(l.from) });
+    const back = plan(p => withLink(p, l), on.goal);
+    log({ op: 'link', step: l.to, title: titleOf(l.to, on), from: l.from, fromTitle: titleOf(l.from, on) }, on);
     remember('draw the arrow', back);
-    setSel({ kind: 'link', key: linkKey(l) });
+    setSel({ kind: 'link', key: edgeKey(goal.id, on.goal.id, l) });
   };
 
-  const unlink = (l: Link) => {
-    const back = plan(p => withoutLink(p, l));
-    log({ op: 'unlink', step: l.to, title: titleOf(l.to), from: l.from, fromTitle: titleOf(l.from) });
+  const unlink = (l: Link, on: On = TOP) => {
+    const back = plan(p => withoutLink(p, l), on.goal);
+    log({ op: 'unlink', step: l.to, title: titleOf(l.to, on), from: l.from, fromTitle: titleOf(l.from, on) }, on);
     remember('remove the arrow', back);
     setSel(null);
   };
 
-  /** The nearest free place at or below `p`, on the grid. */
+  /** An arrow between two steps on the canvas, by their keys: both have to be on the same goal's chart. */
+  const join = (a: string, b: string) => {
+    const x = cardOf(a), y = cardOf(b);
+    if (!x || !y || x === y) return;
+    if (x.tree !== y.tree) {
+      say(`An arrow joins two steps on one goal’s chart: “${shortTitle(x.step.title, 30)}” is on “${shortTitle(x.tree.goal.title, 30)}”, “${shortTitle(y.step.title, 30)}” on “${shortTitle(y.tree.goal.title, 30)}”.`);
+      return;
+    }
+    link({ from: x.id, to: y.id }, onOf(x));
+  };
+
+  /** The nearest free place at or below `p`, on the grid, clear of every card and open sub-goal. */
   const freeAt = (p: Pos): Pos => {
-    const all = [layout.goal, ...layout.boxes.values()];
+    const taken = [layout.goal, ...[...layout.cards.values()].map(c => c.box), ...layout.frames.map(f => f.box)];
     const b = { x: snap(Math.max(0, p.x)), y: snap(Math.max(0, p.y)), w: NODE_W, h: NODE_H };
-    for (let i = 0; i < 200 && all.some(o => clash(b, o)); i++) b.y += ROW_H;
+    for (let i = 0; i < 200 && taken.some(o => clash(b, o)); i++) b.y += ROW_H;
     return { x: b.x, y: b.y };
   };
   /**
    * Where a new step goes by hand: where you dropped it; or, once you've moved steps yourself, next to the step it's
-   * added to. Null leaves it to the layout.
+   * added to. Null leaves it to the layout, as always inside a sub-goal: that's laid out for you.
    */
-  const spotFor = (o: { at?: Pos; after?: string; beside?: string; before?: string }): Pos | null => {
+  const spotFor = (o: { at?: Pos; after?: string; beside?: string; before?: string }, on: On = TOP): Pos | null => {
+    if (!on.top) return null;
     if (o.at) return freeAt(o.at);
     const anchor = o.after ?? o.beside ?? o.before;
-    const b = pinned && anchor ? layout.boxes.get(anchor) : null;
+    const b = pinned && anchor ? cardOf(anchor)?.box : null;
     if (!b) return null;
     if (o.after) return freeAt({ x: b.x + NODE_W + GAP_X, y: b.y });
     if (o.beside) return freeAt({ x: b.x, y: b.y + ROW_H });
     // Before it, or under it when there's no room between it and the goal.
     const x = b.x - NODE_W - GAP_X;
-    return x < colX(1) - GAP_X / 2 ? freeAt({ x: b.x, y: b.y + ROW_H }) : freeAt({ x, y: b.y });
+    return x < COL1_X - GAP_X / 2 ? freeAt({ x: b.x, y: b.y + ROW_H }) : freeAt({ x, y: b.y });
   };
 
-  /** A new task on this goal: after `after`, or alongside `beside`, or before `before`, or on its own (at `at`). */
-  const addTask = (opts: { after?: string; beside?: string; before?: string; at?: Pos } = {}) => {
+  /** A new task on a goal: after `after`, or alongside `beside`, or before `before`, or on its own (at `at`). */
+  const addTask = (opts: { after?: string; beside?: string; before?: string; at?: Pos } = {}, on: On = TOP) => {
     const at = Date.now();
     const t: Task = {
       id: newId(), title: 'New step', raw: '', notes: '', priority: 2, minutes: 60, start: null, due: null, status: 'open',
-      created: at, order: at, doneAt: null, goal: goal.id, label: goal.section ?? null, updatedAt: at,
+      created: at, order: at, doneAt: null, goal: on.goal.id, label: on.goal.section ?? null, updatedAt: at,
     };
     const before = store.write([t]);
-    const cur = planOf(goal);
+    const cur = planOf(on.goal);
     const links = opts.after ? [{ from: opts.after, to: t.id }] : opts.before ? [{ from: t.id, to: opts.before }] : opts.beside ? parallelLinks(cur, opts.beside, t.id) : [];
-    const spot = spotFor(opts);
-    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, t.id, spot) : q; }) : () => undefined;
+    const spot = spotFor(opts, on);
+    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, t.id, spot) : q; }, on.goal) : () => undefined;
     remember('add the step', () => { back(); store.restore(before); });
-    setSel({ kind: 'step', id: t.id });
+    setSel({ kind: 'step', id: on.key(t.id) });
     setSide('inspect');
-    setFocusId(t.id);
+    setFocusId(on.key(t.id));
   };
 
-  const addWait = (holds?: string, at?: Pos) => {
+  const addWait = (holds?: string, at?: Pos, on: On = TOP) => {
     const w = { id: newWaitId(), title: 'Someone or something', done: false, created: Date.now(), doneAt: null };
-    const spot = spotFor({ at, before: holds });
+    const spot = spotFor({ at, before: holds }, on);
     const back = plan(p => {
       const q = holds ? withLink(withWait(p, w), { from: w.id, to: holds }) : withWait(p, w);
       return spot ? withPos(q, w.id, spot) : q;
-    });
-    log({ op: 'wait', step: w.id, title: w.title });
+    }, on.goal);
+    log({ op: 'wait', step: w.id, title: w.title }, on);
     remember('add the waiting step', back);
-    setSel({ kind: 'step', id: w.id });
+    setSel({ kind: 'step', id: on.key(w.id) });
     setSide('inspect');
-    setFocusId(w.id);
+    setFocusId(on.key(w.id));
   };
 
-  const rename = (s: Step, title: string) => {
+  const rename = (s: Step, title: string, on: On = TOP) => {
     const v = title.replace(/\s+/g, ' ').trim();
     if (!v || v === s.title) return;
     // One of a repeat's: the ones to come follow it.
@@ -297,51 +284,51 @@ function FlowChart({ goal }: { goal: Goal }) {
     const r = s.repeat ? repeats.find(x => x.id === s.repeat?.id) : null;
     if (r) { remember('rename', applyRepeats([{ kind: 'set', repeat: { ...r, title: v.slice(0, 160), updatedAt: Date.now() } }])); return; }
     if (s.kind === 'wait') {
-      const back = plan(p => patchWait(p, s.id, { title: v.slice(0, WAIT_TITLE_MAX) }));
-      log({ op: 'rename', step: s.id, title: v, was: s.title });
+      const back = plan(p => patchWait(p, s.id, { title: v.slice(0, WAIT_TITLE_MAX) }), on.goal);
+      log({ op: 'rename', step: s.id, title: v, was: s.title }, on);
       remember('rename', back);
       return;
     }
     if (s.result) {
-      const back = changeGoals(patchResult(goal.id, s.result.id, { text: v.slice(0, 120) }));
-      log({ op: 'rename', step: s.id, title: v, was: s.title });
+      const back = changeGoals(patchResult(on.goal.id, s.result.id, { text: v.slice(0, 120) }));
+      log({ op: 'rename', step: s.id, title: v, was: s.title }, on);
       remember('rename', back);
       return;
     }
     if (s.goal) {
       const back = changeGoals(patchGoal(s.goal.id, { title: v.slice(0, 80) }));
-      log({ op: 'rename', step: s.id, title: v, was: s.title });
+      log({ op: 'rename', step: s.id, title: v, was: s.title }, on);
       remember('rename', back);
     }
   };
 
-  /** A sub-goal of this one: for one of its key results, or for the goal as a whole. */
-  const addSubGoal = (kr?: string, at?: Pos) => {
-    const g = makeGoal({ title: 'New sub-goal', section: goal.section, parent: goal.id, parentKr: kr ?? null });
-    const spot = spotFor({ at, before: kr ? `kr:${kr}` : undefined });
+  /** A sub-goal of a goal on the canvas: for one of its key results, or for that goal as a whole. */
+  const addSubGoal = (kr?: string, at?: Pos, on: On = TOP) => {
+    const g = makeGoal({ title: 'New sub-goal', section: on.goal.section, parent: on.goal.id, parentKr: kr ?? null });
+    const spot = spotFor({ at, before: kr ? `kr:${kr}` : undefined }, on);
     const back = changeGoals(addGoal(g));
-    const put = spot ? plan(p => withPos(p, goalNode(g), spot)) : () => undefined;
-    log({ op: 'add', step: goalNode(g), title: g.title });
+    const put = spot ? plan(p => withPos(p, goalNode(g), spot), on.goal) : () => undefined;
+    log({ op: 'add', step: goalNode(g), title: g.title }, on);
     remember('add the sub-goal', () => { put(); back(); });
-    setSel({ kind: 'step', id: goalNode(g) });
+    setSel({ kind: 'step', id: on.key(goalNode(g)) });
     setSide('inspect');
-    setFocusId(goalNode(g));
+    setFocusId(on.key(goalNode(g)));
   };
 
   /** A key result: under another one, or for the goal itself. */
-  const addKr = (under: string | null, at?: Pos) => {
+  const addKr = (under: string | null, at?: Pos, on: On = TOP) => {
     const id = newResultId();
-    const spot = spotFor({ at, beside: under ? `kr:${under}` : undefined });
-    const back = changeGoals(addResult(goal.id, under, 'New key result', Date.now(), id));
-    const put = spot ? plan(p => withPos(p, `kr:${id}`, spot)) : () => undefined;
-    log({ op: 'add', step: `kr:${id}`, title: 'New key result' });
+    const spot = spotFor({ at, beside: under ? `kr:${under}` : undefined }, on);
+    const back = changeGoals(addResult(on.goal.id, under, 'New key result', Date.now(), id));
+    const put = spot ? plan(p => withPos(p, `kr:${id}`, spot), on.goal) : () => undefined;
+    log({ op: 'add', step: `kr:${id}`, title: 'New key result' }, on);
     remember('add the key result', () => { put(); back(); });
-    setSel({ kind: 'step', id: `kr:${id}` });
+    setSel({ kind: 'step', id: on.key(`kr:${id}`) });
     setSide('inspect');
-    setFocusId(`kr:${id}`);
+    setFocusId(on.key(`kr:${id}`));
   };
 
-  const toggle = (s: Step) => {
+  const toggle = (s: Step, on: On = TOP) => {
     if (s.repeat && !s.task) { say(s.repeat.next ? `Nothing of it is open: the next one comes ${dayName(s.repeat.next, now)}.` : 'It’s over: nothing more to come.'); return; }
     if (s.kind === 'task' && s.task) {
       if (s.task.externalId?.startsWith('gcal:')) { say('A meeting is done once it’s over.'); return; }
@@ -352,47 +339,47 @@ function FlowChart({ goal }: { goal: Goal }) {
     }
     if (s.kind === 'wait' && s.wait) {
       const done = !s.wait.done;
-      const back = plan(p => patchWait(p, s.id, { done, doneAt: done ? Date.now() : null }));
-      log({ op: done ? 'resolve' : 'unresolve', step: s.id, title: s.title });
+      const back = plan(p => patchWait(p, s.id, { done, doneAt: done ? Date.now() : null }), on.goal);
+      log({ op: done ? 'resolve' : 'unresolve', step: s.id, title: s.title }, on);
       remember(done ? 'resolve it' : 'wait again', back);
       return;
     }
     if (s.result) {
       if (!s.result.done && s.done) { say('It’s done because everything under it is. Untick one of those instead.'); return; }
       const done = !s.result.done;
-      const back = changeGoals(patchResult(goal.id, s.result.id, { done }));
-      log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title });
+      const back = changeGoals(patchResult(on.goal.id, s.result.id, { done }));
+      log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title }, on);
       remember(done ? 'tick the key result' : 'untick the key result', back);
       return;
     }
     if (s.goal) {
       const done = s.goal.status !== 'achieved';
       const back = changeGoals(setGoalStatus(s.goal.id, done ? 'achieved' : 'active'));
-      log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title });
+      log({ op: done ? 'tick' : 'untick', step: s.id, title: s.title }, on);
       remember(done ? 'achieve the sub-goal' : 'bring it back', back);
     }
   };
 
   /**
-   * Off the chart: a task off this goal (or deleted), a waiting step gone, a sub-goal dropped, a key result deleted with
+   * Off the chart: a task off its goal (or deleted), a waiting step gone, a sub-goal dropped, a key result deleted with
    * the ones under it. Its arrows go too.
    */
-  const removeStep = (s: Step, how: 'off' | 'delete') => {
+  const removeStep = (s: Step, how: 'off' | 'delete', on: On = TOP) => {
     const ids = s.result ? flatResults([s.result]).map(x => `kr:${x.kr.id}`) : [s.id];
-    const back = plan(p => ids.reduce(withoutStep, p));
-    if (s.kind === 'wait') { log({ op: 'remove', step: s.id, title: s.title }); remember('remove it', back); }
+    const back = plan(p => ids.reduce(withoutStep, p), on.goal);
+    if (s.kind === 'wait') { log({ op: 'remove', step: s.id, title: s.title }, on); remember('remove it', back); }
     else if (s.result) {
-      const gone = changeGoals(patchResult(goal.id, s.result.id, null));
-      log({ op: 'remove', step: s.id, title: s.title });
+      const gone = changeGoals(patchResult(on.goal.id, s.result.id, null));
+      log({ op: 'remove', step: s.id, title: s.title }, on);
       remember('delete the key result', () => { gone(); back(); });
     }
     else if (s.goal) {
       const off = changeGoals(setGoalStatus(s.goal.id, 'dropped'));
-      log({ op: 'remove', step: s.id, title: s.title });
+      log({ op: 'remove', step: s.id, title: s.title }, on);
       remember('drop the sub-goal', () => { back(); off(); });
     }
     else if (s.repeat) {
-      // Stop it (its open one goes too), or take the whole series off this goal.
+      // Stop it (its open one goes too), or take the whole series off its goal.
       const r = repeats.find(x => x.id === s.repeat?.id);
       const before = s.task ? (how === 'delete' ? store.remove([s.task.id]) : store.patch(s.task.id, { goal: null })) : null;
       const unrepeat = r ? applyRepeats([how === 'delete' ? { kind: 'stop', id: r.id } : { kind: 'set', repeat: { ...r, goal: null, updatedAt: Date.now() } }]) : () => undefined;
@@ -407,10 +394,10 @@ function FlowChart({ goal }: { goal: Goal }) {
   };
 
   /** Delete pressed on a step, and the answer yes. */
-  const confirmDelete = (s: Step, how: 'off' | 'delete' = 'delete') => {
+  const confirmDelete = (s: Step, how: 'off' | 'delete' = 'delete', on: On = TOP) => {
     const external = !!s.task?.externalId;
-    removeStep(s, s.repeat || (s.task && !external) ? how : 'off');
-    const verb = s.kind === 'goal' ? 'Dropped' : s.repeat ? (how === 'off' ? 'Took off this goal:' : 'Stopped repeating') : s.task && (how === 'off' || external) ? 'Took off this goal:' : s.kind === 'wait' ? 'Removed' : 'Deleted';
+    removeStep(s, s.repeat || (s.task && !external) ? how : 'off', on);
+    const verb = s.kind === 'goal' ? 'Dropped' : s.repeat ? (how === 'off' ? 'Took off its goal:' : 'Stopped repeating') : s.task && (how === 'off' || external) ? 'Took off its goal:' : s.kind === 'wait' ? 'Removed' : 'Deleted';
     say(`${verb} “${shortTitle(s.title, 40)}”. ⌘Z undoes it.`);
     scroller.current?.focus({ preventScroll: true });
   };
@@ -422,19 +409,18 @@ function FlowChart({ goal }: { goal: Goal }) {
     say('Laid out again. ⌘Z puts your steps back where they were.');
   };
 
-  /* ---------- moving a step: drag it (on a touch screen, hold it first) ---------- */
+  /* ---------- moving a step: drag it (on a touch screen, hold it first). Inside a sub-goal, steps are laid out for you. ---------- */
 
-  const startMove = (e: React.PointerEvent, id: string) => {
+  const startMove = (e: React.PointerEvent, c: Card) => {
     justMoved.current = false;
-    if (e.button !== 0 || picking || (e.target as HTMLElement).closest('button,input,textarea,select')) return;
-    const b = layout.boxes.get(id);
-    if (!b) return;
+    if (e.button !== 0 || picking || c.depth || (e.target as HTMLElement).closest('button,input,textarea,select')) return;
+    const b = c.box, id = c.id;
     e.stopPropagation();
     const x0 = e.clientX, y0 = e.clientY, p0 = toCanvas(x0, y0);
     const touch = e.pointerType === 'touch';
     let armed = !touch, moving = false, last: Pos | null = null;
     // A touch that moves straight away is a scroll; one held still for a moment picks the step up.
-    const hold = touch ? window.setTimeout(() => { armed = true; setLifting(id); navigator.vibrate?.(8); }, 320) : 0;
+    const hold = touch ? window.setTimeout(() => { armed = true; setLifting(c.key); navigator.vibrate?.(8); }, 320) : 0;
     const block = (ev: TouchEvent) => { if (armed) ev.preventDefault(); };
     const end = () => {
       window.clearTimeout(hold);
@@ -462,7 +448,7 @@ function FlowChart({ goal }: { goal: Goal }) {
       const to = last;
       remember('move the step', plan(p => withPos(p, id, to)));
       setDragPos(null);
-      setSel({ kind: 'step', id });
+      setSel({ kind: 'step', id: c.key });
       scroller.current?.focus({ preventScroll: true });
     };
     window.addEventListener('pointermove', move);
@@ -473,48 +459,49 @@ function FlowChart({ goal }: { goal: Goal }) {
 
   /* ---------- the palette: click to add, or drag onto the chart ---------- */
 
-  /** A new step of a kind, dropped on the chart: onto a step it goes with, or at the spot. */
-  const dropNew = (kind: StepKind, onto: Step | null, at: Pos) => {
-    if (kind === 'task') { if (onto) addTask(onto.kind === 'milestone' ? { before: onto.id } : { after: onto.id }); else addTask({ at }); }
-    else if (kind === 'wait') { if (onto && onto.kind !== 'wait') addWait(onto.id); else addWait(undefined, at); }
-    else if (kind === 'goal') { if (onto?.result) addSubGoal(onto.result.id); else addSubGoal(undefined, at); }
-    else if (onto?.result && (onto.depth ?? 0) < 2) addKr(onto.result.id);
-    else addKr(null, at);
+  /** A new step of a kind, dropped on the chart: onto a step it goes with, or at the spot (in the chart it's on). */
+  const dropNew = (kind: StepKind, onto: Card | null, at: Pos, on: On) => {
+    const s = onto?.step ?? null;
+    if (kind === 'task') { if (s) addTask(s.kind === 'milestone' ? { before: s.id } : { after: s.id }, on); else addTask({ at }, on); }
+    else if (kind === 'wait') { if (s && s.kind !== 'wait') addWait(s.id, undefined, on); else addWait(undefined, at, on); }
+    else if (kind === 'goal') { if (s?.result) addSubGoal(s.result.id, undefined, on); else addSubGoal(undefined, at, on); }
+    else if (s?.result && (s.depth ?? 0) < 2) addKr(s.result.id, undefined, on);
+    else addKr(null, at, on);
   };
   /** A click on the palette: next to the selected step, as Tab does. */
   const addKind = (kind: StepKind) => {
-    const s = selStep;
-    if (kind === 'task') addTask(s ? (s.kind === 'milestone' ? { before: s.id } : { after: s.id }) : {});
-    else if (kind === 'wait') addWait(s && s.kind !== 'wait' ? s.id : undefined);
-    else if (kind === 'goal') addSubGoal(s?.result?.id);
-    else addKr(s?.result?.id ?? null);
+    const s = selStep, on = selOn;
+    if (kind === 'task') addTask(s ? (s.kind === 'milestone' ? { before: s.id } : { after: s.id }) : {}, on);
+    else if (kind === 'wait') addWait(s && s.kind !== 'wait' ? s.id : undefined, undefined, on);
+    else if (kind === 'goal') addSubGoal(s?.result?.id, undefined, on);
+    else addKr(s?.result?.id ?? null, undefined, on);
   };
-  /** An off-goal task brought onto this goal: after `after` (before `before`, for a key result), or where it was dropped. */
-  const adopt = (t: Task, o: { after?: string; before?: string; at?: Pos } = {}) => {
-    const before = store.patch(t.id, { goal: goal.id, ...(goal.section ? { label: goal.section } : {}) });
+  /** An off-goal task brought onto a goal: after `after` (before `before`, for a key result), or where it was dropped. */
+  const adopt = (t: Task, o: { after?: string; before?: string; at?: Pos } = {}, on: On = TOP) => {
+    const before = store.patch(t.id, { goal: on.goal.id, ...(on.goal.section ? { label: on.goal.section } : {}) });
     // One of a repeat's brings the whole series, as one step.
     const rid = occurrenceOf(t.id)?.repeat;
     const sid = rid && repeats.some(r => r.id === rid) ? `rep:${rid}` : t.id;
     const links = o.after ? [{ from: o.after, to: sid }] : o.before ? [{ from: sid, to: o.before }] : [];
-    const spot = spotFor(o);
-    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, sid, spot) : q; }) : () => undefined;
+    const spot = spotFor(o, on);
+    const back = links.length || spot ? plan(p => { const q = links.reduce(withLink, p); return spot ? withPos(q, sid, spot) : q; }, on.goal) : () => undefined;
     remember('bring it onto the goal', () => { back(); store.restore(before); });
-    setSel({ kind: 'step', id: sid });
+    setSel({ kind: 'step', id: on.key(sid) });
     // Keep the backlog open, for the next one.
     setSide('backlog');
-    say(`“${shortTitle(t.title, 40)}” is on this goal now. ⌘Z undoes it.`);
+    say(`“${shortTitle(t.title, 40)}” is on ${on.top ? 'this goal' : `“${shortTitle(on.goal.title, 40)}”`} now. ⌘Z undoes it.`);
   };
   /** The backlog's +: after the selected step, as Tab does. */
-  const adoptHere = (t: Task) => adopt(t, selStep ? (selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }) : {});
+  const adoptHere = (t: Task) => adopt(t, selStep ? (selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }) : {}, selOn);
 
-  const fromPalette = (e: React.PointerEvent, kind: StepKind) => carry(e, { kind, label: KIND[kind] }, (onto, at) => dropNew(kind, onto, at));
+  const fromPalette = (e: React.PointerEvent, kind: StepKind) => carry(e, { kind, label: KIND[kind] }, (onto, at, on) => dropNew(kind, onto, at, on));
   const fromBacklog = (e: React.PointerEvent, t: Task) => {
     // On a touch screen the list scrolls; its + adds instead.
     if (e.pointerType === 'touch' || (e.target as HTMLElement).closest('button')) return;
-    carry(e, { kind: 'task', label: t.title }, (onto, at) => adopt(t, onto ? (onto.kind === 'milestone' ? { before: onto.id } : { after: onto.id }) : { at }));
+    carry(e, { kind: 'task', label: t.title }, (onto, at, on) => adopt(t, onto ? (onto.step.kind === 'milestone' ? { before: onto.id } : { after: onto.id }) : { at }, on));
   };
-  /** Something carried onto the chart from beside it: dropped on a step, or at a spot. */
-  const carry = (e: React.PointerEvent, what: { kind: StepKind; label: string }, drop: (onto: Step | null, at: Pos) => void) => {
+  /** Something carried onto the chart from beside it: dropped on a step, or at a spot (inside a sub-goal, onto its chart). */
+  const carry = (e: React.PointerEvent, what: { kind: StepKind; label: string }, drop: (onto: Card | null, at: Pos, on: On) => void) => {
     if (e.button !== 0) return;
     const x0 = e.clientX, y0 = e.clientY;
     let moving = false;
@@ -534,9 +521,9 @@ function FlowChart({ goal }: { goal: Goal }) {
       window.setTimeout(() => { justMoved.current = false; }, 0);
       const hit = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
       if (!hit?.closest('.flow-scroll')) return;
-      const onto = hit.closest<HTMLElement>('[data-step]')?.dataset.step;
+      const onto = cardOf(hit.closest<HTMLElement>('[data-step]')?.dataset.step);
       const p = toCanvas(ev.clientX, ev.clientY);
-      drop(onto ? flow.byId.get(onto) ?? null : null, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
+      drop(onto, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 }, onto ? onOf(onto) : onAt(p));
     };
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', stop); setGhost(null); };
     window.addEventListener('pointermove', move);
@@ -575,23 +562,23 @@ function FlowChart({ goal }: { goal: Goal }) {
       if (!moved) { setPicking(from); return; }
       const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-step]');
       const to = hit?.dataset.step;
-      if (to && to !== from) link({ from, to });
+      if (to && to !== from) join(from, to);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
 
-  const clickStep = (id: string) => {
+  const clickStep = (key: string) => {
     if (justMoved.current) { justMoved.current = false; return; }
     // Keys (Tab, Enter, arrows, Delete) go to the chart once you've picked something on it.
     scroller.current?.focus({ preventScroll: true });
-    if (confirm && confirm !== id) setConfirm(null);
+    if (confirm && confirm !== key) setConfirm(null);
     if (picking) {
-      if (picking !== id) link({ from: picking, to: id });
+      if (picking !== key) join(picking, key);
       setPicking(null);
       return;
     }
-    setSel({ kind: 'step', id });
+    setSel({ kind: 'step', id: key });
     setSide('inspect');
   };
 
@@ -639,7 +626,7 @@ function FlowChart({ goal }: { goal: Goal }) {
   const listen = useVoice({
     lang: voice.profile.lang,
     // The names on the chart, so they're heard right.
-    phrases: () => [goal.title, ...flow.steps.map(x => x.title)].slice(0, 80),
+    phrases: () => [goal.title, ...[...layout.cards.values()].map(c => c.step.title)].slice(0, 80),
     onHeard: h => setHearing(joinWords(h.text, h.interim)),
     onFinish: x => { setHearing(null); if (x.text.trim()) void tell(x.text, true); },
     onCutOff: x => { setHearing(null); if (x.text.trim()) { setAsk(x.text); say('Stopped listening. What you said is in the box.'); } },
@@ -649,10 +636,16 @@ function FlowChart({ goal }: { goal: Goal }) {
 
   /* ---------- the keyboard ---------- */
 
-  const selStep = sel?.kind === 'step' ? flow.byId.get(sel.id) ?? null : null;
-  const selLink = sel?.kind === 'link' ? flow.links.find(l => linkKey(l) === sel.key) ?? null : null;
+  const selCard = sel?.kind === 'step' ? cardOf(sel.id) : null;
+  const selStep = selCard?.step ?? null;
+  const selOn = onOf(selCard);
+  const selEdge = sel?.kind === 'link' ? layout.edges.find(e => e.kind === 'link' && e.key === sel.key) ?? null : null;
+  const selLink = selEdge?.link ?? null;
+  const linkOn = selEdge ? onTree(selEdge.tree) : TOP;
   /** With nothing selected, the side shows the backlog. */
   const showBacklog = side === 'backlog' || (side === 'inspect' && !selStep && !selLink);
+  /** A sub-goal with nothing on its own chart yet. */
+  const isEmpty = (c: Card | null) => !!c?.sub && !c.sub.flow.steps.length && !c.sub.flow.older;
 
   const onKey = (e: KeyLike) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
@@ -670,28 +663,28 @@ function FlowChart({ goal }: { goal: Goal }) {
     }
     if (typing || e.altKey) return;
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (selLink && !selLink.auto) { e.preventDefault(); unlink(selLink); return; }
+      if (selLink && !selLink.auto) { e.preventDefault(); unlink(selLink, linkOn); return; }
       // Once to ask, again (or Enter on the button) to do it.
-      if (selStep) { e.preventDefault(); if (confirm === selStep.id) confirmDelete(selStep); else setConfirm(selStep.id); }
+      if (selCard) { e.preventDefault(); if (confirm === selCard.key) confirmDelete(selCard.step, 'delete', selOn); else setConfirm(selCard.key); }
       return;
     }
     // While it asks, keys belong to its buttons.
     if (confirm) return;
-    if (e.key === 'Tab' && selStep && !e.shiftKey) { e.preventDefault(); addTask(selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }); return; }
-    if (e.key === 'Enter' && !onButton && selStep && selStep.kind !== 'milestone') { e.preventDefault(); addTask({ beside: selStep.id }); return; }
-    if (selStep && e.key.startsWith('Arrow')) {
-      // To the nearest step that way, as the steps are drawn.
+    if (e.key === 'Tab' && selStep && !e.shiftKey) { e.preventDefault(); addTask(selStep.kind === 'milestone' ? { before: selStep.id } : { after: selStep.id }, selOn); return; }
+    if (e.key === 'Enter' && !onButton && selStep && selStep.kind !== 'milestone') { e.preventDefault(); addTask({ beside: selStep.id }, selOn); return; }
+    if (selCard && e.key.startsWith('Arrow')) {
+      // To the nearest step that way, as the steps are drawn, inside sub-goals too.
       e.preventDefault();
       const dir = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, [number, number]>)[e.key];
-      const a = layout.boxes.get(selStep.id);
-      if (!dir || !a) return;
+      const a = selCard.box;
+      if (!dir) return;
       let go: string | null = null, best = Infinity;
-      for (const s of flow.steps) {
-        const b = layout.boxes.get(s.id);
-        if (s.id === selStep.id || !b) continue;
+      for (const c of layout.cards.values()) {
+        const b = c.box;
+        if (c === selCard) continue;
         const dx = b.x - a.x, dy = b.y - a.y, along = dx * dir[0] + dy * dir[1], across = Math.abs(dx * dir[1]) + Math.abs(dy * dir[0]);
         if (along <= 4) continue;
-        if (along + across * 2 < best) { best = along + across * 2; go = s.id; }
+        if (along + across * 2 < best) { best = along + across * 2; go = c.key; }
       }
       if (go) setSel({ kind: 'step', id: go });
     }
@@ -720,13 +713,14 @@ function FlowChart({ goal }: { goal: Goal }) {
   const fitted = useRef(false);
   useLayoutEffect(() => { if (!fitted.current && flow.steps.length) { fitted.current = true; fit(); } }, [fit, flow.steps.length]);
   // Keep the selected step in view.
+  const sx = selCard?.box.x, sy = selCard?.box.y;
   useEffect(() => {
-    const b = selStep ? layout.boxes.get(selStep.id) : null, el = scroller.current;
-    if (!b || !el) return;
-    const x = b.x * zoom, y = b.y * zoom;
-    if (x < el.scrollLeft || x + b.w * zoom > el.scrollLeft + el.clientWidth) el.scrollTo({ left: x - 80, behavior: 'smooth' });
-    if (y < el.scrollTop || y + b.h * zoom > el.scrollTop + el.clientHeight) el.scrollTo({ top: y - 60, behavior: 'smooth' });
-  }, [selStep, layout.boxes, zoom]);
+    const el = scroller.current;
+    if (sx == null || sy == null || !el) return;
+    const x = sx * zoom, y = sy * zoom;
+    if (x < el.scrollLeft || x + NODE_W * zoom > el.scrollLeft + el.clientWidth) el.scrollTo({ left: x - 80, behavior: 'smooth' });
+    if (y < el.scrollTop || y + NODE_H * zoom > el.scrollTop + el.clientHeight) el.scrollTo({ top: y - 60, behavior: 'smooth' });
+  }, [sx, sy, zoom]);
 
   // Drag the background to move around.
   const pan = (e: React.PointerEvent) => {
@@ -760,13 +754,20 @@ function FlowChart({ goal }: { goal: Goal }) {
     else download(`${slug}.mmd`, text, 'text/plain');
   };
 
+  /** What the side panel can do to a step, on the chart it's on. */
+  const actsFor = (on: On): Acts => ({
+    rename: (s, t) => rename(s, t, on), toggle: s => toggle(s, on), link: l => link(l, on), unlink: l => unlink(l, on),
+    addTask: o => addTask(o, on), addWait: h => addWait(h, undefined, on), removeStep: (s, how) => removeStep(s, how, on), patchTask,
+    addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on),
+    open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null,
+  });
+
   /* ---------- drawing it ---------- */
 
-  const box = (id: string) => layout.boxes.get(id) as Box;
   const z = zoom;
   const live = drawing && drawing.moved ? (() => {
-    const a = box(drawing.from);
-    return `M ${a.x + a.w} ${a.y + a.h / 2} L ${drawing.x} ${drawing.y}`;
+    const a = cardOf(drawing.from)?.box;
+    return a ? `M ${a.x + a.w} ${a.y + a.h / 2} L ${drawing.x} ${drawing.y}` : null;
   })() : null;
 
   return (
@@ -822,12 +823,12 @@ function FlowChart({ goal }: { goal: Goal }) {
         <div ref={stage} className="flow-stage">
         <div ref={scroller} className={'flow-scroll' + (picking ? ' picking' : '') + (dragPos ? ' moving' : '')} onPointerDown={pan} tabIndex={0} aria-label={`Flow chart for ${goal.title}`}
           onDoubleClick={e => {
-            // Double-click an empty spot: a step there.
+            // Double-click an empty spot: a step there, on the chart it's in.
             if ((e.target as HTMLElement).closest('[data-step],button,.fn-goal,.fn-confirm')) return;
             const p = toCanvas(e.clientX, e.clientY);
-            addTask({ at: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 } });
+            addTask({ at: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 } }, onAt(p));
           }}>
-          {(note || picking) && <p className="flow-note" role="status">{picking ? <>Click the step that comes after “{shortTitle(titleOf(picking) ?? '', 40)}” · <kbd>Esc</kbd> to stop</> : note}</p>}
+          {(note || picking) && <p className="flow-note" role="status">{picking ? <>Click the step that comes after “{shortTitle(cardOf(picking)?.step.title ?? '', 40)}” · <kbd>Esc</kbd> to stop</> : note}</p>}
           <div className="flow-size" style={{ width: layout.width * z, height: layout.height * z }}>
             <div ref={canvas} className="flow-canvas" style={{ width: layout.width, height: layout.height, transform: `scale(${z})` }}>
               <svg className="flow-svg" width={layout.width} height={layout.height} aria-hidden="true">
@@ -838,19 +839,19 @@ function FlowChart({ goal }: { goal: Goal }) {
                     </marker>
                   ))}
                 </defs>
-                {flow.roots.map(id => {
-                  const c = curve(layout.goal, box(id));
-                  return <path key={`g>${id}`} d={c.d} className="fe root" markerEnd="url(#fa-d)" />;
-                })}
-                {flow.links.map(l => {
-                  const key = linkKey(l), c = curve(box(l.from), box(l.to), layout.lanes.get(key));
-                  const from = flow.byId.get(l.from) as Step;
-                  const cls = sel?.kind === 'link' && sel.key === key ? 's' : flow.critical.links.has(key) ? 'c' : from.done ? 'd' : 'n';
+                {/* Each open sub-goal: a faint frame around its card and its chart. */}
+                {layout.frames.map(f => <rect key={`frame:${f.key}`} className="flow-frame" x={f.box.x} y={f.box.y} width={f.box.w} height={f.box.h} rx={14} />)}
+                {layout.edges.map(e => {
+                  const d = pathD(e);
+                  if (e.kind === 'root') return <path key={e.key} d={d} className="fe root" markerEnd="url(#fa-d)" />;
+                  const l = e.link as Link, k = linkKey(l);
+                  const from = e.tree.flow.byId.get(l.from) as Step;
+                  const cls = sel?.kind === 'link' && sel.key === e.key ? 's' : e.tree.flow.critical.links.has(k) ? 'c' : from.done ? 'd' : 'n';
                   return (
-                    <g key={key}>
-                      <path d={c.d} className={`fe fe-${cls}${l.auto ? ' auto' : ''}`} markerEnd={`url(#fa-${cls})`} />
-                      <path d={c.d} className="fe-hit" onClick={e => { e.stopPropagation(); scroller.current?.focus({ preventScroll: true }); setSel({ kind: 'link', key }); }}>
-                        <title>{`${from.title} → ${titleOf(l.to)}`}</title>
+                    <g key={e.key}>
+                      <path d={d} className={`fe fe-${cls}${l.auto ? ' auto' : ''}`} markerEnd={`url(#fa-${cls})`} />
+                      <path d={d} className="fe-hit" onClick={ev => { ev.stopPropagation(); scroller.current?.focus({ preventScroll: true }); setSel({ kind: 'link', key: e.key }); }}>
+                        <title>{`${from.title} → ${e.tree.flow.byId.get(l.to)?.title ?? ''}`}</title>
                       </path>
                     </g>
                   );
@@ -864,23 +865,25 @@ function FlowChart({ goal }: { goal: Goal }) {
                 <span className="fn-m num">{flow.counts.done} of {flow.counts.steps} done{flow.older ? ` · ${flow.older} older` : ''}</span>
               </div>
 
-              {flow.steps.map(s => {
-                const b = box(s.id);
-                const on = sel?.kind === 'step' && sel.id === s.id;
+              {[...layout.cards.values()].map(c => {
+                const s = c.step, b = c.box, on = onOf(c);
+                const on1 = sel?.kind === 'step' && sel.id === c.key;
                 const sched = s.kind === 'task' && !s.done && s.task?.start != null;
-                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on ? ' sel' : ''}${picking === s.id ? ' from' : ''}${sched ? ' sched' : ''}${s.repeat ? ' rep' : ''}`
-                  + `${dragPos?.id === s.id ? ' dragging' : ''}${lifting === s.id ? ' lifting' : ''}${confirm === s.id ? ' doomed' : ''}`;
+                const inside = c.sub?.flow.steps.length ?? 0;
+                const empty = isEmpty(c);
+                const cls = `fn fn-${s.kind === 'goal' ? 'sub' : s.kind} ${s.state}${s.critical ? ' crit' : ''}${on1 ? ' sel' : ''}${picking === c.key ? ' from' : ''}${sched ? ' sched' : ''}${s.repeat ? ' rep' : ''}`
+                  + `${c.open ? ' unfolded' : ''}${c.depth ? ' nested' : ''}${!c.depth && dragPos?.id === c.id ? ' dragging' : ''}${lifting === c.key ? ' lifting' : ''}${confirm === c.key ? ' doomed' : ''}`;
                 return (
-                  <div key={s.id} className={cls} data-step={s.id} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...tint }}
-                    onPointerDown={e => startMove(e, s.id)}
-                    onClick={e => { e.stopPropagation(); clickStep(s.id); }}
+                  <div key={c.key} className={cls} data-step={c.key} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...tint }}
+                    onPointerDown={c.depth ? undefined : e => startMove(e, c)}
+                    onClick={e => { e.stopPropagation(); clickStep(c.key); }}
                     onDoubleClick={s.goal ? e => { e.stopPropagation(); openSheet('flow', (s.goal as Goal).id); } : undefined}
-                    title={s.goal ? 'Double-click to open its own chart' : undefined}>
+                    title={s.goal ? 'Double-click to open its own chart' : c.depth ? `On “${c.tree.goal.title}”` : undefined}>
                     {s.kind === 'milestone' && <span className="fn-ms" aria-hidden="true" />}
                     {s.kind === 'goal' && <span className="fn-pp" aria-hidden="true" />}
                     <button type="button" className={'fn-ck' + (s.done ? ' on' : '')} aria-label={`${s.done ? 'Not done' : 'Done'}: ${s.title}`}
                       title={s.kind === 'milestone' ? (s.done ? 'Untick it' : 'Tick it: reached') : s.kind === 'goal' ? (s.done ? 'Bring it back' : 'Achieved') : s.kind === 'wait' ? (s.done ? 'Waiting again' : 'Resolved') : s.done ? 'Reopen' : 'Tick it off'}
-                      onClick={e => { e.stopPropagation(); toggle(s); }}><CheckIcon size={10} w={2.6} /></button>
+                      onClick={e => { e.stopPropagation(); toggle(s, on); }}><CheckIcon size={10} w={2.6} /></button>
                     <span className="fn-t">{s.kind === 'wait' && <span className="fn-k">Waiting on </span>}{s.title}</span>
                     <span className="fn-m">
                       {s.repeat && (
@@ -890,38 +893,47 @@ function FlowChart({ goal }: { goal: Goal }) {
                       )}
                       {sched && <CalendarIcon size={10} />}
                       {s.kind === 'task' && <span className="num">{fmtDur(s.repeat ? s.task?.minutes ?? s.minutes : s.minutes)}</span>}
-                      {s.kind === 'goal' && s.progress != null && <span className="fn-bar" aria-hidden="true"><i style={{ width: `${Math.round(s.progress * 100)}%` }} /></span>}
-                      <span className={'fn-st ' + s.state}>{stateText(s, flow.byId, now)}</span>
+                      {s.kind === 'goal' && s.progress != null && !empty && <span className="fn-bar" aria-hidden="true"><i style={{ width: `${Math.round(s.progress * 100)}%` }} /></span>}
+                      <span className={'fn-st ' + s.state}>{stateText(s, on.flow.byId, now, empty)}</span>
                     </span>
+                    {inside > 0 && s.goal && (
+                      <button type="button" className={'fn-fold' + (c.open ? ' on' : '')} aria-expanded={c.open}
+                        aria-label={c.open ? `Hide what’s in ${s.title}` : `Show the ${inside} inside ${s.title}`}
+                        title={c.open ? `Hide the ${inside} inside` : `Show the ${inside} inside, here`}
+                        onClick={e => { e.stopPropagation(); fold((s.goal as Goal).id); }} onDoubleClick={e => e.stopPropagation()}>
+                        {c.open ? <ChevronDown size={11} /> : <><ChevronRight size={11} /><span className="num">{inside} inside</span></>}
+                      </button>
+                    )}
                     {s.kind !== 'milestone' && (
                       <button type="button" className="fn-h" aria-label={`Draw an arrow from ${s.title}`} title="Drag to the step that comes after this one, or click and then click it"
-                        onPointerDown={e => startDraw(e, s.id)} onClick={e => e.stopPropagation()} />
+                        onPointerDown={e => startDraw(e, c.key)} onClick={e => e.stopPropagation()} />
                     )}
                     {s.kind !== 'milestone' ? (
                       <>
                         <button type="button" className="fn-add next" aria-label={`Add the next step after ${s.title}`} title="Add the next step (Tab)"
-                          onClick={e => { e.stopPropagation(); addTask({ after: s.id }); }}><PlusIcon size={12} /></button>
+                          onClick={e => { e.stopPropagation(); addTask({ after: s.id }, on); }}><PlusIcon size={12} /></button>
                         <button type="button" className="fn-add par" aria-label={`Add a step in parallel with ${s.title}`} title="Add a parallel step (Enter)"
-                          onClick={e => { e.stopPropagation(); addTask({ beside: s.id }); }}><PlusIcon size={12} /></button>
+                          onClick={e => { e.stopPropagation(); addTask({ beside: s.id }, on); }}><PlusIcon size={12} /></button>
                       </>
                     ) : (
                       <button type="button" className="fn-add prev" aria-label={`Add a step that leads to ${s.title}`} title="Add a step that leads here (Tab)"
-                        onClick={e => { e.stopPropagation(); addTask({ before: s.id }); }}><PlusIcon size={12} /></button>
+                        onClick={e => { e.stopPropagation(); addTask({ before: s.id }, on); }}><PlusIcon size={12} /></button>
                     )}
                   </div>
                 );
               })}
 
               {confirm && (() => {
-                const s = flow.byId.get(confirm), b = s ? layout.boxes.get(s.id) : null;
-                if (!s || !b) return null;
+                const c = cardOf(confirm);
+                if (!c) return null;
+                const s = c.step, b = c.box, on = onOf(c);
                 const external = !!s.task?.externalId;
                 const under = s.result ? flatResults(s.result.results ?? []).length : s.goal ? descendantsOf(goals, s.goal.id).filter(d => d.status === 'active').length : 0;
                 const what = s.repeat ? `Stop repeating “${shortTitle(s.title, 40)}”?`
                   : s.kind === 'goal' ? `Drop the sub-goal “${shortTitle(s.title, 40)}”${under ? `, and the ${under} under it` : ''}?`
                   : s.kind === 'milestone' ? `Delete the key result “${shortTitle(s.title, 40)}”${under ? `, and the ${under} under it` : ''}?`
                   : s.kind === 'wait' ? `Remove “Waiting on ${shortTitle(s.title, 40)}”?`
-                  : external ? `Take “${shortTitle(s.title, 40)}” off this goal?` : `Delete “${shortTitle(s.title, 40)}”?`;
+                  : external ? `Take “${shortTitle(s.title, 40)}” off ${on.top ? 'this goal' : 'its goal'}?` : `Delete “${shortTitle(s.title, 40)}”?`;
                 return (
                   <div className="fn-confirm" role="alertdialog" aria-label={what} style={{ left: b.x, top: b.y + b.h + 10 }}
                     onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
@@ -929,10 +941,10 @@ function FlowChart({ goal }: { goal: Goal }) {
                     {s.repeat ? <p className="muted sm">No more of it will come{s.task ? ', and the open one goes' : ''}. The ones you’ve done stay done.</p>
                       : s.task && !external && <p className="muted sm">It’s a task in your planner too, so it goes from there as well.</p>}
                     <div className="acts">
-                      <button type="button" className="btn sm pri" autoFocus onClick={() => confirmDelete(s)}>
+                      <button type="button" className="btn sm pri" autoFocus onClick={() => confirmDelete(s, 'delete', on)}>
                         {s.repeat ? 'Stop it' : s.kind === 'goal' ? 'Drop it' : s.kind === 'wait' ? 'Remove' : external ? 'Take it off' : 'Delete'}
                       </button>
-                      {(s.repeat || (s.task && !external)) && <button type="button" className="btn sec sm" onClick={() => confirmDelete(s, 'off')}>Only off this goal</button>}
+                      {(s.repeat || (s.task && !external)) && <button type="button" className="btn sec sm" onClick={() => confirmDelete(s, 'off', on)}>Only off {on.top ? 'this goal' : 'its goal'}</button>}
                       <button type="button" className="btn text sm" onClick={() => { setConfirm(null); scroller.current?.focus({ preventScroll: true }); }}>Cancel</button>
                     </div>
                     <p className="muted sm"><kbd>Delete</kbd> or <kbd>Enter</kbd> to confirm · <kbd>Esc</kbd> to keep it</p>
@@ -940,16 +952,13 @@ function FlowChart({ goal }: { goal: Goal }) {
                 );
               })()}
 
-              {selLink && !selLink.auto && (() => {
-                const c = curve(box(selLink.from), box(selLink.to), layout.lanes.get(linkKey(selLink)));
-                return (
-                  <button type="button" className="fe-x" style={{ left: c.mid.x - 11, top: c.mid.y - 11 }} aria-label="Remove this arrow" title="Remove this arrow (Delete)"
-                    onClick={e => { e.stopPropagation(); unlink(selLink); }}><XIcon size={11} /></button>
-                );
-              })()}
+              {selEdge && selLink && !selLink.auto && (
+                <button type="button" className="fe-x" style={{ left: selEdge.mid.x - 11, top: selEdge.mid.y - 11 }} aria-label="Remove this arrow" title="Remove this arrow (Delete)"
+                  onClick={e => { e.stopPropagation(); unlink(selLink, linkOn); }}><XIcon size={11} /></button>
+              )}
 
               {!flow.counts.steps && (
-                <button type="button" className="flow-first" style={{ left: colX(1), top: layout.goal.y + 8 }} onClick={() => addTask()}>
+                <button type="button" className="flow-first" style={{ left: COL1_X, top: layout.goal.y + 8 }} onClick={() => addTask()}>
                   <PlusIcon size={14} />Add the first step
                 </button>
               )}
@@ -972,17 +981,17 @@ function FlowChart({ goal }: { goal: Goal }) {
         <aside className="flow-side" aria-label={side === 'history' ? 'History' : showBacklog ? 'Backlog' : 'Step'}>
           {side === 'history' ? <History goal={goal} />
             : showBacklog ? <Backlog title={selStep && selStep.kind !== 'milestone' ? selStep.title : null} onCarry={fromBacklog} onAdd={adoptHere} />
-            : selStep ? <Inspector key={selStep.id} s={selStep} flow={flow} focus={focusId === selStep.id} onFocused={() => setFocusId(null)} goal={goal}
-              act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask, addSubGoal, addKr, open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null }} />
+            : selCard ? <Inspector key={selCard.key} s={selCard.step} flow={selOn.flow} focus={focusId === selCard.key} onFocused={() => setFocusId(null)} goal={selOn.goal}
+              within={selOn.top ? null : selOn.goal} empty={isEmpty(selCard)} act={actsFor(selOn)} />
             : selLink ? (
               <div className="fi">
-                <p className="rv-k">Arrow</p>
+                <p className="rv-k">Arrow{linkOn.top ? '' : ` · on “${shortTitle(linkOn.goal.title, 40)}”`}</p>
                 {selLink.auto ? (
-                  <p className="fi-link"><b>{titleOf(selLink.from)}</b> is part of <b>{titleOf(selLink.to)}</b>: it’s one of the things that has to be true for it. This arrow comes from the goal’s structure.</p>
+                  <p className="fi-link"><b>{titleOf(selLink.from, linkOn)}</b> is part of <b>{titleOf(selLink.to, linkOn)}</b>: it’s one of the things that has to be true for it. This arrow comes from the goal’s structure.</p>
                 ) : (
                   <>
-                    <p className="fi-link"><b>{titleOf(selLink.from)}</b> has to be done before <b>{titleOf(selLink.to)}</b> can start.</p>
-                    <button type="button" className="btn sec sm" onClick={() => unlink(selLink)}>Remove the arrow</button>
+                    <p className="fi-link"><b>{titleOf(selLink.from, linkOn)}</b> has to be done before <b>{titleOf(selLink.to, linkOn)}</b> can start.</p>
+                    <button type="button" className="btn sec sm" onClick={() => unlink(selLink, linkOn)}>Remove the arrow</button>
                   </>
                 )}
               </div>
@@ -1028,8 +1037,13 @@ interface Acts {
 
 const LENGTHS = [15, 30, 60, 90, 120, 240];
 
-function Inspector({ s, flow, focus, onFocused, goal, act }: {
-  s: Step; flow: ReturnType<typeof buildFlow>; focus: boolean; onFocused: () => void; goal: Goal; act: Acts;
+function Inspector({ s, flow, focus, onFocused, goal, within, empty, act }: {
+  s: Step; flow: ReturnType<typeof buildFlow>; focus: boolean; onFocused: () => void; goal: Goal;
+  /** The sub-goal whose chart the step is on, when that's open inside this one. */
+  within: Goal | null;
+  /** A sub-goal with nothing on its own chart yet. */
+  empty: boolean;
+  act: Acts;
 }) {
   const { now, openEditor, slot } = usePlanner();
   const [title, setTitle] = useState(s.title);
@@ -1050,6 +1064,9 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
   return (
     <div className="fi">
       <p className="rv-k">{s.repeat ? 'Repeating task' : KIND[s.kind]}{s.critical ? ' · on the critical path' : ''}</p>
+      {within && (
+        <p className="fi-in muted sm">On “{shortTitle(within.title, 48)}”, inside this chart. <button type="button" className="link sm" onClick={() => act.open(within.id)}>Open its chart</button></p>
+      )}
       <textarea ref={input} className="ed-title sm" rows={2} aria-label="Title" value={title} maxLength={s.kind === 'wait' ? WAIT_TITLE_MAX : 160}
         onChange={e => setTitle(e.target.value)} onBlur={() => act.rename(s, title)}
         onKeyDown={e => {
@@ -1069,7 +1086,7 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
         </div>
       )}
       {s.repeat?.week && act.repeatOf(s.repeat.id) && <WeekLog repeat={act.repeatOf(s.repeat.id) as Repeat} />}
-      <p className={'fi-st ' + s.state}>{stateText(s, flow.byId, now)}{s.state === 'blocked' ? `: waiting for ${s.needs.filter(id => !flow.byId.get(id)?.done).map(id => `“${shortTitle(name(id), 28)}”`).join(', ')}` : ''}</p>
+      <p className={'fi-st ' + s.state}>{stateText(s, flow.byId, now, empty)}{s.state === 'blocked' ? `: waiting for ${s.needs.filter(id => !flow.byId.get(id)?.done).map(id => `“${shortTitle(name(id), 28)}”`).join(', ')}` : ''}</p>
 
       <div className="acts">
         <button type="button" className={'btn sm ' + (s.done ? 'sec' : 'pri')} onClick={() => act.toggle(s)}>

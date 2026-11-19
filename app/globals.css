@@ -1327,6 +1327,18 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .fn.fn-sub .fn-t{font-weight:650}
 .fn-bar{display:inline-flex;width:42px;height:4px;border-radius:2px;background:var(--soft);overflow:hidden}
 .fn-bar i{display:block;background:var(--c,var(--accent))}
+/* A sub-goal open in place: a faint frame around its card and its chart, one inside another as they nest. */
+.flow-frame{fill:color-mix(in oklch,var(--ink) 2.5%,transparent);stroke:var(--hair2);stroke-width:1}
+/* Its toggle sits on the card's bottom edge: a chevron when open; closed, how many steps are inside. */
+.fn-fold{position:absolute;right:14px;bottom:-9px;z-index:1;display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;border:1px solid var(--hair2);border-radius:999px;background:var(--raised);color:var(--muted);font-size:10.5px;line-height:16px;font-weight:600;cursor:pointer;box-shadow:var(--panel-shadow);transition:border-color var(--fast),color var(--fast)}
+.fn-fold.on{padding:0 3px}
+.fn-fold:hover{border-color:var(--ink);color:var(--ink)}
+.fn-fold:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.fn-fold svg{flex:none}
+.flowc.ph .fn-fold{height:24px;bottom:-12px;padding:0 9px;font-size:var(--t-11)}
+.flowc.ph .fn-fold.on{padding:0 6px}
+.fi-in{margin:-2px 0 6px}
+.fi-in .link{font-size:inherit}
 .flow-trail{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;min-width:0}
 .flow-crumb{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-13);color:var(--muted)}
 .flow-crumb .link{font-weight:500;color:var(--muted)}

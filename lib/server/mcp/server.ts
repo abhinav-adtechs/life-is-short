@@ -2,7 +2,7 @@ import 'server-only';
 import { McpServer, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import {
-  PRIORITIES, TaskError, changeGoals, completeTask, createTask, deleteTask, getGoal, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx,
+  MAX_CHART_DEPTH, PRIORITIES, TaskError, changeGoals, completeTask, createTask, deleteTask, getGoal, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx,
 } from '../../mcp/tools';
 import { zoneOr } from '../../mcp/when';
 import { connectionRepo } from './db';
@@ -47,6 +47,28 @@ const detail = summary.extend({
 });
 const changed = detail.extend({ changed: z.boolean().describe('False when the task already looked like this, so nothing was written.') });
 
+/** A step on a goal's flow chart. */
+const stepFields = {
+  id: z.string(), kind: z.enum(['task', 'wait', 'goal', 'milestone']).describe('task: a task on the goal; wait: something outside the user’s control it waits on; goal: one of its sub-goals; milestone: one of its done-when lines'),
+  title: z.string(), state: z.enum(['done', 'ready', 'blocked', 'reached', 'open']),
+  minutes: z.number().optional(), needs: z.array(z.string()).optional().describe('Step ids that have to be done first'),
+  critical: z.boolean().optional().describe('On the critical path: the chain with the most work left'),
+  progress: z.number().optional().describe('For a sub-goal: how far along it is, 0 to 1'),
+  repeats: z.string().optional().describe('For a repeating task, the whole series as one step: how it repeats and when it ends, e.g. "Every Mon, Wed and Fri, 20 times"'),
+  times_done: z.number().optional().describe('For a repeating task: how many of it are done'),
+};
+const arrows = z.array(z.object({ from: z.string(), to: z.string(), structure: z.literal(true).optional().describe('Drawn by the goal’s structure (a key result under another, a sub-goal for a key result), not by the user') })).describe('from has to be done before to can start');
+const FLOW = 'The goal’s flow chart, left to right from the goal: steps, what each needs first, and the critical path.';
+
+/** For get_goal with depth: a sub-goal's step with that sub-goal's own chart inside it. */
+const nestedStep = z.object({
+  ...stepFields,
+  get flow() {
+    return nestedFlow.optional().describe('For a sub-goal, with depth over 1: its own flow chart (steps, arrows, critical path), whose step ids are on that sub-goal’s chart. Pass that sub-goal as change_goals’ goal to change them.');
+  },
+});
+const nestedFlow = z.object({ get steps() { return z.array(nestedStep); }, arrows, critical_path: z.array(z.string()) });
+
 /** A goal as list_goals, get_goal and change_goals describe it. */
 const goalSchema = z.object({
         id: z.string(), title: z.string(), section: orNull('Its section, or null.'),
@@ -60,19 +82,7 @@ const goalSchema = z.object({
           under: z.string().max(100).nullable().describe('The key result it sits under, or null at the top'),
         })).describe('Its key results, depth first.'),
         open_tasks: z.number(), done_tasks: z.number(),
-        flow: z.object({
-          steps: z.array(z.object({
-            id: z.string(), kind: z.enum(['task', 'wait', 'goal', 'milestone']).describe('task: a task on the goal; wait: something outside the user’s control it waits on; goal: one of its sub-goals; milestone: one of its done-when lines'),
-            title: z.string(), state: z.enum(['done', 'ready', 'blocked', 'reached', 'open']),
-            minutes: z.number().optional(), needs: z.array(z.string()).optional().describe('Step ids that have to be done first'),
-            critical: z.boolean().optional().describe('On the critical path: the chain with the most work left'),
-            progress: z.number().optional().describe('For a sub-goal: how far along it is, 0 to 1'),
-            repeats: z.string().optional().describe('For a repeating task, the whole series as one step: how it repeats and when it ends, e.g. "Every Mon, Wed and Fri, 20 times"'),
-            times_done: z.number().optional().describe('For a repeating task: how many of it are done'),
-          })),
-          arrows: z.array(z.object({ from: z.string(), to: z.string(), structure: z.literal(true).optional().describe('Drawn by the goal’s structure (a key result under another, a sub-goal for a key result), not by the user') })).describe('from has to be done before to can start'),
-          critical_path: z.array(z.string()),
-        }).describe('The goal’s flow chart, left to right from the goal: steps, what each needs first, and the critical path.'),
+        flow: z.object({ steps: z.array(z.object(stepFields)), arrows, critical_path: z.array(z.string()) }).describe(FLOW),
       });
 
 const TIME_NOTE = 'Times without an offset are read in the user’s time zone (list_tasks returns it).';
@@ -165,13 +175,18 @@ export function buildServer(auth: AuthInfo): McpServer {
     description: 'One goal in full, by id or title: what list_goals shows for it (key results, progress, its flow chart with '
       + 'every step’s id, state and what it needs first, and the critical path), plus the chart as a Mermaid flowchart you can '
       + 'draw for the user, and what happened to the chart lately. Read it before changing the goal with change_goals: the step '
-      + 'ids here are what change_goals takes.',
+      + 'ids here are what change_goals takes. A sub-goal is one step (kind "goal"); with depth over 1, each sub-goal step also '
+      + 'has that sub-goal’s own chart in its flow field, that many levels down, the whole tree the app’s canvas shows, and the '
+      + 'Mermaid draws each sub-goal with steps as a subgraph. Steps inside a sub-goal belong to that sub-goal’s chart: to change '
+      + 'them, pass that sub-goal as change_goals’ goal.',
     inputSchema: z.object({
       goal: goal.describe('The goal’s id (from list_goals) or title.'),
       history: z.number().int().min(0).max(50).optional().describe('How many recent history lines to include. Default 15.'),
+      depth: z.number().int().min(1).max(MAX_CHART_DEPTH).optional().describe(`How many levels of charts: 1 (the default) is this goal’s own chart, each sub-goal one step; 2 also shows each sub-goal’s chart inside its step; ${MAX_CHART_DEPTH} shows every level.`),
     }),
     outputSchema: goalSchema.extend({
-      mermaid: z.string().describe('The chart as a Mermaid flowchart (left to right).'),
+      flow: nestedFlow.describe(FLOW + ' With depth over 1, each sub-goal step has its own chart in flow.'),
+      mermaid: z.string().describe('The chart as a Mermaid flowchart (left to right); with depth over 1, a subgraph for each sub-goal with steps, its steps named n_<goal id>__<step id>.'),
       history: z.array(z.object({ at: z.string(), what: z.string() })).describe('What happened to the chart, oldest first.'),
     }),
     annotations: { title: 'Get a goal and its chart', ...READ },

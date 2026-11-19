@@ -434,8 +434,17 @@ export const parallelLinks = (p: Plan, id: string, fresh: string): Link[] => [
 
 /* ---------- export ---------- */
 
-const mm = (s: string) => s.replace(/"/g, '#quot;').replace(/[\r\n]+/g, ' ');
-const mmId = (id: string) => 'n_' + id.replace(/[^A-Za-z0-9_]/g, '_');
+export const mm = (s: string) => s.replace(/"/g, '#quot;').replace(/[\r\n]+/g, ' ');
+export const mmId = (id: string) => 'n_' + id.replace(/[^A-Za-z0-9_]/g, '_');
+
+/** A step's Mermaid shape and label, with its state as a class. */
+export function mermaidNode(s: Step): string {
+  const t = mm(s.kind === 'wait' ? `Waiting on: ${s.title}` : s.repeat ? `${s.title} ↻ ${s.repeat.rule}` : s.title);
+  const shape = s.kind === 'milestone' ? `{"${t}"}` : s.kind === 'wait' ? `>"${t}"]` : s.kind === 'goal' ? `[["${t}"]]` : `["${t}"]`;
+  return `${shape}${s.done ? ':::done' : s.state === 'blocked' ? ':::blocked' : ''}`;
+}
+
+export const MERMAID_CLASSES = ['  classDef done fill:#e8f5e9,stroke:#2e7d32,color:#555;', '  classDef blocked stroke-dasharray: 4 3;'];
 
 /**
  * The chart as a Mermaid flowchart, the plain-text format GitHub, Notion and most docs tools draw: the goal as a stadium,
@@ -443,15 +452,11 @@ const mmId = (id: string) => 'n_' + id.replace(/[^A-Za-z0-9_]/g, '_');
  * diamonds, left to right.
  */
 export function toMermaid(goal: Goal, flow: Flow): string {
-  const shape = (s: Step) => {
-    const t = mm(s.kind === 'wait' ? `Waiting on: ${s.title}` : s.repeat ? `${s.title} ↻ ${s.repeat.rule}` : s.title);
-    return s.kind === 'milestone' ? `{"${t}"}` : s.kind === 'wait' ? `>"${t}"]` : s.kind === 'goal' ? `[["${t}"]]` : `["${t}"]`;
-  };
   const lines = ['flowchart LR', `  goal(["${mm(goal.title)}"])`];
-  for (const s of flow.steps) lines.push(`  ${mmId(s.id)}${shape(s)}${s.done ? ':::done' : s.state === 'blocked' ? ':::blocked' : ''}`);
+  for (const s of flow.steps) lines.push(`  ${mmId(s.id)}${mermaidNode(s)}`);
   for (const id of flow.roots) lines.push(`  goal --> ${mmId(id)}`);
   for (const l of flow.links) lines.push(`  ${mmId(l.from)} ${l.auto ? '-.->' : '-->'} ${mmId(l.to)}`);
-  lines.push('  classDef done fill:#e8f5e9,stroke:#2e7d32,color:#555;', '  classDef blocked stroke-dasharray: 4 3;');
+  lines.push(...MERMAID_CLASSES);
   return lines.join('\n');
 }
 
