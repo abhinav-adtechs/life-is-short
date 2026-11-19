@@ -1453,3 +1453,24 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .rep-at input[type="date"],.rep-at input[type="number"]{padding:0;border:0;outline:none;background:none;font:inherit;color:inherit}
 .rep-times input[type="number"]{width:48px;text-align:right}
 .rep-g .num{margin-left:2px;font-size:var(--t-11);font-weight:600}
+/* A number of times a week: the target, and the log of each week. */
+.rep-per{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rep-g.hot{color:var(--accent-ink)}
+.rep-g.hot svg{color:var(--accent-ink)}
+.wlog{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--hair);border-radius:var(--r-md);background:var(--raised)}
+.wlog-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;font-size:var(--t-13)}
+.wlog-h b{font-size:var(--t-16);font-weight:700}
+.wlog-h>span:first-of-type{color:var(--muted)}
+.wlog-s{margin-left:auto;font-size:var(--t-12);color:var(--muted)}
+.wlog-s.hot{color:var(--accent-ink);font-weight:600}
+.wlog-s.ok{color:var(--ink);font-weight:600}
+.wlog-pips{display:flex;gap:4px}
+.wlog-pips i{flex:1;max-width:44px;height:8px;border-radius:4px;background:var(--hair2)}
+.wlog-pips i.on{background:var(--c,var(--ink))}
+.wlog-past{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.wlog-past li{display:flex;flex-direction:column;align-items:center;min-width:52px;padding:4px 6px;border-radius:var(--r-sm);background:var(--soft);font-size:var(--t-12);line-height:16px}
+.wlog-past li .num{font-weight:600}
+.wlog-past li .muted{font-size:var(--t-11)}
+.wlog-past li.ok{background:color-mix(in oklch,var(--ink) 9%,var(--raised))}
+.wlog-past li.none .num{color:var(--accent-ink)}
+.rep-l.hot{color:var(--accent-ink)}

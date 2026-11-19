@@ -9,7 +9,7 @@ import { gcalUrl } from '@/lib/links';
 import { addDays, fromYmd, startOfDay, ymd } from '@/lib/time';
 import { describeRepeat, makeRepeating, repeatsDone, sameRule, timeOf, type RepeatOp, type Rule } from '@/lib/repeat';
 import { usePlanner } from './Planner';
-import { RepeatField } from './Repeating';
+import { RepeatField, WeekLog } from './Repeating';
 import { GoalPicker } from './Goals';
 
 export const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
@@ -198,8 +198,11 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
           </div>
 
           {!src && (
-            <RepeatField rule={rule} time={time} day={t.start != null ? ymd(t.start) : t.due ?? ymd(now)} repeating={!!repeat}
-              done={repeat ? repeatsDone(tasks).get(repeat.id) ?? 0 : 0} onRule={setRule} onTime={setTime} />
+            <>
+              <RepeatField rule={rule} time={time} day={t.start != null ? ymd(t.start) : t.due ?? ymd(now)} repeating={!!repeat}
+                done={repeat ? repeatsDone(tasks).get(repeat.id) ?? 0 : 0} onRule={setRule} onTime={setTime} />
+              {repeat?.rule.per && <WeekLog repeat={repeat} />}
+            </>
           )}
 
           <div className="ed-f">

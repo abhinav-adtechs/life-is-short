@@ -11,7 +11,8 @@ import { fmtDur, fmtWhen, longDate, shortTitle } from '@/lib/format';
 import { ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
 import { isEvent } from '@/lib/select';
-import { dayName, occurrenceOf } from '@/lib/repeat';
+import { dayName, occurrenceOf, type Repeat } from '@/lib/repeat';
+import { WeekLog } from './Repeating';
 import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, RepeatIcon, TargetIcon, XIcon } from './icons';
 
 /* ---------- geometry ---------- */
@@ -800,7 +801,11 @@ function FlowChart({ goal }: { goal: Goal }) {
                       onClick={e => { e.stopPropagation(); toggle(s); }}><CheckIcon size={10} w={2.6} /></button>
                     <span className="fn-t">{s.kind === 'wait' && <span className="fn-k">Waiting on </span>}{s.title}</span>
                     <span className="fn-m">
-                      {s.repeat && <span className="fn-rep" title={s.repeat.rule}><RepeatIcon size={10} />{s.repeat.times ? <span className="num">{s.repeat.done}/{s.repeat.times}</span> : null}</span>}
+                      {s.repeat && (
+                        <span className="fn-rep" title={s.repeat.rule}><RepeatIcon size={10} />
+                          {s.repeat.week ? <span className="num">{s.repeat.week.done}/{s.repeat.week.per} wk</span> : s.repeat.times ? <span className="num">{s.repeat.done}/{s.repeat.times}</span> : null}
+                        </span>
+                      )}
                       {sched && <CalendarIcon size={10} />}
                       {s.kind === 'task' && <span className="num">{fmtDur(s.repeat ? s.task?.minutes ?? s.minutes : s.minutes)}</span>}
                       {s.kind === 'goal' && s.progress != null && <span className="fn-bar" aria-hidden="true"><i style={{ width: `${Math.round(s.progress * 100)}%` }} /></span>}
@@ -886,7 +891,7 @@ function FlowChart({ goal }: { goal: Goal }) {
           {side === 'history' ? <History goal={goal} />
             : showBacklog ? <Backlog title={selStep && selStep.kind !== 'milestone' ? selStep.title : null} onCarry={fromBacklog} onAdd={adoptHere} />
             : selStep ? <Inspector key={selStep.id} s={selStep} flow={flow} focus={focusId === selStep.id} onFocused={() => setFocusId(null)} goal={goal}
-              act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask, addSubGoal, addKr, open: id => openSheet('flow', id), goalById }} />
+              act={{ rename, toggle, link, unlink, addTask, addWait, removeStep, patchTask, addSubGoal, addKr, open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null }} />
             : selLink ? (
               <div className="fi">
                 <p className="rv-k">Arrow</p>
@@ -934,6 +939,8 @@ interface Acts {
   addKr: (under: string | null) => void;
   /** Open a goal's own chart. */
   open: (goal: string) => void;
+  /** A repeat by id. */
+  repeatOf: (id: string) => Repeat | null;
   goalById: (id: string | null | undefined) => Goal | null;
 }
 
@@ -979,6 +986,7 @@ function Inspector({ s, flow, focus, onFocused, goal, act }: {
           {s.repeat.times ? <span className="fi-rep-bar" aria-hidden="true"><i style={{ width: `${Math.round((s.repeat.done / s.repeat.times) * 100)}%` }} /></span> : null}
         </div>
       )}
+      {s.repeat?.week && act.repeatOf(s.repeat.id) && <WeekLog repeat={act.repeatOf(s.repeat.id) as Repeat} />}
       <p className={'fi-st ' + s.state}>{stateText(s, flow.byId, now)}{s.state === 'blocked' ? `: waiting for ${s.needs.filter(id => !flow.byId.get(id)?.done).map(id => `“${shortTitle(name(id), 28)}”`).join(', ')}` : ''}</p>
 
       <div className="acts">

@@ -2,7 +2,7 @@ import type { Task } from './model';
 import { flatResults, goalProgress, resultDone, type Goal, type KeyResult } from './goals';
 import { isEvent } from './select';
 import { DAY_MS, endOf, ymd } from './time';
-import { describeRule, nextDue, occurrenceOf, repeatOver, repeatsDone, type Repeat } from './repeat';
+import { describeRule, doneIn, nextDue, nextQuota, occurrenceOf, repeatOver, repeatPeriod, repeatsDone, type Repeat } from './repeat';
 
 /*
  * A goal's flow chart: the steps towards it and what has to happen before what.
@@ -129,7 +129,11 @@ export interface Step {
    * For a repeating task: the whole series is one step ("rep:" and the repeat's id), with its rule, how many are done,
    * how many it needs (null with no count), and when the next one comes when none is open. `task` is the open one.
    */
-  repeat?: { id: string; rule: string; done: number; times: number | null; next: string | null };
+  repeat?: {
+    id: string; rule: string; done: number; times: number | null; next: string | null;
+    /** For a number of times a week (or month): how many are done this week, of how many. */
+    week: { done: number; per: number } | null;
+  };
   /** Its length, for a task; for a sub-goal, the open work on it and under it; 0 for the others. */
   minutes: number;
   done: boolean;
@@ -217,7 +221,10 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
     const left = r.rule.times ? Math.max(1, r.rule.times - done) : 1;
     steps.push({
       ...blank, needs: [], unblocks: [], id, kind: 'task', title: r.title, ...(open ? { task: open } : {}),
-      repeat: { id: rid, rule: describeRule(r.rule), done, times: r.rule.times ?? null, next: open ? null : nextDue(r, now) },
+      repeat: {
+        id: rid, rule: describeRule(r.rule), done, times: r.rule.times ?? null, next: open ? null : r.rule.per ? nextQuota(r, tasks, now) : nextDue(r, now),
+        week: r.rule.per ? (p => ({ done: doneIn(rid, tasks, p.start, p.end), per: r.rule.per as number }))(repeatPeriod(r.rule, today)) : null,
+      },
       minutes: over ? 0 : r.minutes * left, done: over,
     });
   }

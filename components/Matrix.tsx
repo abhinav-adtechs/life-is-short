@@ -2,9 +2,10 @@
 
 import { useMemo, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
+import type { Rule } from '@/lib/repeat';
 import { newId, PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
-import { describeRepeat, describeRule, occurrenceOf, repeatsDone } from '@/lib/repeat';
+import { describeRepeat, describeRule, occurrenceOf, repeatsDone, tallies } from '@/lib/repeat';
 import { flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
 import { holdups } from '@/lib/flow';
 import { isEvent } from '@/lib/select';
@@ -65,6 +66,29 @@ function useByCard() {
 function useRepeatDone() {
   const { tasks } = usePlanner();
   return useMemo(() => repeatsDone(tasks), [tasks]);
+}
+
+/** For each number-of-times-a-week repeat: this week's count, the target, and whether it's falling behind. */
+export function useRepeatWeek() {
+  const { tasks, repeats, now } = usePlanner();
+  return useMemo(() => new Map(repeats.filter(r => r.rule.per).map(r => {
+    const { list, left } = tallies(r, tasks, now, 1);
+    const done = list[0]?.done ?? 0, per = r.rule.per as number;
+    return [r.id, { done, per, behind: per - done > left, unit: r.rule.freq === 'month' ? 'mo' : 'wk' }];
+  })), [tasks, repeats, now]);
+}
+
+/** A repeating task's mark: the icon, and this week's count or the count so far. */
+function RepeatMark({ repeatId, rule, title }: { repeatId: string; rule: Rule; title: string }) {
+  const done = useRepeatDone(), week = useRepeatWeek().get(repeatId);
+  const label = week ? `${week.done} of ${week.per} this ${week.unit === 'wk' ? 'week' : 'month'}` : rule.times ? `${done.get(repeatId) ?? 0} of ${rule.times} done` : '';
+  return (
+    <span className={'rep-g' + (week?.behind ? ' hot' : '')} title={`${title}${label ? ` · ${label}` : ''}`}>
+      <RepeatIcon size={11} />
+      {week ? <span className="num">{week.done}/{week.per} {week.unit}</span> : rule.times ? <span className="num">{done.get(repeatId) ?? 0}/{rule.times}</span> : null}
+      <span className="sr">, {title}{label ? `, ${label}` : ''}</span>
+    </span>
+  );
 }
 
 /** Every open task the cards show, on the calendar or not. */
@@ -129,7 +153,6 @@ function PriPill({ t, kind }: { t: Task; kind: Kind }) {
 function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
   const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf, goalOf, activeGoals } = usePlanner();
   const tag = useTag(t, kind);
-  const repDone = useRepeatDone();
   const label = labelOf(t);
   const goal = goalOf(t);
   const inCard = card != null;
@@ -157,11 +180,7 @@ function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string;
         onDoubleClick={() => { if (kind !== 'new') openEditor(t.id); }}
         onKeyDown={e => { if ((e.key === 'e' || e.key === 'E') && kind !== 'new') { e.preventDefault(); openEditor(t.id); } }}>
         <span className="rt"><span className="strike">{t.title}</span></span>
-        {repeat && (
-          <span className="rep-g" title={`${describeRepeat(repeat)}${repeat.rule.times ? ` · ${repDone.get(repeat.id) ?? 0} of ${repeat.rule.times} done` : ''}`}>
-            <RepeatIcon size={11} />{repeat.rule.times ? <span className="num">{repDone.get(repeat.id) ?? 0}/{repeat.rule.times}</span> : null}<span className="sr">, {describeRepeat(repeat)}</span>
-          </span>
-        )}
+        {repeat && <RepeatMark repeatId={repeat.id} rule={repeat.rule} title={describeRepeat(repeat)} />}
         {tag && <span className={tag.cls}>{tag.text}</span>}
         {kind === 'done' && t.doneAt != null && <span className="due">{fmtWhen(t.doneAt, now)}</span>}
         {sched && <span className="when-cal" title="On the calendar"><CalendarIcon size={11} />{fmtWhen(t.start as number, now)}</span>}
@@ -180,6 +199,7 @@ function PhoneRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string
   const { completing, openEditor, labelOf, now, drag, repeatOf, goalOf, activeGoals } = usePlanner();
   const tag = useTag(t, kind);
   const repDone = useRepeatDone();
+  const week = useRepeatWeek().get(repeatOf(t)?.id ?? '');
   const label = labelOf(t);
   const repeat = repeatOf(t);
   const goal = goalOf(t);
@@ -193,7 +213,7 @@ function PhoneRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string
     kind === 'done' && t.doneAt != null ? `Done ${fmtWhen(t.doneAt, now)}` : null,
     sched ? fmtWhen(t.start as number, now) : null,
     due?.text ?? null, where, fmtDur(t.minutes),
-    repeat ? `↻ ${describeRule(repeat.rule)}${repeat.rule.times ? ` (${repDone.get(repeat.id) ?? 0} done)` : ''}` : null,
+    repeat ? `↻ ${describeRule(repeat.rule)}${week ? ` (${week.done} of ${week.per} this ${week.unit === 'wk' ? 'week' : 'month'})` : repeat.rule.times ? ` (${repDone.get(repeat.id) ?? 0} done)` : ''}` : null,
   ].filter(Boolean).join(' · ');
   const lifting = drag.view?.id === t.id && drag.view.kind === 'row';
   const cls = 'prow' + (kind === 'done' || completing.has(t.id) ? ' done' : '') + (tag?.text === 'Tick off' || kind === 'new' ? ' ghosted' : '') + (lifting ? ' lifting' : '') + (sched ? ' sched' : '');

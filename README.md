@@ -241,7 +241,7 @@ Every capture, move and tick comes with **Undo**. A half-typed thought is still 
 
 ### Things that come back
 
-_"Order groceries every Monday and Thursday."_ _"Gym Mon, Wed and Fri at 7am."_ _"Pay rent on the 1st of every month."_ _"Run every Mon, Wed and Fri, 20 times."_
+_"Order groceries every Monday and Thursday."_ _"Gym Mon, Wed and Fri at 7am."_ _"Pay rent on the 1st of every month."_ _"Run every Mon, Wed and Fri, 20 times."_ _"Check support tickets 4 times a week."_
 
 Say it once and it's a **repeat**: every day, on weekdays, on the days you name (several times a week), every other week (bi-weekly), every few days or once a month. The AI hears it, and so does the built-in parser. Or open any task and pick **Repeat**.
 
@@ -249,6 +249,7 @@ Say it once and it's a **repeat**: every day, on weekdays, on the days you name 
 - **One at a time.** Skip Monday's order and Thursday's takes its place, so you never have two "Order groceries". The one you skipped still counts as missed in the review.
 - **Ahead on the calendar.** Repeats with a time show faintly on the days to come, and slotting works around them.
 - **Change the task, change the repeat.** Rename it, re-prioritise it or put it on a goal, and the ones to come follow. Moving one on the calendar moves just that one.
+- **A number of times a week.** *"4 times a week"* (or *"twice a month"*), on any day or only some: one at a time waits in your backlog, due Sunday. Tick it and the next comes the next day, until that many are done; then nothing till Monday. Each row shows this week's count (*2/4 wk*, highlighted when there aren't enough days left), and the editor keeps the log: this week against the target, and each week before it. Pick **Times a week** in the editor, or just say it.
 - **It can end.** On a day (*until 31 March*), or once it's been done a number of times (*20 runs*): ticked ones count, missed ones don't. Set it under **Ends** in the editor, or just say it.
 - **On a goal, as one step.** A repeat on a goal is a single step on its flow chart, with the repeat icon and how many are done (*8/20*), so a goal like a half marathon can be "run 20 times, then race". What comes after it waits until it's over. On the goal's card, the runs still to come count towards what's left to do.
 - **Skip one or stop them all.** Delete today's to skip it; it won't come back. Pick *Doesn't repeat*, say *"stop the grocery repeat"*, or use **Settings → Repeats**, which lists everything that repeats and when it comes next.

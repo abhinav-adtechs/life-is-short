@@ -353,3 +353,17 @@ describe('repeating tasks', () => {
     expect(s?.repeat?.next).toBe('2026-11-20');
   });
 });
+
+describe('a number of times a week on a goal', () => {
+  const sup: Repeat = {
+    id: 'rsup', title: 'Check support tickets', notes: '', priority: 2, minutes: 30, label: null, goal: 'g1', time: null, from: '2026-11-09', made: '2026-11-18',
+    rule: { freq: 'week', every: 1, days: [], monthDay: null, per: 4 }, raw: '', created: 1, updatedAt: 1,
+  };
+  it('the step says how many are done this week, and never finishes', () => {
+    // This week runs Mon 16 to Sun 22 Nov; one done last week, two this week, one open.
+    const ts = [task('rsup.2026-11-12', { status: 'done', doneAt: 1 }), task('rsup.2026-11-16', { status: 'done', doneAt: 1 }), task('rsup.2026-11-17', { status: 'done', doneAt: 1 }), task('rsup.2026-11-18')];
+    const s = buildFlow(goal({ waits: [], links: [] }, { results: [] }), ts, NOW, { repeats: [sup] }).byId.get('rep:rsup');
+    expect(s?.repeat).toMatchObject({ rule: '4 times a week', done: 3, week: { done: 2, per: 4 } });
+    expect(s).toMatchObject({ done: false, state: 'ready' });
+  });
+});
