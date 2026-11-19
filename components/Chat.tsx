@@ -9,6 +9,9 @@ import { changesOf, changedFields, commitChanges, draftOf, kindOf, shownIn, type
 import type { Label } from '@/lib/labels';
 import { activeGoals, findResult, goalTree, openResults, resultPath, type Goal } from '@/lib/goals';
 import { buildPrompt, type PromptVoice } from '@/lib/prompt';
+import { applyWorkflow, chartsForPrompt, normalizeOps, recordedIds, type WorkflowOp, type WorkflowRefs } from '@/lib/workflow';
+import type { GoalsFn } from '@/lib/goals';
+import type { LogEntry } from '@/lib/flow';
 import { sortDump } from '@/lib/api';
 import { findSlot, type WorkHours } from '@/lib/place';
 import { dueLabel, fmtDur, fmtWhen } from '@/lib/format';
@@ -20,7 +23,7 @@ import {
   LANGS, applyFixes, hasPhrase, keyOf, learnFrom, lessonOf, mergeLearned, readLearned, speechPhrases, voiceHints,
   type ChatLesson, type Learned, type Lesson, type Span,
 } from '@/lib/voice';
-import { useVoice, type Heard, type NoVoice, type Spoken, type VoicePhase } from './hooks';
+import { noVoiceText, useVoice, type Heard, type NoVoice, type Spoken, type VoicePhase } from './hooks';
 import type { VoiceApi } from './voiceProfile';
 import { usePlanner } from './Planner';
 import type { Store } from './store';
@@ -37,7 +40,7 @@ export type ChatMsg =
   | YouMsg
   | { id: string; role: 'ai'; kind: 'thinking' }
   /** `learn` is what the AI suggests remembering about how you talk, learned only if you apply the plan. */
-  | { id: string; role: 'ai'; kind: 'plan'; reply: string; note: string | null; changes: Change[]; learn?: Learned }
+  | { id: string; role: 'ai'; kind: 'plan'; reply: string; note: string | null; changes: Change[]; learn?: Learned; workflow?: Workflow; workflowOff?: boolean }
   | { id: string; role: 'ai'; kind: 'error'; text: string };
 /**
  * What you said. Spoken, `mic` is what the mic typed when the fixes it knows changed it, `doubts` where it wasn't sure,
@@ -46,6 +49,8 @@ export type ChatMsg =
  */
 type YouMsg = { id: string; role: 'you'; text: string; spoken: boolean; mic?: string; doubts?: Doubt[]; heard?: string; live?: boolean };
 type PlanMsg = Extract<ChatMsg, { kind: 'plan' }>;
+/** Changes to goals and their charts in a plan (lib/workflow.ts), with what its refs stood for. */
+type Workflow = { ops: WorkflowOp[]; refs: WorkflowRefs };
 
 /**
  * How something was said: out loud, with what the mic typed before any fix and where it wasn't sure, or typed. `live`
@@ -94,19 +99,6 @@ const langName = (id: string) => LANGS.find(l => l.id === id)?.name ?? id;
 /** A keyboard and pointer, where the box can take the cursor without a keyboard sliding up over everything. */
 const finePointer = () => typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
 
-/** Why the mic can't listen, and what to do about it. */
-function noVoiceText(why: NoVoice): string {
-  if (why === 'denied') {
-    const app = native();
-    if (app) return `Life is short can’t use the mic. Allow Microphone and Speech Recognition for it in ${app.platform === 'macos' ? 'System Settings' : 'Settings'} → Privacy & Security.`;
-    return 'The mic is blocked for this site. Allow it in your browser’s site settings, then try again.';
-  }
-  if (why === 'no-mic') return 'No microphone found. Plug one in, or type it here.';
-  return window.matchMedia('(pointer: coarse)').matches
-    ? 'Tap the mic on your keyboard and talk. It types straight into this box.'
-    : 'This browser can’t take dictation. Type it here instead.';
-}
-
 function readHistory(v: unknown): Past[] {
   if (!Array.isArray(v)) return [];
   return v.filter((h): h is Past => !!h && typeof h === 'object' && typeof h.at === 'number' && typeof h.did === 'string'
@@ -124,7 +116,7 @@ const NOTES: Partial<Record<Via, string>> = {
  * accept it. Say more to change the plan, or edit its cards by hand. Accepting or discarding files the conversation
  * away in your history and starts a fresh one.
  */
-export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, goals, repeats, voice }: {
+export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels, labelId, goals, repeats, voice, changeGoals, logGoal }: {
   store: Store; repo: TaskRepo; liveTasks: () => Task[]; busyTasks: () => Task[]; hours: WorkHours; toast: (msg: string, undo?: () => void) => void;
   /** Your labels, and the label a task counts as (a Google event takes its calendar's). */
   labels: Label[]; labelId: (t: Task) => string | null;
@@ -134,6 +126,9 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
   repeats: { list: Repeat[]; repeatOf: (t: Task) => Repeat | null; apply: (ops: RepeatOp[]) => () => void };
   /** How you talk (lib/voice.ts): what the mic listens for, what the AI is told, and what each chat teaches. */
   voice: VoiceApi;
+  /** Change your goals, and note it in their charts' history: for a plan that changes goals and charts too. */
+  changeGoals: (fn: GoalsFn) => () => void;
+  logGoal: (entries: LogEntry[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [msgs, setMsgsState] = useState<ChatMsg[]>([]);
@@ -256,7 +251,9 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
         const kr = up && g.parentKr ? findResult(up.results, g.parentKr) : null;
         return { id: g.id, title: g.title, section: g.section, results: openResults(g), by: g.by, parent: g.parent ?? null, forResult: kr ? resultPath(up as Goal, kr.id) : null };
       });
-      const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo, v, pg));
+      // Each goal's chart, with refs: so what you say can change goals and charts too.
+      const wf = goals.some(g => g.status === 'active') ? chartsForPrompt(goals, tasks, refs, repeats.list, Date.now()) : null;
+      const { result, via } = await sortDump(buildPrompt(text, Date.now(), ctx, hours, labels, convo, v, pg, wf?.lines));
       if (thread.current !== t0) return;
       heard = spoken && via === 'ai' ? heardOf(result?.heard, text) : null;
       let changes: Change[];
@@ -271,11 +268,14 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
         changes = changesOf(out);
         how = out.via;
       }
+      // Changes to goals and charts: the latest ones asked for, else the plan's own.
+      const ops = how === 'ai' && wf ? normalizeOps(result?.workflow) : [];
+      const workflow: Workflow | undefined = ops.length && wf ? { ops, refs: wf.refs } : plan?.workflow;
       const reply = how === 'ai' && result?.reply ? result.reply
-        : changes.length ? (plan ? 'Here’s the plan now.' : 'Here’s what I’ll do.')
+        : changes.length || workflow ? (plan ? 'Here’s the plan now.' : 'Here’s what I’ll do.')
         : plan ? 'That leaves nothing in the plan.' : 'I couldn’t find anything to add in that.';
       const learn = how === 'ai' && result?.learn ? readLearned(result.learn) : null;
-      msg = { id: waitId, role: 'ai', kind: 'plan', reply, note: NOTES[how] ?? null, changes, ...(learn ? { learn } : {}) };
+      msg = { id: waitId, role: 'ai', kind: 'plan', reply, note: NOTES[how] ?? null, changes, ...(learn ? { learn } : {}), ...(workflow ? { workflow } : {}) };
     } catch {
       if (thread.current !== t0) return;
       msg = { id: waitId, role: 'ai', kind: 'error', text: 'Something went wrong there. Try saying it again.' };
@@ -377,14 +377,30 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     const plan = lastPlan(msgsRef.current);
     if (!plan || busyRef.current) return;
     const { puts, removes, ops, summary } = commitChanges(plan.changes, store.get, Date.now(), labels, repeats.list, undefined, goals);
-    if (!puts.length && !removes.length && !ops.length) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
+    const wf = plan.workflow && !plan.workflowOff ? plan.workflow : null;
+    if (!puts.length && !removes.length && !ops.length && !wf) { toast('Nothing left to change. Edit the plan or discard it.'); return; }
     // The repeats first, so the tasks written next already belong to them.
     const unrepeat = repeats.apply(ops);
     const before = new Map([...store.remove(removes), ...store.write(puts)]);
-    const undo = () => { store.restore(before); unrepeat(); };
+    // Then goals and charts, which can name the tasks just written.
+    let unwork = () => undefined as void;
+    let told = summary;
+    if (wf) {
+      const st = { goals, tasks: store.all(), repeats: repeats.list, now: Date.now() };
+      const rec = recordedIds();
+      const out = applyWorkflow(wf.ops, st, wf.refs, { ids: rec });
+      // Laid over your goals as they are when it's saved, with the same new ids.
+      const undoGoals = changeGoals(list => applyWorkflow(wf.ops, { ...st, goals: list }, wf.refs, { ids: rec.replay() }).goals);
+      const unrep = repeats.apply(out.repeatOps);
+      const back = new Map([...store.remove(out.removes), ...store.write(out.writes)]);
+      logGoal(out.log);
+      unwork = () => { store.restore(back); unrep(); undoGoals(); };
+      if (out.lines.length) told = puts.length || removes.length ? `${summary} · ${out.lines.length} chart change${out.lines.length === 1 ? '' : 's'}` : out.lines.length === 1 ? out.lines[0] : `${out.lines.length} changes to your goals and charts`;
+    }
+    const undo = () => { unwork(); store.restore(before); unrepeat(); };
     haptic('success');
-    toast(summary, undo);
-    remember(said(msgsRef.current), summary, undo);
+    toast(told, undo);
+    remember(said(msgsRef.current), told, undo);
     // Each chat you apply teaches it how you talk; Settings → Voice shows what it learned.
     if (profile.learn && !teachingRef.current.skip) {
       const lesson = lessonFor(msgsRef.current, teachingRef.current);
@@ -392,7 +408,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     }
     reset();
     setOpen(false);
-  }, [store, toast, remember, reset, labels, goals, repeats, profile.learn, voice]);
+  }, [store, toast, remember, reset, labels, goals, repeats, profile.learn, voice, changeGoals, logGoal]);
 
   const discard = useCallback(() => {
     remember(said(msgsRef.current), 'Discarded');
@@ -466,6 +482,11 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
     updatePlan(c => (c.id === id ? { ...c, after: { ...c.after, ...patch }, ...(repeat !== undefined ? { repeat } : {}) } : c));
   }, [updatePlan, setTeaching]);
   const toggle = useCallback((id: string) => updatePlan(c => (c.id === id ? { ...c, skip: !c.skip } : c)), [updatePlan]);
+  /** Leave the plan's changes to goals and charts out, or put them back. */
+  const toggleWorkflow = useCallback(() => {
+    const p = lastPlan(msgsRef.current);
+    if (p?.workflow) setMsgs(m => m.map(x => (x === p ? { ...p, workflowOff: !p.workflowOff } : x)));
+  }, [setMsgs]);
 
   const loadHistory = useCallback(() => {
     repo.getSetting(HISTORY).then(v => setHistory(readHistory(v))).catch(() => setHistory(h => h ?? []));
@@ -486,7 +507,7 @@ export function useChat({ store, repo, liveTasks, busyTasks, hours, toast, label
   return {
     open, show: () => { setOpen(true); setView('thread'); }, close, focus, msgs, busy, plan, preview,
     draft, setDraft, input, heard, listening: listen.listening, phase: listen.phase, onDevice: listen.onDevice,
-    send, mic, cancelVoice, accept, discard, modify, edit, toggle, history, loadHistory,
+    send, mic, cancelVoice, accept, discard, modify, edit, toggle, toggleWorkflow, history, loadHistory,
     view, setView, showHistory, past, openPast, newChat, undoPast, canUndo,
     fixing, fixSaid, lesson, skipTeaching,
   };
@@ -664,9 +685,16 @@ const SHOWN_IN = { calendar: 'on the calendar', matrix: 'in the matrix', both: '
 
 /** The plan: one row per change, ticked to keep. Apply writes the ticked ones; until then they're dashed where they'd land. */
 function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boolean }) {
-  const { chat, now, prefs, goals } = usePlanner();
+  const { chat, now, prefs, goals, tasks, repeats } = usePlanner();
   const [editing, setEditing] = useState<string | null>(null);
-  const kept = m.changes.filter(c => !c.skip).length;
+  // What the plan does to goals and charts, worked out on them as they are, the plan's new tasks included.
+  const wf = useMemo(() => {
+    if (!m.workflow) return null;
+    const added = m.changes.filter(c => !c.skip).map(c => c.after);
+    const ids = new Set(added.map(t => t.id));
+    return applyWorkflow(m.workflow.ops, { goals, tasks: [...tasks.filter(t => !ids.has(t.id)), ...added], repeats, now }, m.workflow.refs);
+  }, [m.workflow, m.changes, goals, tasks, repeats, now]);
+  const kept = m.changes.filter(c => !c.skip).length + (wf && !m.workflowOff ? wf.lines.length : 0);
   const where = shownIn(m.changes);
   const shown = where ? `Dashed ${SHOWN_IN[where]} until you apply.` : 'Nothing changes until you apply.';
   if (!live) {
@@ -683,9 +711,9 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
         <p>{m.reply}</p>
         {m.note && <p className="note">{m.note}</p>}
       </div>
-      {m.changes.length > 0 ? (
+      {m.changes.length > 0 || wf ? (
         <div className="plan">
-          <div className="plan-h"><b>Plan</b><span className="muted sm">{m.changes.length === 1 ? '1 change' : `${m.changes.length} changes`}</span></div>
+          <div className="plan-h"><b>Plan</b><span className="muted sm">{kept === 1 ? '1 change' : `${kept} changes`}</span></div>
           {m.changes.map(c => {
             const kind = kindOf(c);
             if (editing === c.id) return <div key={c.id} className="plan-edit"><CardEditor c={c} onDone={() => setEditing(null)} /></div>;
@@ -702,6 +730,16 @@ function PlanCard({ m, live, phone }: { m: PlanMsg; live: boolean; phone?: boole
               </div>
             );
           })}
+          {wf && (wf.lines.length > 0 || wf.skipped.length > 0) && (
+            <div className={'plan-wf' + (m.workflowOff ? ' off' : '')}>
+              <label className="plan-wf-h">
+                <input type="checkbox" checked={!m.workflowOff} onChange={chat.toggleWorkflow} aria-label={m.workflowOff ? 'Put back the changes to goals and charts' : 'Leave out the changes to goals and charts'} />
+                <b>Goals and charts</b>
+              </label>
+              <ul>{wf.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+              {wf.skipped.length > 0 && <ul className="plan-wf-skip">{wf.skipped.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+            </div>
+          )}
           <Teaches />
           <div className="plan-f">
             <button type="button" className={'btn pri' + (phone ? ' tall' : ' sm')} disabled={!kept || chat.busy} onClick={chat.accept}>Apply {kept}</button>

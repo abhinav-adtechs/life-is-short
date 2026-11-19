@@ -1,4 +1,5 @@
 import type { Label } from './labels';
+import { OPS_GUIDE } from './workflow';
 import type { Doubt } from './speech';
 import type { VoiceHints } from './voice';
 import { DOWL, addDays, pad, startOfDay, ymd } from './time';
@@ -80,6 +81,8 @@ function spokenLines(v: PromptVoice | undefined): string[] {
 export function buildPrompt(
   text: string, nowArg?: number | Date, open: PromptTask[] = [], hours = { start: 9 * 60, end: 21 * 60 }, labels: Label[] = [], convo?: PromptDraft,
   voice?: PromptVoice, goals: PromptGoal[] = [],
+  /** Each goal's chart, with refs for its steps (lib/workflow.ts): with it, they can change goals and charts too. */
+  charts?: string[],
 ): string {
   const now = nowArg != null ? new Date(nowArg) : new Date();
   const today = startOfDay(now);
@@ -110,6 +113,7 @@ export function buildPrompt(
       'Their goals: the few specific outcomes they are working towards right now, most important first (id = goal). Sub-goals are indented under the goal they are part of:',
       ...goalList,
     ] : ['They have no goals set yet, so every task is off-goal.']),
+    ...(charts?.length ? ['Each goal\'s flow chart: the steps towards it and what waits on what, with refs (task refs are from the list below):', ...charts] : []),
     '',
     ...hintLines(voice),
     'Their open tasks right now (ref | priority | task | scheduled | due | label | goal), and how it repeats for a repeating one:',
@@ -141,7 +145,7 @@ export function buildPrompt(
     '- Something they do again and again ("every Monday and Thursday", "daily", "each weekday", "every other week", "on the 1st of every month") is one task with a "repeat", not one task per day. The planner makes each one on its day.',
     '- Ignore chatter that is not a task.',
     '',
-    `Reply with only a JSON object: {"heard": string, "add": [...], "update": [...], "reply": string${voice?.learn ? ', "learn": {...}' : ''}}`,
+    `Reply with only a JSON object: {"heard": string, "add": [...], "update": [...], "reply": string${charts ? ', "workflow": [...]' : ''}${voice?.learn ? ', "learn": {...}' : ''}}`,
     voice?.spoken
       ? '"heard": first, what they said as they meant it: misheard words fixed, fillers and false starts dropped, punctuated, otherwise in their own words. Then plan from that.'
       : '"heard": "" (they typed it).',
@@ -164,6 +168,10 @@ export function buildPrompt(
     'Each "update" item: {"ref": "T3"} plus only the fields that change, from the same fields above, and optionally "done": true to tick it off or "unschedule": true to move it back to the backlog.',
     'In an update, "goal" puts the task on that goal, and "goal": "none" takes it off its goal. When they ask to sort tasks into their goals, update each task that moves one.',
     'In an update, "repeat" makes the task repeat or changes how it repeats, and "stop_repeat": true stops a repeating one (this one stays). Moving one of a repeat\'s tasks moves only that one.',
+    ...(charts ? [
+      '"workflow": [] unless they ask to change their goals or the charts of steps towards them: a new goal or sub-goal, a key result, a step after or before another, something a step waits on, one step waiting on another, renaming, ticking, dropping or removing. Tasks still go in "add" and "update"; "workflow" says how they fit together. A task you add in "add" can be named in an operation by its exact title.',
+      ...OPS_GUIDE,
+    ] : []),
     '"reply": one short, friendly sentence back to them in plain words about what you propose or changed, such as "Two new tasks, and I\'ll tick off the roadmap." Name tasks by title, never by ref. If something was unclear, say what you assumed.',
     ...(voice?.learn ? [
       '"learn": what is worth remembering about how this person talks, for next time. Usually empty lists. {"words": names of people and places, projects, products or jargon they used, spelled right, never everyday words;'

@@ -1,6 +1,7 @@
 import 'server-only';
 import { GoogleGenAI } from '@google/genai';
 import { parseReply } from '../reply';
+import { OP_SCHEMA, WORKFLOW_SCHEMA } from '../workflow';
 
 /**
  * Free-tier Flash-Lite models, fastest first. Checked against a free-tier key in Oct 2026:
@@ -30,6 +31,9 @@ const fields = {
         every: { type: 'integer', minimum: 1, maximum: 52 },
         days: { type: 'array', items: { type: 'string', enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] } },
         monthday: { ...nullable('integer'), description: '1-31' },
+        until: { ...nullable('string'), description: 'YYYY-MM-DD, the last day' },
+        times: { ...nullable('integer'), description: 'how many times it has to be done' },
+        per: { ...nullable('integer'), description: 'how many times a week (or month), on no set days' },
       },
       required: ['freq', 'every', 'days', 'monthday'],
     }, { type: 'null' }],
@@ -59,6 +63,7 @@ export const RESPONSE_SCHEMA = {
       },
     },
     reply: { type: 'string' },
+    workflow: { type: 'array', items: OP_SCHEMA, description: 'changes to their goals and charts, when they ask for any' },
     learn: {
       type: 'object',
       properties: {
@@ -76,6 +81,31 @@ export const RESPONSE_SCHEMA = {
  * quick retry first, since free-tier spikes are short. Bad requests (400) aren't retried.
  */
 export async function sortWithGemini(prompt: string, apiKey: string, models = process.env.GEMINI_MODEL || DEFAULT_MODELS) {
+  return askGemini(prompt, apiKey, RESPONSE_SCHEMA, parseReply, models);
+}
+
+/** Changes to goals and charts, from a workflow prompt (lib/workflow.ts). */
+export async function workflowWithGemini(prompt: string, apiKey: string, models = process.env.GEMINI_MODEL || DEFAULT_MODELS) {
+  return askGemini(prompt, apiKey, WORKFLOW_SCHEMA, parseWorkflow, models);
+}
+
+/** The model's {heard, reply, ops}, tolerating a stray code fence. */
+export function parseWorkflow(text: string | undefined): { heard?: string; reply: string; ops: unknown[] } | null {
+  if (!text) return null;
+  try {
+    const v = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')) as Record<string, unknown>;
+    if (!v || typeof v !== 'object') return null;
+    return {
+      reply: typeof v.reply === 'string' ? v.reply.replace(/\s+/g, ' ').trim().slice(0, 400) : '',
+      ops: Array.isArray(v.ops) ? v.ops : [],
+      ...(typeof v.heard === 'string' && v.heard.trim() ? { heard: v.heard.replace(/\s+/g, ' ').trim().slice(0, 4000) } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function askGemini<T>(prompt: string, apiKey: string, schema: object, parse: (text: string | undefined) => T | null, models: string): Promise<T | null> {
   // GEMINI_BASE_URL is only for pointing tests at a local stand-in.
   const baseUrl = process.env.GEMINI_BASE_URL;
   const ai = new GoogleGenAI({ apiKey, httpOptions: { ...(baseUrl ? { baseUrl } : {}), retryOptions: { attempts: 1 } } });
@@ -92,11 +122,11 @@ export async function sortWithGemini(prompt: string, apiKey: string, models = pr
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-          responseJsonSchema: RESPONSE_SCHEMA,
+          responseJsonSchema: schema,
           abortSignal: AbortSignal.timeout(Math.min(PER_MODEL_MS, left)),
         },
       });
-      return parseReply(res.text);
+      return parse(res.text);
     } catch (e) {
       lastError = e;
       const status = (e as { status?: number }).status;

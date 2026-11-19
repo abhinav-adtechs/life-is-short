@@ -1474,3 +1474,24 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .wlog-past li.ok{background:color-mix(in oklch,var(--ink) 9%,var(--raised))}
 .wlog-past li.none .num{color:var(--accent-ink)}
 .rep-l.hot{color:var(--accent-ink)}
+
+/* Saying what to change on a chart. */
+.flow-ask{flex:none;display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--hair);background:var(--raised)}
+.flow-ask .input{flex:1;min-width:0;height:34px}
+.flow-mic{flex:none;width:34px;height:34px;border:1px solid var(--hair2);border-radius:50%;background:var(--raised);color:var(--ink)}
+.flow-mic:hover{background:var(--soft)}
+.flow-mic.on{border-color:var(--accent);background:var(--accent);color:var(--on-accent);animation:var(--wave-anim,none)}
+.flow-asked{flex:none;display:flex;flex-direction:column;gap:4px;margin:0;padding:8px 14px 10px;border-bottom:1px solid var(--hair);background:var(--accent-soft);font-size:var(--t-13);line-height:18px}
+.flow-asked.none{background:var(--soft)}
+.flow-asked-h{display:flex;align-items:center;gap:8px;min-width:0}
+.flow-asked p{margin:0;font-weight:600}
+.flow-asked ul{margin:0;padding-left:18px}
+.flow-asked-skip{color:var(--muted)}
+.flowc.ph .flow-ask{padding:6px 8px}
+/* A plan's changes to goals and charts. */
+.plan-wf{display:flex;flex-direction:column;gap:4px;margin:4px 0 6px;padding:8px 10px;border-radius:var(--r-sm);background:var(--soft);font-size:var(--t-13);line-height:18px}
+.plan-wf.off{opacity:.55}
+.plan-wf.off ul{text-decoration:line-through}
+.plan-wf-h{display:flex;align-items:center;gap:8px}
+.plan-wf ul{margin:0;padding-left:26px}
+.plan-wf-skip{color:var(--muted)}

@@ -464,7 +464,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   const labelId = useCallback((t: Task) => labelOf(t)?.id ?? null, [labelOf]);
   const chatRepeats = useMemo(() => ({ list: repeats.list, repeatOf, apply: repeats.apply }), [repeats.list, repeatOf, repeats.apply]);
-  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, goals: goals.list, repeats: chatRepeats, voice });
+  const chat = useChat({ store, repo, liveTasks, busyTasks, hours, toast, labels: prefs.labels, labelId, goals: goals.list, repeats: chatRepeats, voice, changeGoals: goals.change, logGoal });
 
   const plan = useMemo<PlanView>(() => {
     const out: PlanView = { ticks: new Set(), moves: new Set(), added: [], proposed: [] };

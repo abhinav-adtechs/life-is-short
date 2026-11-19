@@ -13,7 +13,12 @@ import { usePlanner } from './Planner';
 import { isEvent } from '@/lib/select';
 import { dayName, occurrenceOf, type Repeat } from '@/lib/repeat';
 import { WeekLog } from './Repeating';
-import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, PlusIcon, RepeatIcon, TargetIcon, XIcon } from './icons';
+import { CalendarIcon, CheckIcon, ChevronLeft, HistoryIcon, MicIcon, PlusIcon, RepeatIcon, StopIcon, TargetIcon, XIcon } from './icons';
+import { askWorkflow } from '@/lib/api';
+import { promptContext } from '@/lib/capture';
+import { joinWords } from '@/lib/speech';
+import { applyWorkflow, normalizeOps, recordedIds, taskLinesFor, workflowPrompt } from '@/lib/workflow';
+import { noVoiceText, useVoice } from './hooks';
 
 /* ---------- geometry ---------- */
 
@@ -162,7 +167,7 @@ type Sel = { kind: 'step'; id: string } | { kind: 'link'; key: string } | null;
 type KeyLike = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'preventDefault'> & { target: EventTarget | null };
 
 function FlowChart({ goal }: { goal: Goal }) {
-  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById, repeats, applyRepeats } = usePlanner();
+  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice } = usePlanner();
   const [all, setAll] = useState(false);
   const flow = useMemo(() => buildFlow(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
   const trail = useMemo(() => ancestorsOf(new Map(goals.map(g => [g.id, g])), goal).reverse(), [goals, goal]);
@@ -590,6 +595,58 @@ function FlowChart({ goal }: { goal: Goal }) {
     setSide('inspect');
   };
 
+  /* ---------- saying what to change: the AI turns it into changes to the chart ---------- */
+
+  const [ask, setAsk] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [asked, setAsked] = useState<{ said: string; reply: string; lines: string[]; skipped: string[]; done: boolean } | null>(null);
+  /** What the mic has heard so far. */
+  const [hearing, setHearing] = useState<string | null>(null);
+
+  const tell = async (text: string, spoken = false) => {
+    const said = text.trim();
+    if (!said || asking) return;
+    setAsking(true);
+    setAsked(null);
+    try {
+      const live = liveTasks();
+      const { refs: taskRefs } = promptContext(live);
+      const { prompt, refs } = workflowPrompt({ text: said, now: Date.now(), goals, tasks: live, repeats, focus: goal.id, spoken, taskRefs, taskLines: taskLinesFor(live, taskRefs) });
+      const { result, via } = await askWorkflow(prompt);
+      if (!result) {
+        setAsked({ said, done: false, lines: [], skipped: [], reply: via === 'no-key' ? 'Changing the chart by what you say needs the AI, and it isn’t set up here.' : 'Couldn’t reach the AI just now. Try again in a moment.' });
+        return;
+      }
+      const ops = normalizeOps(result.ops);
+      const heard = result.heard || said;
+      if (!ops.length) { setAsked({ said: heard, done: false, lines: [], skipped: [], reply: result.reply || 'Nothing to change in that.' }); return; }
+      const st = { goals, tasks, repeats, now: Date.now() };
+      const rec = recordedIds();
+      const out = applyWorkflow(ops, st, refs, { focus: goal.id, ids: rec });
+      // Laid over the goals as they are when it's saved, with the same new ids. Repeats first, then tasks.
+      const undoGoals = changeGoals(list => applyWorkflow(ops, { ...st, goals: list }, refs, { focus: goal.id, ids: rec.replay() }).goals);
+      const unrepeat = applyRepeats(out.repeatOps);
+      const before = new Map([...(out.removes.length ? store.remove(out.removes) : []), ...(out.writes.length ? store.write(out.writes) : [])]);
+      logGoal(out.log);
+      remember('the change you asked for', () => { store.restore(before); unrepeat(); undoGoals(); });
+      setAsked({ said: heard, done: out.lines.length > 0, reply: result.reply || (out.lines.length ? 'Done.' : 'Nothing changed.'), lines: out.lines, skipped: out.skipped });
+      setAsk('');
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const listen = useVoice({
+    lang: voice.profile.lang,
+    // The names on the chart, so they're heard right.
+    phrases: () => [goal.title, ...flow.steps.map(x => x.title)].slice(0, 80),
+    onHeard: h => setHearing(joinWords(h.text, h.interim)),
+    onFinish: x => { setHearing(null); if (x.text.trim()) void tell(x.text, true); },
+    onCutOff: x => { setHearing(null); if (x.text.trim()) { setAsk(x.text); say('Stopped listening. What you said is in the box.'); } },
+    onUnsupported: why => { setHearing(null); say(noVoiceText(why)); },
+  });
+  const mic = () => (listen.listening ? listen.finishVoice() : listen.startVoice(ask));
+
   /* ---------- the keyboard ---------- */
 
   const selStep = sel?.kind === 'step' ? flow.byId.get(sel.id) ?? null : null;
@@ -602,6 +659,7 @@ function FlowChart({ goal }: { goal: Goal }) {
     const typing = target?.closest('input,textarea,select');
     const onButton = target?.closest('button');
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); mic(); return; }
     if (e.key === 'Escape') {
       if (confirm) { e.preventDefault(); setConfirm(null); scroller.current?.focus({ preventScroll: true }); return; }
       if (picking || drawing) { e.preventDefault(); setPicking(null); setDrawing(null); return; }
@@ -735,6 +793,30 @@ function FlowChart({ goal }: { goal: Goal }) {
         <button type="button" className="btn ghost sm wide-only" onClick={copyMermaid} title="Copy the chart as a Mermaid flowchart">Mermaid</button>
         <button type="button" className="btn ghost sm wide-only" onClick={() => download(`${slug}-flow.json`, JSON.stringify(toJson(goal, flow), null, 2))} title="Download the chart as JSON">JSON</button>
       </div>
+
+      <form className="flow-ask" onSubmit={e => { e.preventDefault(); void tell(ask); }}>
+        <button type="button" className={'ib flow-mic' + (listen.listening ? ' on' : '')} onClick={mic}
+          aria-label={listen.listening ? 'Stop and change it' : 'Say what to change'} title={listen.listening ? 'Stop and change it (⌘K)' : 'Say what to change (⌘K)'}>
+          {listen.listening ? <StopIcon size={14} /> : <MicIcon size={15} />}
+        </button>
+        <input className="input sm" type="text" value={hearing ?? ask} readOnly={hearing != null} disabled={asking} aria-label="What to change on this chart"
+          placeholder={wide ? 'Say or type a change: “after the lawyer call, get the board’s approval; signing waits on it”' : 'Say or type a change to this chart'}
+          onChange={e => setAsk(e.target.value)} />
+        <button type="submit" className="btn pri sm" disabled={asking || !ask.trim()}>{asking ? 'Changing…' : 'Change it'}</button>
+      </form>
+      {asked && (
+        <div className={'flow-asked' + (asked.done ? '' : ' none')} role="status">
+          <div className="flow-asked-h">
+            <span className="muted sm ell">“{asked.said}”</span>
+            <span className="spacer" />
+            {asked.done && <button type="button" className="btn text sm" onClick={() => { undo(); setAsked(null); }}>Undo</button>}
+            <button type="button" className="ib bare" aria-label="Close" onClick={() => setAsked(null)}><XIcon size={11} /></button>
+          </div>
+          <p>{asked.reply}</p>
+          {asked.lines.length > 0 && <ul>{asked.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+          {asked.skipped.length > 0 && <ul className="flow-asked-skip">{asked.skipped.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+        </div>
+      )}
 
       <div className="flow-body">
         <div ref={stage} className="flow-stage">
