@@ -17,6 +17,7 @@ import {
 import { resolveLabel, type Label } from '@/lib/labels';
 import { activeGoalOf, activeGoals, goalRanker, goalSection, rootOf, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
 import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
+import { applyWorkflow, normalizeOps, recordedIds, type WorkflowRefs } from '@/lib/workflow';
 import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
 import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
@@ -121,6 +122,13 @@ export interface PlannerApi {
   goalsLoaded: boolean;
   /** Change your goals. Returns what undoes it. */
   changeGoals: (fn: GoalsFn) => () => void;
+  /**
+   * Delete a goal and every goal under it, for good, as Claude's delete_goal does (lib/workflow.ts): it comes off its
+   * parent's chart, and its open tasks go off-goal, or with `withTasks` are deleted (never Google's) and its repeats
+   * stop. Done tasks stay. Says what happened with Undo, unless `quiet`. Returns what happened and what undoes it (once),
+   * or null if nothing changed.
+   */
+  deleteGoal: (id: string, opts?: { withTasks?: boolean; quiet?: boolean }) => { said: string; undo: () => void } | null;
   /** The active goal a task moves, or null for off-goal work. */
   goalOf: (t: Task) => Goal | null;
   /** The top goal above the goal a task moves (the goal itself when it's a top goal), or null for off-goal work. */
@@ -376,6 +384,28 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     }
     wasOpen.current = panelOpen;
   }, [panelOpen]);
+
+  /* ---------- deleting a goal ---------- */
+
+  const deleteGoal = useCallback((id: string, opts: { withTasks?: boolean; quiet?: boolean } = {}) => {
+    const ops = normalizeOps([{ op: 'delete_goal', goal: id, ...(opts.withTasks ? { with_tasks: true } : {}) }]);
+    const st = { goals: goals.list, tasks: store.all(), repeats: repeats.list, now: Date.now() };
+    const refs: WorkflowRefs = { tasks: new Map(), waits: new Map(), results: new Map(), series: new Map() };
+    const rec = recordedIds();
+    const out = applyWorkflow(ops, st, refs, { ids: rec });
+    if (!out.lines.length) { toast(out.skipped[0] ?? 'Couldn’t delete that goal.'); return null; }
+    // Laid over your goals as they are when it's saved; the repeats before the tasks, as everywhere.
+    const undoGoals = goals.change(list => applyWorkflow(ops, { ...st, goals: list }, refs, { ids: rec.replay() }).goals);
+    const unrepeat = repeats.apply(out.repeatOps);
+    const before = new Map([...store.remove(out.removes), ...store.write(out.writes)]);
+    logGoal(out.log);
+    // Once: the toast and the panel that asked can both offer it.
+    let undone = false;
+    const undo = () => { if (undone) return; undone = true; store.restore(before); unrepeat(); undoGoals(); };
+    const said = `${out.lines[0]}.`;
+    if (!opts.quiet) toast(said, undo);
+    return { said, undo };
+  }, [goals, store, repeats, logGoal, toast]);
 
   /* ---------- scheduling ---------- */
 
@@ -750,7 +780,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
-    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, goalOf, rootGoalOf, goalById, setGoal,
+    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, deleteGoal, goalOf, rootGoalOf, goalById, setGoal,
     blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,

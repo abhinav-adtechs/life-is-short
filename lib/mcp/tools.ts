@@ -2,13 +2,13 @@ import { newId, type Priority, type Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { byBacklogWith, isEvent } from '../select';
 import { normalizeLabels, pickLabel, type Label } from '../labels';
-import { GOALS_KEY, MAX_GOAL_DEPTH, activeGoals, findResult, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
-import { LOG_KEY, MAX_LOG, buildFlow, coalesce, describeEntry, logFromWrites, normalizeLog, planOf, toJson, toMermaid, type LogEntry } from '../flow';
+import { GOALS_KEY, MAX_GOAL_DEPTH, activeGoals, descendantsOf, findResult, flatResults, goalProgress, goalRanker, goalSection, goalTree, normalizeGoals, pickGoal, resultDone, topGoals, type Goal } from '../goals';
+import { LOG_KEY, MAX_LOG, buildFlow, coalesce, describeEntry, logFromWrites, normalizeLog, planOf, repeatNode, toJson, toMermaid, type LogEntry, type Plan } from '../flow';
 import { buildTree, toMermaidTree, treeJson, type TreeFlowJson } from '../flowTree';
 import { OP_FIELDS, applyWorkflow, normalizeOps, opIssues, recordedIds, type WorkflowOp, type WorkflowOpKind, type WorkflowRefs } from '../workflow';
-import { REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceOf, type Repeat, type RepeatOp } from '../repeat';
+import { MAX_REPEATS, REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceId, occurrenceOf, startRepeat, toRule, type Repeat, type RepeatOp, type Rule } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
-import { dayIn, dayStart, isoIn, nextDay, parseWhen, validDay } from './when';
+import { dayIn, dayStart, fromWallClock, isoIn, nextDay, parseWhen, validDay } from './when';
 
 /*
  * What the MCP tools do (lib/server/mcp/server.ts), over the same TaskRepo the planner writes through
@@ -53,6 +53,8 @@ export interface TaskDetail extends TaskSummary {
   done_at: string | null;
   /** The repeat it belongs to, in words. */
   repeat?: string;
+  /** For a repeating task: its whole series, "rep:<id>", which update_task takes to change or stop it. */
+  series?: string;
 }
 
 /** A tool's input was understood but can't be done; the message says why and what to do instead. */
@@ -112,7 +114,7 @@ async function detail(c: Ctx, t: Task, labels: Map<string, Label>, goals?: Map<s
   const o = occurrenceOf(t.id);
   if (o) {
     const r = normalizeRepeats(await c.repo.getSetting(REPEATS_KEY)).find(x => x.id === o.repeat);
-    if (r) out.repeat = describeRepeat(r);
+    if (r) { out.repeat = describeRepeat(r); out.series = `rep:${r.id}`; }
   }
   return out;
 }
@@ -306,6 +308,82 @@ export async function getTask(c: Ctx, id: string): Promise<TaskDetail> {
   return detail(c, find(tasks, id), byLabel, byGoal);
 }
 
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** "HH:MM" on the wall clock in `tz`. */
+const clockIn = (ms: number, tz: string) => isoIn(ms, tz).slice(11, 16);
+
+/** Epoch ms of `day` at "HH:MM" in `tz`. */
+const atClock = (day: string, hhmm: string, tz: string) =>
+  fromWallClock(+day.slice(0, 4), +day.slice(5, 7), +day.slice(8, 10), +hhmm.slice(0, 2), +hhmm.slice(3, 5), 0, tz);
+
+/** A repeat as the tools take it, as the planner's rule; unreadable ones say why. `was` fills in a weekly or monthly one's day. */
+function ruleOrThrow(v: RepeatInput, today: string, was?: Rule): Rule {
+  const rule = toRule(v);
+  if (!rule) throw new TaskError('A repeat needs freq: day, week or month.', 'invalid');
+  if (v.until != null && rule.until == null) throw new TaskError(`repeat.until must be a date like 2026-12-31, not "${v.until}".`, 'invalid');
+  // Every week on no day in particular keeps the day it's on (or today's); every month, its date.
+  if (rule.freq === 'week' && !rule.days.length && !rule.per && was?.freq === 'week' && was.days.length) rule.days = was.days;
+  if (rule.freq === 'month' && rule.monthDay == null && !rule.per && was?.freq === 'month' && was.monthDay != null) rule.monthDay = was.monthDay;
+  if (rule.freq === 'week' && !rule.days.length && !rule.per) rule.days = [new Date(Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10))).getUTCDay()];
+  if (rule.freq === 'month' && rule.monthDay == null && !rule.per) rule.monthDay = +today.slice(8, 10);
+  return rule;
+}
+
+function timeOrThrow(v: string | null | undefined): string | null | undefined {
+  if (v == null) return v;
+  if (!HHMM.test(v)) throw new TaskError(`repeat.time must be a time of day like 09:30, not "${v}".`, 'invalid');
+  return v;
+}
+
+/**
+ * Make a task a repeat's first one, as the app's editor does: its id becomes the repeat's for its day (its scheduled or
+ * due day, or today), and the series takes its fields. With a time, each one goes on the calendar then, this one too.
+ */
+function startSeries(t: Task, v: RepeatInput, now: number, tz: string): { repeat: Repeat; task: Task } {
+  const today = dayIn(now, tz);
+  const own = t.start != null ? dayIn(t.start, tz) : t.due;
+  const day = own && own > today ? own : today;
+  const asked = timeOrThrow(v.time);
+  const time = asked !== undefined ? asked : t.start != null ? clockIn(t.start, tz) : null;
+  const rule = ruleOrThrow(v, day);
+  const repeat = { ...startRepeat({ title: t.title, notes: t.notes, priority: t.priority, minutes: t.minutes, label: t.label ?? null, goal: t.goal ?? null, raw: t.raw, rule, time, from: day }, now), made: day };
+  const start = t.start ?? (time ? atClock(day, time, tz) : null);
+  return { repeat, task: { ...t, id: occurrenceId(repeat.id, day), start, updatedAt: now } };
+}
+
+/** A step's id on a chart, changed everywhere it's named: its arrows and where it was put. */
+const renameStep = (p: Plan, from: string, to: string): Plan => {
+  const name = (id: string) => (id === from ? to : id);
+  const pos = p.pos && p.pos[from] ? (({ [from]: at, ...rest }) => ({ ...rest, [to]: at }))(p.pos) : p.pos;
+  return { ...p, links: p.links.map(l => ({ ...l, from: name(l.from), to: name(l.to) })), ...(pos ? { pos } : {}) };
+};
+
+/** Save repeat changes first, so the task writes after them find the series as it now is. */
+async function saveRepeats(c: Ctx, ops: RepeatOp[]) {
+  if (!ops.length) return;
+  const list = await repeatsOf(c);
+  if (ops.some(o => o.kind === 'set' && !list.some(r => r.id === o.repeat.id)) && list.length >= MAX_REPEATS) {
+    throw new TaskError(`There are already ${MAX_REPEATS} repeating tasks, the most there can be. Stop one first.`, 'invalid');
+  }
+  await c.repo.setSetting(REPEATS_KEY, applyOps(list, ops));
+}
+
+/**
+ * How a task repeats, as the tools take it: change_goals' repeat, plus the time of day each one goes on the calendar
+ * ("HH:MM" in the user's zone), or null for each to wait in the backlog, due its day.
+ */
+export interface RepeatInput {
+  freq: string;
+  every?: number;
+  days?: string[];
+  monthday?: number | null;
+  until?: string | null;
+  times?: number | null;
+  per?: number | null;
+  time?: string | null;
+}
+
 export interface CreateInput {
   title: string;
   description?: string;
@@ -316,6 +394,8 @@ export interface CreateInput {
   status?: Status;
   scheduled?: string | null;
   minutes?: number;
+  /** Make it repeat. Its first one is this task; with scheduled, the series goes on the calendar at that time of day. */
+  repeat?: RepeatInput;
 }
 
 export async function createTask(c: Ctx, v: CreateInput): Promise<TaskDetail> {
@@ -333,7 +413,14 @@ export async function createTask(c: Ctx, v: CreateInput): Promise<TaskDetail> {
     label: labelFor(labels, v.project ?? null), updatedAt: now,
     ...onGoal(goalFor(goals, v.goal ?? null), v.project != null, goals),
   };
-  const [saved] = await write(c, [{ before: null, after: task }]);
+  if (!v.repeat) {
+    const [saved] = await write(c, [{ before: null, after: task }]);
+    return detail(c, saved, byLabel, byGoal);
+  }
+  if (done) throw new TaskError('A repeating task starts open: add it, then tick the first one off with complete_task.', 'invalid');
+  const m = startSeries(task, v.repeat, now, c.tz);
+  await saveRepeats(c, [{ kind: 'set', repeat: m.repeat }]);
+  const [saved] = await write(c, [{ before: null, after: m.task }]);
   return detail(c, saved, byLabel, byGoal);
 }
 
@@ -347,12 +434,15 @@ export interface UpdateInput {
   status?: Status;
   scheduled?: string | null;
   minutes?: number;
+  /** Make it repeat, or change how its series repeats (and at what time); null stops the series. */
+  repeat?: RepeatInput | null;
 }
 
 /** What Google keeps for an item it sends: change these in Google instead. */
 const GOOGLE_OWNED = ['title', 'due', 'scheduled', 'minutes'] as const;
 
 export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<TaskDetail & { changed: boolean }> {
+  if (id.startsWith('rep:')) return updateSeries(c, id.slice(4), v);
   const { tasks, labels, byLabel, goals, byGoal } = await load(c);
   const cur = find(tasks, id);
   const source = sourceOf(cur);
@@ -379,9 +469,106 @@ export async function updateTask(c: Ctx, id: string, v: UpdateInput): Promise<Ta
     next.doneAt = v.status === 'done' ? now : null;
   }
   const keys = ['title', 'notes', 'priority', 'label', 'goal', 'due', 'start', 'minutes', 'status', 'doneAt'] as const;
-  if (keys.every(k => (next[k] ?? null) === (cur[k] ?? null))) return { ...(await detail(c, cur, byLabel, byGoal)), changed: false };
+  const same = keys.every(k => (next[k] ?? null) === (cur[k] ?? null));
+  if (v.repeat !== undefined) {
+    const o = occurrenceOf(cur.id);
+    const series = o ? (await repeatsOf(c)).find(r => r.id === o.repeat) : undefined;
+    if (series) {
+      // Change or stop its series; this one changes as asked, as with the editor.
+      const ops = seriesOps(series, v.repeat, now, c.tz);
+      if (ops.length) {
+        await saveRepeats(c, ops);
+        const [saved] = await write(c, [{ before: cur, after: next }]);
+        return { ...(await detail(c, saved, byLabel, byGoal)), changed: true };
+      }
+    } else if (v.repeat) {
+      if (source) throw new TaskError(`"${cur.title}" comes from ${source === 'google_calendar' ? 'Google Calendar' : 'Google Tasks'}, so it can't repeat here. Make it repeat in Google.`, 'read_only');
+      if (next.status === 'done') throw new TaskError('A done task can’t start repeating: reopen it first, or add a new repeating task.', 'invalid');
+      if (o) throw new TaskError(`"${cur.title}" was one of a repeating task that has stopped. Add a new repeating task with create_task instead.`, 'invalid');
+      // Its id becomes the repeat's, so it's written anew; on a goal, its arrows go to the series.
+      const m = startSeries(next, v.repeat, now, c.tz);
+      await saveRepeats(c, [{ kind: 'set', repeat: m.repeat }]);
+      const g = cur.goal ? goals.find(x => x.id === cur.goal) : undefined;
+      if (g?.plan && (g.plan.links.some(l => l.from === cur.id || l.to === cur.id) || g.plan.pos?.[cur.id])) {
+        const node = repeatNode(m.repeat);
+        await c.repo.setSetting(GOALS_KEY, goals.map(x => (x.id === g.id ? { ...x, plan: renameStep(planOf(x), cur.id, node), updatedAt: now } : x)));
+      }
+      const [saved] = await write(c, [{ before: cur, after: null }, { before: null, after: m.task }]);
+      return { ...(await detail(c, saved, byLabel, byGoal)), changed: true };
+    } else if (!o) {
+      throw new TaskError(`"${cur.title}" doesn't repeat, so there's nothing to stop.`, 'invalid');
+    }
+  }
+  if (same) return { ...(await detail(c, cur, byLabel, byGoal)), changed: false };
   const [saved] = await write(c, [{ before: cur, after: next }]);
   return { ...(await detail(c, saved, byLabel, byGoal)), changed: true };
+}
+
+/** What `repeat` does to a series: changes how (or when) it repeats, stops it with null, or nothing if it's the same. */
+function seriesOps(r: Repeat, v: RepeatInput | null, now: number, tz: string): RepeatOp[] {
+  if (v === null) return [{ kind: 'stop', id: r.id }];
+  const rule = ruleOrThrow(v, dayIn(now, tz), r.rule);
+  const asked = timeOrThrow(v.time);
+  const time = asked !== undefined ? asked : r.time;
+  if (JSON.stringify(rule) === JSON.stringify(r.rule) && time === r.time) return [];
+  return [{ kind: 'set', repeat: { ...r, rule, time, updatedAt: now } }];
+}
+
+/**
+ * Change a repeating task's whole series ("rep:<id>"), for when none of it is open: what each one is (title, notes,
+ * priority, length, project) and how and when it repeats; repeat null stops it. Its open one, if any, follows.
+ */
+async function updateSeries(c: Ctx, rid: string, v: UpdateInput): Promise<TaskDetail & { changed: boolean }> {
+  const { tasks, labels, byLabel, byGoal } = await load(c);
+  const list = await repeatsOf(c);
+  const r = list.find(x => x.id === rid);
+  if (!r) throw new TaskError(`No repeating task has the id "rep:${rid}". get_task on one of its tasks shows its series.`, 'not_found');
+  const wrong = (['status', 'scheduled', 'due', 'goal'] as const).filter(k => v[k] !== undefined);
+  if (wrong.length) {
+    throw new TaskError(`A series as a whole has no ${wrong.join(', ')}: ${wrong.includes('goal') ? 'move it to a goal with change_goals move_step; ' : ''}change one of its tasks by that task's own id, or how it repeats (and at what time) with repeat.`, 'invalid');
+  }
+  const now = clock(c);
+  const next: Repeat = { ...r };
+  if (v.title !== undefined) {
+    const title = v.title.replace(/\s+/g, ' ').trim();
+    if (!title) throw new TaskError('A task needs a title.', 'invalid');
+    next.title = title.slice(0, 160);
+  }
+  if (v.description !== undefined) next.notes = v.description.trim();
+  if (v.priority !== undefined) next.priority = PRI[v.priority];
+  if (v.minutes !== undefined) next.minutes = v.minutes;
+  if (v.project !== undefined) next.label = labelFor(labels, v.project);
+  let ops: RepeatOp[] = [];
+  if (v.repeat === null) ops = [{ kind: 'stop', id: r.id }];
+  else {
+    const how = v.repeat ? seriesOps(next, v.repeat, now, c.tz) : [];
+    const after = how[0]?.kind === 'set' ? how[0].repeat : next;
+    const fields = ['title', 'notes', 'priority', 'minutes', 'label', 'rule', 'time'] as const;
+    if (fields.some(k => JSON.stringify(after[k] ?? null) !== JSON.stringify(r[k] ?? null))) ops = [{ kind: 'set', repeat: { ...after, updatedAt: now } }];
+  }
+  const open = tasks.filter(t => t.status === 'open' && occurrenceOf(t.id)?.repeat === r.id);
+  const out = seriesDetail(ops[0]?.kind === 'set' ? ops[0].repeat : r, byLabel, byGoal, c.tz, ops[0]?.kind === 'stop');
+  if (!ops.length) return { ...out, changed: false };
+  await saveRepeats(c, ops);
+  // Its open one follows what each one is.
+  const set = ops[0].kind === 'set' ? ops[0].repeat : null;
+  if (set) {
+    const writes = open.map(t => ({ before: t, after: { ...t, title: set.title, notes: set.notes, priority: set.priority, minutes: set.minutes, label: set.label } }))
+      .filter(x => (['title', 'notes', 'priority', 'minutes', 'label'] as const).some(k => (x.after[k] ?? null) !== (x.before[k] ?? null)));
+    if (writes.length) await write(c, writes);
+  }
+  return { ...out, changed: true };
+}
+
+/** A series, described the way a task is: its id is "rep:<id>". */
+function seriesDetail(r: Repeat, labels: Map<string, Label>, goals: Map<string, Goal>, tz: string, stopped: boolean): TaskDetail {
+  return {
+    id: `rep:${r.id}`, title: r.title, status: 'open', priority: PRI_NAME[r.priority] ?? 'important',
+    project: (r.label && labels.get(r.label)?.name) || null, goal: (r.goal && goals.get(r.goal)?.title) || null,
+    due: null, scheduled: null, minutes: r.minutes, updated: isoIn(r.updatedAt || r.created, tz), repeating: true,
+    notes: r.notes, created: isoIn(r.created, tz), done_at: null,
+    repeat: stopped ? `Stopped: ${describeRepeat(r)}` : describeRepeat(r), series: `rep:${r.id}`,
+  };
 }
 
 export const completeTask = (c: Ctx, id: string) => updateTask(c, id, { status: 'done' });
@@ -511,6 +698,26 @@ export async function getGoal(c: Ctx, f: { goal: string; history?: number; depth
     mermaid: tree ? toMermaidTree(tree) : toMermaid(g, buildFlow(g, tasks, now, { goals, repeats })),
     history: keep ? mine.slice(-keep).map(e => ({ at: isoIn(e.at, c.tz), what: describeEntry(e) })) : [],
   };
+}
+
+export interface DeleteGoalOutput {
+  /** The goal deleted, and how many sub-goals went with it. */
+  deleted: { id: string; title: string; sub_goals: number };
+  /** What happened, one line each: what was deleted, and what became of its tasks and repeating tasks. */
+  changed: string[];
+  skipped: string[];
+}
+
+/**
+ * Delete a goal and every goal under it, for good: change_goals' delete_goal, as its own tool. Its open tasks go
+ * off-goal, or with with_tasks are deleted (never Google's) and its repeating tasks stop; done tasks stay.
+ */
+export async function deleteGoal(c: Ctx, f: { goal: string; with_tasks?: boolean }): Promise<DeleteGoalOutput> {
+  const { goals } = await load(c);
+  const g = findGoal(goals, f.goal);
+  const subs = descendantsOf(goals, g.id).length;
+  const out = await changeGoals(c, { ops: [{ op: 'delete_goal', goal: g.id, ...(f.with_tasks ? { with_tasks: true } : {}) }] });
+  return { deleted: { id: g.id, title: g.title, sub_goals: subs }, changed: out.changed, skipped: out.skipped };
 }
 
 /* ---------- building goals and their charts ---------- */
