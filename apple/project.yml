@@ -1,5 +1,6 @@
-# The iPhone + iPad app and the Mac app. XcodeGen turns this into LifeIsShort.xcodeproj (./bootstrap.sh); the project
-# file isn't committed. The bundle id, server, version and team are in Config/Base.xcconfig (and your Local.xcconfig).
+# The iPhone + iPad app with its widgets, and the Mac app. XcodeGen turns this into LifeIsShort.xcodeproj (./bootstrap.sh);
+# the project file isn't committed. The bundle id, server, version and team are in Config/Base.xcconfig (and your
+# Local.xcconfig).
 name: LifeIsShort
 options:
   deploymentTarget:
@@ -36,18 +37,26 @@ targets:
         type: folder
         buildPhase: resources
       - path: iOS
-        excludes: ["Info.plist"]
+        excludes: ["Info.plist", "*.entitlements"]
       - path: iOS/Info.plist
         buildPhase: none
+      - path: iOS/LifeIsShort.entitlements
+        buildPhase: none
+      # The widgets' views, so the app can draw them for CI (iOS/WidgetGallery.swift); their pictures and type stay in
+      # the widget extension, which the app carries.
+      - path: Widgets/Design
     dependencies:
       - package: LifeIsShortCore
         product: LifeIsShortCore
+      - target: LifeIsShort-Widgets
+        embed: true
     settings:
       base:
         PRODUCT_NAME: Life is short
         PRODUCT_MODULE_NAME: LifeIsShort
         PRODUCT_BUNDLE_IDENTIFIER: $(LIS_BUNDLE_ID)
         INFOPLIST_FILE: iOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: iOS/LifeIsShort.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -56,6 +65,35 @@ targets:
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
     scheme: {}
+  # The Home Screen and lock screen widgets (Widgets/, docs/apple.md → Widgets), inside the iPhone and iPad app.
+  LifeIsShort-Widgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Widgets/Design
+      - path: Widgets/Extension
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Widgets/Extension/Info.plist
+        buildPhase: none
+      - path: Widgets/Extension/LifeIsShortWidgets.entitlements
+        buildPhase: none
+      - path: Widgets/Resources/Scenes.xcassets
+      - path: Widgets/Resources/Fonts
+        buildPhase: resources
+    dependencies:
+      - package: LifeIsShortCore
+        product: LifeIsShortCore
+    settings:
+      base:
+        PRODUCT_NAME: LifeIsShortWidgets
+        PRODUCT_MODULE_NAME: LifeIsShortWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: $(LIS_BUNDLE_ID).widgets
+        INFOPLIST_FILE: Widgets/Extension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widgets/Extension/LifeIsShortWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
   LifeIsShort-macOS:
     type: application
     platform: macOS

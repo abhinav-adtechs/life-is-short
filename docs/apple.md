@@ -8,6 +8,7 @@ the apps do beyond the website, and every step from an empty Apple account to th
 - [How they're built](#how-theyre-built)
 - [Why this design](#why-this-design)
 - [The bridge](#the-bridge)
+- [Widgets](#widgets)
 - [Plan](#plan)
 - [One-time setup](#one-time-setup)
 - [Run it from Xcode](#run-it-from-xcode)
@@ -29,6 +30,9 @@ what a browser can't:
   it and the plan is waiting for you. "Talk to Life is short" opens straight onto the mic, and "Review my week in
   Life is short" opens the review. All three work from the Action button and the Shortcuts app too.
 - **Home Screen quick actions.** Press and hold the icon: **Dump a thought** or **Speak**.
+- **Widgets on the Home Screen and the lock screen** (iPhone and iPad): the one thing to do now, how long you have for
+  it and what comes next, on a ticket over the view out of the train window for the time of day, or in your theme.
+  [Widgets](#widgets).
 - **A real Mac app.** A menu bar with every command and its shortcut (`⌘K` speak, and again to send; `⇧⌘K`
   dump; `⌘,` settings; `⌘R` reload), a title bar in the planner's colours, and a window that remembers its size and stays signed in when you close
   it.
@@ -44,15 +48,19 @@ what a browser can't:
 
 ```
 apple/
-├── project.yml            XcodeGen spec: the iOS app (iPhone + iPad) and the macOS app
+├── project.yml            XcodeGen spec: the iOS app (iPhone + iPad) with its widgets, and the macOS app
 ├── bootstrap.sh           installs XcodeGen if needed and generates LifeIsShort.xcodeproj
 ├── Config/                Base.xcconfig (ids, server, version) + your Local.xcconfig
 ├── Core/                  Swift package, Foundation only, unit-tested: addresses, navigation
-│                          rules, deep links, colours, speech transcripts
+│                          rules, deep links, colours, speech transcripts, the widgets' timeline
 ├── Shared/                both apps: the web view, the bridge, speech, Google sign-in, Siri
 │   └── Resources/         Bridge.js (injected into the page), start.html (setup + offline),
 │                          the icons, the privacy manifest
-├── iOS/                   UIKit, scene-based: window, status bar, quick actions, keyboard
+├── iOS/                   UIKit, scene-based: window, status bar, quick actions, keyboard,
+│                          the App Group hand-off to the widgets, their pictures for CI
+├── Widgets/               the widget extension (in the iOS app): Design/ (the views, shared with
+│                          the app), Extension/ (the widgets and their timelines), Resources/
+│                          (the window's views and Geist)
 └── macOS/                 AppKit: window, title bar, menu bar, sandbox entitlements
 ```
 
@@ -116,13 +124,15 @@ tasks.
 | `share` | The share sheet, for `navigator.share` |
 | `speech.*` | Start, stop or abort native dictation (behind `SpeechRecognition`) |
 | `external.open` | Open a link in the browser |
+| `widget` | Today's picture for the widgets ([Widgets](#widgets)); with no snapshot, empty them (signed out) |
 | `server.set`, `page.retry` | Only from the app's own setup and offline page |
 
 `lisNative` also says what the app can do: `platform`, `version`, `build`, and `passkeys` when the app is linked to
 the site it's showing ([Passkeys in the apps](#passkeys-in-the-apps)).
 
 **App → page**: commands from Siri, quick actions, `lifeisshort://` links and the Mac menu: `dump` (with optional
-text), `listen`, `open` (`settings`, `analytics`, `review`, `share`). They wait in the app until the planner says
+text), `listen`, `open` (`settings`, `analytics`, `review`, `share`), `task` (open a task tapped on a widget). They
+wait in the app until the planner says
 `ready`, so a quick action that launches the app lands once you've unlocked it.
 
 Native dictation stands in for the browser's `SpeechRecognition`, so `useVoice` in `components/hooks.ts` runs
@@ -131,7 +141,51 @@ unchanged. Its `phrases` (as `SpeechRecognitionPhrase`, which the bridge defines
 gets nothing, and the page can't navigate anywhere else inside the app.
 
 **Links the apps understand:** `lifeisshort://dump?text=…`, `lifeisshort://listen`, `lifeisshort://settings`,
-`lifeisshort://analytics`, `lifeisshort://review` and `lifeisshort://share`.
+`lifeisshort://analytics`, `lifeisshort://review`, `lifeisshort://share` and `lifeisshort://task/<id>`.
+
+## Widgets
+
+**Now**, on the Home Screen (small, medium and large) and the lock screen (rectangular, round and inline), on iPhone
+and iPad. Each shows the one thing to do now and how long you have for it, the planner's own answer
+(`components/Next.tsx`): the task on the calendar this minute, until it ends, or the top of the backlog, free until the
+next thing. Tap it and the app opens on that task.
+
+| Size | What's on it |
+|---|---|
+| Small | Now, when it ends (or how long it takes), its goal, and what's left of its slot draining away |
+| Medium | The same on a ticket, and what's next with its time |
+| Large | Now, written on the sky, over a ticket: today's outcomes and their steps (or **Plan it with Claude**, while today isn't planned), and the rest of today like a departures board |
+| Lock screen | The task and the time it ends, with what's left of its slot as a bar or a gauge |
+
+**Two looks**, picked in the widget's **Edit Widget** menu:
+
+- **The window** (the default): the view out of the train for the time of day, from the home page's scenes
+  (`public/scenes`): amber at dawn, the meadow by day (hot-air balloons at the weekend), amber again at dusk and night
+  after eight. The task is printed on the home page's ticket. With nothing to do, it's just the view.
+- **Your theme**: Tide or Day train, and Night train when the phone is in dark mode, with your accent. The tinted and
+  clear Home Screens and StandBy draw it in their own colours.
+
+**How it stays right.** Whenever your day changes, the planner hands the app a small picture of it (`lib/widget.ts`):
+what's on the calendar from an hour ago to the end of tomorrow, the top of the backlog in the order Now picks from,
+today's outcomes and counts, and how the planner looks. The app keeps it in an App Group the widgets can read
+(`group.<bundle id>`, `iOS/WidgetBridge.swift`) and asks them to redraw, only when it changed. Each widget works out
+Now and Next from it for any moment, by the planner's own rules, a missed slot going back to the backlog after its hour
+included (`WidgetTimeline` in the Swift core, tested), and lines up an entry at every moment that changes what it
+shows. So it stays right while the app is closed, until something changes elsewhere: a task added on the laptop
+reaches the widget the next time the app is open. If the app hasn't been open for a day and a half, the widget says
+when it last heard. Signing out empties it.
+
+**Privacy.** Today's picture stays on the device, in the App Group. Titles are marked private, so a locked phone hides
+them on the lock screen.
+
+**The art.** The window's views are the home page's SVG scenes drawn to JPEG for each widget size at 2x and 3x
+(`node apple/scripts/scenes.mjs`), since iOS can't draw their blur filters and WidgetKit refuses pictures much bigger
+than the widget. The type is Geist and Geist Mono, as in the planner (SIL Open Font License, in
+`Widgets/Resources/Fonts/OFL.txt`).
+
+**Seeing them without a phone.** CI's smoke test has the app draw every widget, in both looks, at each time of day,
+empty, tinted and on the lock screen (`iOS/WidgetGallery.swift`). The pictures are in the run's **smoke-test**
+artifact as `widgets-*.png`.
 
 ## Plan
 
@@ -152,8 +206,8 @@ gets nothing, and the page can't navigate anywhere else inside the app.
 
 **Phase 2: the planner outside the app**
 
-- **Widgets**, Home Screen, Lock Screen and Mac desktop: the Next task and how long you have for it. The planner
-  sends the next task to the app through the bridge; an App Group hands it to the widget.
+- [x] **Widgets** on the Home Screen and the lock screen, on iPhone and iPad: the Next task and how long you have for
+  it ([Widgets](#widgets)). Still to come: the Mac desktop, and Done from the widget without opening the app.
 - **A nudge when a slot starts**: local notifications for the next day's scheduled tasks, set from the planner, so
   there's no push server.
 - [x] **Face ID** in place of the PIN and the code: done as **passkeys**, on the website and in the apps
@@ -175,21 +229,27 @@ need Xcode to ship.
 2. **Pick a bundle id** you own, in reverse-DNS form. The default is `io.github.abhinav-adtechs.lifeisshort`. To use
    another, change `LIS_BUNDLE_ID` in `apple/Config/Base.xcconfig`. Register it at
    [Certificates, Identifiers & Profiles → Identifiers](https://developer.apple.com/account/resources/identifiers/list)
-   → **+** → App IDs → App. Tick **Associated Domains** if you'll use passkeys in the apps; nothing else.
-3. **Create the app** in [App Store Connect](https://appstoreconnect.apple.com) → Apps → **+** → New App. Tick
+   → **+** → App IDs → App. Tick **App Groups** (step 3), and **Associated Domains** if you'll use passkeys in the
+   apps; nothing else.
+3. **The App Group for the widgets.** Identifiers → **+** → App Groups → `group.<your bundle id>` (for the default,
+   `group.io.github.abhinav-adtechs.lifeisshort`). Then open your bundle id's identifier, tick **App Groups**, choose
+   the group, and save. Register the widgets too: **+** → App IDs → App → `<your bundle id>.widgets`, with **App
+   Groups** ticked and the same group. Both have to be in place before the first release with widgets, or the export
+   fails on the App Group.
+4. **Create the app** in [App Store Connect](https://appstoreconnect.apple.com) → Apps → **+** → New App. Tick
    **iOS** and **macOS**, pick the bundle id, and give it a name. App names are unique across the whole App Store,
    so if "Life is short" is taken use something like "Life is short: Planner". The name on the Home Screen stays
    "Life is short".
-4. **Create an API key**: App Store Connect → Users and Access → Integrations → **Team Keys** → **+**, access
+5. **Create an API key**: App Store Connect → Users and Access → Integrations → **Team Keys** → **+**, access
    **Admin** (Apple's cloud signing needs Admin). Download the `.p8` (you only get one chance) and note the **Key ID**
    and the **Issuer ID** above the list.
-5. **GitHub**: repo → Settings → Secrets and variables → Actions.
+6. **GitHub**: repo → Settings → Secrets and variables → Actions.
    - Secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_P8` (the whole `.p8` file, its BEGIN
      and END lines included).
    - Variables: `APPLE_TEAM_ID` (your Team ID), `LIS_SERVER` (your deployment's host, like
      `life-is-short.vercel.app`) and, if you changed it, `LIS_BUNDLE_ID`. `LIS_PASSKEYS` = `1` once passkeys in the
      apps are set up ([Passkeys in the apps](#passkeys-in-the-apps)).
-6. **Google** needs nothing new. The app uses the same `https://<your server>/google/callback` redirect as the website.
+7. **Google** needs nothing new. The app uses the same `https://<your server>/google/callback` redirect as the website.
 
 ## Passkeys in the apps
 
@@ -230,6 +290,9 @@ In `Config/Local.xcconfig`, set `DEVELOPMENT_TEAM` to your Team ID and `LIS_SERV
   screen, or **Life is short → Change Server…** on the Mac.
 - `-LISServerURL <address>` in the scheme's launch arguments overrides everything.
 - Debug builds can be inspected from Safari → Develop → your device or Mac → Life is short.
+- The widgets come with the iOS app. Run it, open the planner once, then add **Now** from the Home Screen's widget
+  gallery. Xcode signs the App Group with your team on its own. **Release to TestFlight** below puts them on your phone
+  without Xcode.
 - Core logic tests: `swift test --package-path apple/Core`.
 - `project.yml` is the source of truth. The `.xcodeproj` is generated and ignored, so after pulling, run
   `./bootstrap.sh` again.
@@ -276,7 +339,11 @@ TestFlight for yourself and up to 100 people on your team needs none of this. Fo
 
 - **"Cloud signing permission error"**: the API key needs **Admin** access.
 - **"No profiles for … were found"** or an unknown bundle id: register the bundle id (step 2) and create the app record
-  (step 3) before the first release.
+  (step 4) before the first release.
+- **The export fails on `com.apple.security.application-groups`**, or a profile "doesn't include the App Groups
+  capability": register the App Group and the widgets' identifier, and tick App Groups on both (step 3).
+- **A widget says "Open Life is short"**: it hasn't heard from the planner yet. Open the app once, signed in. A build
+  that isn't signed with the App Group (CI's Simulator builds) never hands anything over.
 - **The mic does nothing**: Settings → Privacy & Security → Microphone and Speech Recognition → Life is short.
 - **Google says "disallowed_useragent"**: the app is out of date (Connect Google must open the system sheet). Update
   from TestFlight.

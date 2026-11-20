@@ -5,13 +5,17 @@
  * `lisNative` and everything here does nothing.
  */
 
+import type { WidgetSnapshot } from './widget';
+
 export type NativeSheet = 'settings' | 'analytics' | 'review' | 'share';
 
 /** What the app asks the planner to do. apple/Core/Sources/LifeIsShortCore/DeepLink.swift sends the same shapes. */
 export type NativeCommand =
   | { name: 'dump'; text?: string }
   | { name: 'listen' }
-  | { name: 'open'; sheet: NativeSheet };
+  | { name: 'open'; sheet: NativeSheet }
+  /** A task tapped on a widget: open it. */
+  | { name: 'task'; id: string };
 
 export type Haptic = 'success' | 'warning' | 'error' | 'light' | 'medium' | 'selection';
 
@@ -35,6 +39,8 @@ export function native(): LisNative | null {
 const SHEETS: readonly string[] = ['settings', 'analytics', 'review', 'share'];
 /** The longest dump the app hands over (DeepLink.maxText). */
 const MAX_TEXT = 4000;
+/** A task's id, as the app's links carry it (DeepLink.isTaskId). */
+const TASK_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 
 /** A command from the app, checked; anything else is dropped. */
 export function readCommand(raw: unknown): NativeCommand | null {
@@ -49,6 +55,8 @@ export function readCommand(raw: unknown): NativeCommand | null {
       return { name: 'listen' };
     case 'open':
       return typeof c.sheet === 'string' && SHEETS.includes(c.sheet) ? { name: 'open', sheet: c.sheet as NativeSheet } : null;
+    case 'task':
+      return typeof c.id === 'string' && TASK_ID.test(c.id) ? { name: 'task', id: c.id } : null;
     default:
       return null;
   }
@@ -71,6 +79,16 @@ export function onNativeCommand(fn: (command: NativeCommand) => void): () => voi
 /** The planner is showing: the app sends the commands that were waiting for it. */
 export function nativeReady() {
   native()?.ready();
+}
+
+/**
+ * Hand the iPhone and iPad widgets today's picture (lib/widget.ts), or null to empty them (signed out). The app keeps
+ * it where its widgets read it. Nothing in a browser, and nothing on the Mac yet.
+ */
+export function sendWidget(snapshot: WidgetSnapshot | null) {
+  const app = native();
+  if (!app || app.platform === 'macos') return;
+  app.post('widget', { snapshot }).catch(() => undefined);
 }
 
 /** A tap of feedback on iPhone (and a Force Touch trackpad); nothing in a browser. */
