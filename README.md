@@ -53,6 +53,11 @@ No folders. No filing: the AI even picks the goal. No "weekly review". You don't
 
 A list of tasks says what's busy. It doesn't say what matters. So Life is short starts from **four or five goals**: the outcomes you're working towards right now, like an objective with its key results.
 
+On a laptop the planner has **two views**, a switch at the top:
+
+- **Calendar.** The task you're on, then **your goals and nothing else** down the left: each with how far along it is, its key results as small blocks, and, once today is planned, where it'll be by tonight. The goals in today's focus come first; the rest wait under **Not today**. The **backlog** (every task not on the calendar, by goal) sits behind a tray at the foot. The calendar shows three days, today first, with **today's outcomes** across its top once the day is planned.
+- **Goals.** Every goal on the left, most important first (**Archived** is a tab: goals you've marked done or dropped). Open one and its sub-goals show under it; the right-hand side shows it in full: what done means, with its sub-goals under the key results they serve, and its **Route**, or its **Map**, which opens in that same pane so the list stays there to jump to another goal (**Full screen** when you want the room). **Backlog** opens beside the list: drag a task onto the goal to put it on that goal. Done, Edit, Drop, Delete and reordering are all there.
+
 - **Specific enough to finish.** "Give Sam a clean exit", not "Fundraising". Each goal says what **done** means (*Share transfer signed*, *Money in the bank*), lines you tick as they come true, and, if you like, a date to get it done by.
 - **In a section.** Goals sit in the parts of your life you name: your company, a side project, Personal, Helping others. A task on a goal takes its section and its colour.
 - **Ranked.** Your top goal first. The order breaks ties in the backlog.

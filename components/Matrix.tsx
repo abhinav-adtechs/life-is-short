@@ -13,7 +13,7 @@ import { fromYmd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { daysLeft, fmtHrs, useGoalWeek } from './Goals';
 import { useGoalFlow } from './Flow';
-import { ArchiveIcon, CalendarIcon, CheckIcon, ChevronDown, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
+import { ArchiveIcon, CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
 import { RouteList, readRouteOpen, writeRouteOpen } from './Route';
 import { useTodayGoals } from './Today';
 
@@ -36,7 +36,7 @@ function useStagger(step: number, cap: number) {
  * Each card's tasks: every open one (on the calendar or not) whose active goal's top goal it is ('' for off-goal), and
  * how many are done. A done task counts for its top goal even after the sub-goal it was on is achieved.
  */
-function useByCard() {
+export function useByCard() {
   const { tasks, isOff, rootGoalOf, goals, repeats } = usePlanner();
   return useMemo(() => {
     const index = new Map(goals.map(g => [g.id, g]));
@@ -152,7 +152,7 @@ function PriPill({ t, kind }: { t: Task; kind: Kind }) {
  * edit. In a goal's card (`card` is its id, '' for off-goal) it says which sub-goal it's on, if any, and has its
  * priority pill.
  */
-function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
+export function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
   const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf, goalOf, activeGoals } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
@@ -495,7 +495,7 @@ function ArchiveLink() {
  * The laptop backlog: a card per goal with the tasks that move it. Drag a task onto another goal's card to move it
  * there, onto a priority chip to change its priority, or onto the calendar to schedule it.
  */
-export function MatrixPanel() {
+export function MatrixPanel({ onBack }: { onBack?: () => void } = {}) {
   const { filter, setFilter, drag, goals, openSheet, store } = usePlanner();
   const { backlog } = useLists();
   const open = useOpenCount();
@@ -506,14 +506,15 @@ export function MatrixPanel() {
   return (
     <section className={'mx panel gcs' + (dropOk ? ' drop-ok' : '')} aria-label="Your goals and what moves each one" data-backlog="">
       <div className="mx-h">
-        <span className="mx-title">Goals</span>
+        {onBack && <button type="button" className="ib bare" aria-label="Back to your goals" title="Back to your goals" onClick={onBack}><ChevronLeft /></button>}
+        <span className="mx-title">{onBack ? 'Backlog' : 'Goals'}</span>
         <span className="muted sm num">{open} open</span>
         <span className="spacer" />
         {focusName && (
           <button type="button" className="fchip" aria-label="Show every goal" onClick={() => setFilter(null)}>{shortTitle(focusName, 34)}<XIcon size={11} /></button>
         )}
-        <ArchiveLink />
-        <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><TargetIcon size={14} />Edit goals</button>
+        {!onBack && <ArchiveLink />}
+        {!onBack && <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><TargetIcon size={14} />Edit goals</button>}
       </div>
       <PriChips pri={pri} setPri={setPri} />
       <div className="gc-scroll">

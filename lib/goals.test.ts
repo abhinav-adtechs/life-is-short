@@ -6,7 +6,7 @@ import {
   flatResults, goalNamed, goalProgress, goalRanker, goalSection, goalTree, heightOf, makeGoal, mergeResults, moveGoal, moveResult, normalizeGoals,
   onGoalShare, openResults, outlineOf, parseOutline, patchGoal, patchResult, pickGoal, rankGoal, removeGoal, reparentGoal, resultDone, resultPath,
   resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal,
-  archivedGoals, closingLine, openTasksOn, timeTaken,
+  archivedGoals, closingLine, openTasksOn, timeTaken, treeTasks,
 } from './goals';
 import { OFF_GOAL, backlogList, focus } from './select';
 import { applyCapture, promptContext } from './capture';
@@ -604,6 +604,12 @@ describe('the archive', () => {
     expect(closingLine(tree, ts, 'grun2', 'dropped')).toBe('Dropped and archived · Run a half marathon. Its 1 open task is off-goal now.');
     expect(closingLine(tree, [], 'gsub', 'achieved')).toBe('Done · Close the lawyer’s side.');
     expect(closingLine(tree, [], 'nope', 'achieved')).toBe('');
+  });
+
+  it('counts a goal’s tasks with its sub-goals’, done and in all, leaving meetings out', () => {
+    const ts = [task('a', { goal: 'gtop', status: 'done' }), task('b', { goal: 'gsub' }), task('c', { goal: 'gtop', externalId: 'gcal:x:1' }), task('d', { goal: 'grun2' })];
+    expect(treeTasks(tree, ts, 'gtop')).toEqual({ done: 1, all: 2 });
+    expect(treeTasks(tree, ts, 'gsub')).toEqual({ done: 0, all: 1 });
   });
 
   it('says how long a goal took', () => {

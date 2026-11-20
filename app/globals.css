@@ -1895,3 +1895,98 @@ span.ru-t{cursor:default}
 .ru-ring text{font:650 9.5px var(--font-ui);fill:var(--ink)}
 .ph .ru-t,.sheet .ru-t{font-size:var(--t-15);line-height:20px}
 .ph .ru-i,.sheet .ru-i{min-height:52px}
+
+/* ---------- the two views (components/Laptop.tsx): Calendar, and Goals ---------- */
+.vswitch{flex:none;display:flex;gap:2px;margin-left:12px;padding:3px;border-radius:var(--r-sm);background:var(--soft)}
+.vswitch button{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 14px;border:0;border-radius:calc(var(--r-sm) - 2px);background:none;font:500 var(--t-13)/1 var(--font-ui);color:var(--muted);cursor:pointer;transition:background var(--fast),color var(--fast)}
+.vswitch button:hover{color:var(--ink)}
+.vswitch button[aria-pressed="true"]{background:var(--raised);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(20,45,65,.12)}
+.lp-end .metrics{gap:0}
+
+/* The calendar view's left side: goals only (components/GoalRail.tsx). */
+.gr{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.gr-scroll{flex:1;min-height:0;overflow-y:auto;padding:4px 10px 12px}
+.gr-h{display:flex;align-items:baseline;gap:8px;width:100%;margin:10px 4px 6px;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:left}
+.gr-h h2{margin:0;font-size:var(--t-12);font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-ink)}
+.gr-fold{cursor:pointer;align-items:center}
+.gr-fold h2{color:var(--muted)}
+.gr-fold svg{color:var(--muted)}
+.gr-l{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.gr-row{position:relative;display:flex;flex-direction:column;gap:6px;width:100%;padding:10px 12px 9px 14px;border:1px solid var(--hair2);border-radius:var(--r-md);background:var(--raised);font:inherit;color:var(--ink);text-align:left;cursor:pointer;transition:background var(--fast),border-color var(--fast)}
+.gr-row::before{content:"";position:absolute;left:-1px;top:9px;bottom:9px;width:3px;border-radius:0 2px 2px 0;background:var(--c,var(--faint))}
+.gr-row:hover{background:var(--row-hover)}
+.gr-row.focus{border-color:color-mix(in oklch,var(--c,var(--accent)) 35%,var(--hair2));background:color-mix(in oklch,var(--c,var(--accent)) 6%,var(--raised))}
+.gr-row.dim{opacity:.72}
+.gr-row.dim:hover{opacity:1}
+.gr-top{display:flex;align-items:center;gap:8px;min-width:0}
+.gr-t{flex:1;min-width:0;font-size:var(--t-15);line-height:20px;font-weight:600;letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gr-pct{flex:none;font-size:var(--t-13);font-weight:650}
+.gr-bar{position:relative;height:5px;border-radius:3px;background:var(--hair);overflow:hidden}
+.gr-bar i{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--c,var(--ink))}
+.gr-bar i.ahead{background:repeating-linear-gradient(135deg,var(--c,var(--ink)) 0 2px,transparent 2px 4px);opacity:.55;border-radius:0 3px 3px 0}
+.gr-m{display:flex;align-items:center;gap:8px;min-width:0;font-size:var(--t-12);line-height:16px;color:var(--muted)}
+.gr-m b{font-weight:650;color:var(--ink)}
+.gr-pips{display:flex;gap:3px;flex:none}
+.gr-pips i{width:10px;height:7px;border-radius:2px;border:1.5px solid color-mix(in oklch,var(--c,var(--accent)) 45%,var(--hair2))}
+.gr-pips i.on{background:var(--c,var(--accent));border-color:var(--c,var(--accent))}
+.gr-empty{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:8px 4px;padding:14px;border:1px dashed var(--hair2);border-radius:var(--r-md)}
+.gr-empty p{margin:0}
+.gr-off{display:flex;align-items:center;gap:8px;margin:12px 6px 0}
+.gr-tray{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;height:46px;padding:0 16px;border:0;border-top:1px solid var(--hair);background:color-mix(in oklch,var(--ink) 3%,var(--raised));font:inherit;font-size:var(--t-14);color:var(--ink);cursor:pointer}
+.gr-tray:hover{background:var(--soft)}
+.gr-tray svg{color:var(--muted)}
+
+/* The Goals view (components/GoalsView.tsx): the list, the backlog beside it when open, and the open goal. */
+.lp-goals{display:block}
+.gv{height:100%;min-height:0;display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:12px}
+.gv.with-bl{grid-template-columns:minmax(240px,300px) minmax(260px,340px) minmax(0,1fr)}
+.gv-list{min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.gv-tabs{flex:none;display:flex;gap:2px;margin:10px 10px 4px;padding:3px;border-radius:var(--r-sm);background:var(--soft)}
+.gv-tabs button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;border:0;border-radius:calc(var(--r-sm) - 2px);background:none;font:500 var(--t-13)/1 var(--font-ui);color:var(--muted);cursor:pointer}
+.gv-tabs button[aria-selected="true"]{background:var(--raised);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(20,45,65,.12)}
+.gv-tabs .num{opacity:.7}
+.gv-scroll{flex:1;min-height:0;overflow-y:auto;padding:6px 8px 10px}
+.gv-l{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
+.gv-row{position:relative;display:flex;align-items:center;gap:9px;width:100%;min-height:40px;padding:6px 10px 6px calc(10px + var(--d,0) * 16px);border:0;border-radius:var(--r-sm);background:none;font:inherit;font-size:var(--t-14);color:var(--ink);text-align:left;cursor:pointer}
+.gv-row:hover{background:var(--soft)}
+.gv-row.sel{background:color-mix(in oklch,var(--c,var(--accent)) 12%,var(--raised));box-shadow:inset 3px 0 0 var(--c,var(--accent))}
+.gv-row.sub{min-height:34px;font-size:var(--t-13)}
+.gv-in{flex:none;width:18px;text-align:center;color:var(--faint)}
+.gv-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:550}
+.gv-row.sub .gv-t{font-weight:500}
+.gv-pct{flex:none;font-size:var(--t-12);color:var(--muted)}
+.gv-row.arch .loz{flex:none}
+.gv-none{margin:10px 8px}
+.gv-foot{flex:none;display:flex;align-items:center;gap:6px;padding:8px 10px;border-top:1px solid var(--hair)}
+.gv-foot .btn.on{background:var(--soft)}
+.gv-bl{min-height:0;display:flex;flex-direction:column;overflow:hidden;animation:lisIn 160ms var(--ease) both}
+.gv-blh{flex:none;display:flex;align-items:center;gap:8px;padding:12px 12px 4px 14px}
+.gv-blhint{flex:none;margin:0 14px 6px}
+.gv-bls{flex:1;min-height:0;overflow-y:auto;padding:0 8px 80px}
+.gv-pane{position:relative;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;transition:box-shadow 160ms}
+.gv-pane.over{box-shadow:0 0 0 2px var(--c,var(--accent)),var(--panel-shadow)}
+.gv-ph{flex:none;display:flex;flex-direction:column;gap:4px;padding:12px 18px 10px;border-bottom:1px solid var(--hair)}
+.gv-crumbs{min-height:16px;font-size:var(--t-12);color:var(--faint)}
+.gv-crumbs .link{color:var(--muted)}
+.gv-title{display:flex;align-items:center;gap:10px;min-width:0}
+.gv-title .dot{width:10px;height:10px;background:var(--c,var(--accent))}
+.gv-title h2{margin:0;min-width:0;font-size:var(--t-20);line-height:26px;font-weight:650;letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gv-title .loz{display:inline-flex;gap:5px}
+.gv-seg{flex:none;display:flex;gap:2px;padding:3px;border-radius:var(--r-sm);background:var(--soft)}
+.gv-seg button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:0;border-radius:calc(var(--r-sm) - 2px);background:none;font:500 var(--t-13)/1 var(--font-ui);color:var(--muted);cursor:pointer}
+.gv-seg button[aria-selected="true"]{background:var(--raised);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(20,45,65,.12)}
+.gv-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:0}
+.gv-acts{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:2px -6px 0}
+.gv-acts .btn.sec{margin:0 4px 0 6px}
+.gv-acts .btn svg{color:var(--muted)}
+.gv-map{flex:1;min-height:0;display:flex;flex-direction:column}
+.mp.embed{border-radius:0 0 var(--r-md) var(--r-md)}
+.gv-body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:22px;padding:16px 18px 110px}
+.gv-sh{margin:0 0 8px;font-size:var(--t-12);font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.gv-done .krs{margin-bottom:4px}
+.gv-drop{position:sticky;bottom:12px;align-self:center;margin:0;padding:8px 14px;border-radius:var(--r-md);background:var(--ink);color:var(--raised);font-size:var(--t-13);box-shadow:var(--shadow-float)}
+.gv-newh{margin:0 0 12px;font-size:var(--t-20);font-weight:650}
+.gv-empty{align-items:flex-start;justify-content:center;gap:10px;padding:32px}
+.gv-empty p{margin:0;max-width:520px}
+/* A map open in the Goals view has its own bar for changes in words: the chat bar steps aside. */
+.lp:has(.gv-pane.map) .dock:not(.open){display:none}

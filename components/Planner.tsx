@@ -99,6 +99,13 @@ export interface PlannerApi {
   hours: WorkHours;
   phoneTab: 'matrix' | 'calendar';
   setPhoneTab: (t: 'matrix' | 'calendar') => void;
+  /** The laptop's main view: the calendar with your goals beside it, or your goals in full. Kept in this browser. */
+  mainView: MainView;
+  setMainView: (v: MainView) => void;
+  /** The goal open in the Goals view. */
+  openGoalId: string | null;
+  /** Open a goal in the Goals view (on a phone, its route). */
+  openGoal: (id: string) => void;
   toast: (msg: string, undo?: () => void) => void;
   /** The toast showing, if any; the chat bar's dock draws it. */
   toastState: ToastState | null;
@@ -216,6 +223,13 @@ export const usePlanner = () => {
   return v;
 };
 
+export type MainView = 'calendar' | 'goals';
+const VIEW_KEY = 'ds.view', GOAL_KEY = 'ds.view.goal';
+function remember(key: string, v: string) { try { localStorage.setItem(key, v); } catch { /* private mode: for this visit */ } }
+function recall(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
+const readView = (): MainView => (typeof window !== 'undefined' && recall(VIEW_KEY) === 'goals' ? 'goals' : 'calendar');
+const readOpenGoal = () => (typeof window !== 'undefined' ? recall(GOAL_KEY) : null);
+
 const SHEET_HASH = /^#(goals|archive|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
@@ -257,6 +271,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [hashSheet, setHashSheet] = useState<{ kind: SheetKind; section: string | null } | null>(null);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
   const [phoneTab, setPhoneTab] = useState<'matrix' | 'calendar'>('matrix');
+  const [mainView, setMainViewState] = useState<MainView>(() => readView());
+  const [openGoalId, setOpenGoalId] = useState<string | null>(() => readOpenGoal());
+  const setMainView = useCallback((v: MainView) => { setMainViewState(v); remember(VIEW_KEY, v); }, []);
   const [filter, setFilter] = useState<Filter | null>(null);
   const lastFocus = useRef<HTMLElement | null>(null);
   const sheetOpenedHere = useRef(false);
@@ -364,6 +381,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     if (sheetOpenedHere.current) { sheetOpenedHere.current = false; history.back(); return; }
     dropHash();
   }, [dropHash]);
+
+  const openGoal = useCallback((id: string) => {
+    if (!wide) { openSheet('flow', id); return; }
+    setOpenGoalId(id);
+    remember(GOAL_KEY, id);
+    setMainView('goals');
+    if (hashSheet) dropHash();
+  }, [wide, openSheet, setMainView, hashSheet, dropHash]);
 
   /** The panel the editor was opened from (a goal's chart, or Goals): it comes back when the editor closes. */
   const returnTo = useRef<{ kind: SheetKind; section: string | null } | null>(null);
@@ -804,7 +829,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
-    prefs, setPrefs, hours, phoneTab, setPhoneTab,
+    prefs, setPrefs, hours, phoneTab, setPhoneTab, mainView, setMainView, openGoalId, openGoal,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
     goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, todayPlan, changeDays: dayPlans.change, deleteGoal, closeGoal, goalOf, rootGoalOf, goalById, setGoal,
     blocked, logGoal, readGoalLog: goalLog.read,

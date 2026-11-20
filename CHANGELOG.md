@@ -6,6 +6,9 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- **Two views** on a laptop, switched at the top: **Calendar** and **Goals**.
+  - **Calendar:** the Next task, then a rail with only your goals: progress, key results, by-tonight numbers, today's focus first and "Not today" after (`components/GoalRail.tsx`). The backlog sits behind a tray: the goal cards with their tasks, as before, with a way back. The view and the open goal are kept in this browser.
+  - **Goals:** a list with Active and Archived tabs. The open goal shows its sub-goals under it. On the right is the open goal: done-when with its sub-goals, then its Route or its Map (`components/GoalsView.tsx`). The map runs inside the pane (`GoalMap`, the map's `embed`), so the list stays; Full screen opens it as before. A Backlog column opens beside the list: drag a task onto the goal to put it on it.
 - **Plan the day with Claude.** A day is planned once Claude saves the goals in focus and the outcome each one produces (`plan_today`; `get_today` reads it back with each outcome's steps and numbers, and the day's calendar). The app then shows **Today's outcomes** across the top of the calendar: one card per goal with its outcome, today's steps to tick off, and where the goal will be by tonight in tasks and key results (`components/Today.tsx`). The goal cards on the left say **Today**. Unplanned, nothing shows on top. **Clear** un-plans the day. Plans live in your settings under `day-plans`, one a day, the last 60 (`lib/today.ts`); `supabase/migrations/0012_day_plans.sql` lets a connection read and write them.
 - **Done** on a goal archives it at once: on each goal's card on the main page, in Goals, on its map and on its route on a phone, with Undo. It says what went with it (its open sub-goals) and how many open tasks are off-goal now. One action for all of them, `closeGoal` in the planner, worded by `closingLine` in `lib/goals.ts`.
 - The **Archive** (`components/Archive.tsx`, `#archive`): every goal marked done or dropped, newest first, a month at a time, with how long it took, its key results, its sub-goals and the tasks and time it took. Filter by done or dropped, find one by name, open its map, bring it back or delete it. It's beside **Edit goals** on the main page once something's in it, at the foot of Goals, and in the phone's ••• menu. An archived goal's map and route say so, with **Bring back**, and the map's trail leads back to the archive.
@@ -30,6 +33,7 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Changed
 
+- The laptop header is quieter: the view switch, time on goals this week, the clock, Analytics, Share and Settings. Today's, this week's and the backlog's counts left the header.
 - Bringing a goal back brings back the sub-goals that closed with it (the same way, at the same moment), not one you'd finished before it. Before, they stayed closed.
 - **Achieved** is now **Done** on a goal, and Goals' collapsed **Achieved and dropped** list is a link to the Archive.
 - "Flow chart" is now the **Map**. The goal is the finish, on the right, as a ring that fills as its work gets done; every step nothing comes after leads on to it (`buildFlow`'s `ends` and, with `finish`, lanes on to the goal), and the dashed lines from the goal to the first steps are gone. Done steps sit back and the route you've walked fills in with the goal's colour; the step to do now wears Up next; locked steps wait in grey.

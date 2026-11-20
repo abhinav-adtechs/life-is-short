@@ -432,6 +432,13 @@ export function archivedGoals(goals: Goal[]): Goal[] {
     .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
 }
 
+/** A goal's tasks and its sub-goals', as on its card: how many are done, and how many in all. Meetings don't count. */
+export function treeTasks(goals: Goal[], tasks: Task[], id: string): { done: number; all: number } {
+  const ids = new Set([id, ...descendantsOf(goals, id).map(d => d.id)]);
+  const mine = tasks.filter(t => t.goal && ids.has(t.goal) && !isEvent(t));
+  return { done: mine.filter(t => t.status === 'done').length, all: mine.length };
+}
+
 /** Open tasks on a goal and the open goals under it: the ones that go off-goal when it closes. Meetings don't count. */
 export function openTasksOn(goals: Goal[], tasks: Task[], id: string): number {
   const ids = new Set([id, ...descendantsOf(goals, id).filter(d => d.status === 'active').map(d => d.id)]);

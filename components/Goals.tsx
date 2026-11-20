@@ -88,7 +88,7 @@ export function GoalPicker({ value, onChange, labelledBy }: { value: string | nu
 
 /* ---------- a goal, to write or change ---------- */
 
-interface GoalValues { title: string; section: string | null; results: ResultDraft[]; by: string | null }
+export interface GoalValues { title: string; section: string | null; results: ResultDraft[]; by: string | null }
 
 /**
  * Tab and Shift+Tab indent and outdent the line you're on, so key results can go under each other. The text changes in
@@ -111,7 +111,7 @@ function indentKeys(e: React.KeyboardEvent<HTMLTextAreaElement>, set: (v: string
   set(el.value);
 }
 
-function GoalForm({ goal, sub, onSave, onCancel }: {
+export function GoalForm({ goal, sub, onSave, onCancel }: {
   goal?: Goal; sub?: { parent: Goal; kr: string | null }; onSave: (v: GoalValues) => void; onCancel: () => void;
 }) {
   const { prefs } = usePlanner();
@@ -168,7 +168,7 @@ export function daysLeft(by: string, now: number) {
 }
 
 /** A progress bar and its percentage. */
-function Progress({ value, label }: { value: number | null; label: string }) {
+export function Progress({ value, label }: { value: number | null; label: string }) {
   if (value == null) return null;
   return (
     <span className="gprog" role="img" aria-label={`${label}: ${pct(value)} done`}>
@@ -178,10 +178,10 @@ function Progress({ value, label }: { value: number | null; label: string }) {
 }
 
 /** What adding a sub-goal is waiting on: the form shows under the goal, or under one of its key results. */
-type Adding = { parent: string; kr: string | null } | null;
+export type Adding = { parent: string; kr: string | null } | null;
 
 /** A line to type a new key result into, in place: Enter adds it and stays for the next, Esc or leaving it empty stops. */
-function NewResult({ g, under, onDone }: { g: Goal; under: string | null; onDone: () => void }) {
+export function NewResult({ g, under, onDone }: { g: Goal; under: string | null; onDone: () => void }) {
   const { changeGoals } = usePlanner();
   const [text, setText] = useState('');
   // Esc means leave it: don't add what's typed when the field goes.
@@ -202,7 +202,7 @@ function NewResult({ g, under, onDone }: { g: Goal; under: string | null; onDone
 }
 
 /** A goal's key results, nested, each with the sub-goals that serve it right under it. */
-function Results({ g, list, depth, adding, setAdding, goalDepth }: {
+export function Results({ g, list, depth, adding, setAdding, goalDepth }: {
   g: Goal; list: KeyResult[]; depth: number; adding: Adding; setAdding: (a: Adding) => void; goalDepth: number;
 }) {
   const { goals, changeGoals, logGoal } = usePlanner();
@@ -275,7 +275,7 @@ function SubGoalForm({ parent, kr, onDone }: { parent: Goal; kr: string | null; 
 }
 
 /** A goal's sub-goals for the goal as a whole (not for one key result). */
-function GoalWide({ g, depth, adding, setAdding }: { g: Goal; depth: number; adding: Adding; setAdding: (a: Adding) => void }) {
+export function GoalWide({ g, depth, adding, setAdding }: { g: Goal; depth: number; adding: Adding; setAdding: (a: Adding) => void }) {
   const { goals } = usePlanner();
   const wide = goals.filter(c => c.parent === g.id && !(c.parentKr && findResult(g.results, c.parentKr)) && c.status !== 'dropped');
   return (
@@ -290,14 +290,14 @@ function GoalWide({ g, depth, adding, setAdding }: { g: Goal; depth: number; add
  * A goal just marked done, dropped or deleted, with its Undo: the panel shows it, since the toast's Undo is under the
  * panel while it's open.
  */
-interface JustSaid { said: string; undo: () => void }
-const Said = createContext<(d: JustSaid) => void>(() => undefined);
+export interface JustSaid { said: string; undo: () => void }
+export const Said = createContext<(d: JustSaid) => void>(() => undefined);
 
 /**
  * Asks before deleting a goal for good, saying what goes with it: its sub-goals, and its open tasks if you want them
  * gone too (otherwise they stay in your planner, off-goal). Done tasks always stay. Undo is on the toast.
  */
-function DeleteGoal({ g, onCancel }: { g: Goal; onCancel: () => void }) {
+export function DeleteGoal({ g, onCancel }: { g: Goal; onCancel: () => void }) {
   const { goals, tasks, repeats, deleteGoal } = usePlanner();
   const deleted = useContext(Said);
   const go = (withTasks: boolean) => { const r = deleteGoal(g.id, { withTasks, quiet: true }); if (r) deleted(r); };

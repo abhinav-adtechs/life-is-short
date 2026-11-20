@@ -73,7 +73,7 @@ flowchart TB
 
 ### `components/` (UI)
 
-- `Planner.tsx` owns state: tasks, settings, Google accounts, undo, the open panel. It picks `Phone.tsx` under 860px and `Laptop.tsx` above.
+- `Planner.tsx` owns state: tasks, settings, Google accounts, undo, the open panel, and on a laptop the main view (`mainView`: Calendar or Goals) and the goal open in it. It picks `Phone.tsx` under 860px and `Laptop.tsx` above. `Laptop.tsx` shows the Calendar view (`Next.tsx`, `GoalRail.tsx` or the backlog in `Matrix.tsx`, and `Calendar.tsx` with `Today.tsx`'s band) or the Goals view (`GoalsView.tsx`: the list, the backlog column and the open goal, reusing `Goals.tsx`'s key results and forms, `Route.tsx` and the map from `Flow.tsx` as `GoalMap`).
 - Shared pieces: `Next.tsx` (the Next task card), `Matrix.tsx` (label × priority backlog), `Calendar.tsx`, `Chat.tsx` (chat bar, plan review and history), `Panel.tsx` (side panels and sheets for the editor, Analytics, Share and Settings), `Review.tsx` and `Analytics.tsx`.
 - Settings sections: `AccountSection.tsx`, `GoogleSection.tsx`, `SharingSection.tsx`, `ClaudeSection.tsx`, `VoiceSection.tsx`, `Labels.tsx`, `Repeating.tsx`.
 - `Split.tsx` (the laptop divider), `drag.ts` (pointer-event drag, so touch and mouse share code), `hooks.ts` (media queries, speech), `Ambient.tsx` (Night and Day train light, transforms and opacity only), `Auth.tsx` (sign-in and unlock), `Connect.tsx` (the Claude consent screen).
