@@ -6,6 +6,8 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- **Done** on a goal archives it at once: on each goal's card on the main page, in Goals, on its map and on its route on a phone, with Undo. It says what went with it (its open sub-goals) and how many open tasks are off-goal now. One action for all of them, `closeGoal` in the planner, worded by `closingLine` in `lib/goals.ts`.
+- The **Archive** (`components/Archive.tsx`, `#archive`): every goal marked done or dropped, newest first, a month at a time, with how long it took, its key results, its sub-goals and the tasks and time it took. Filter by done or dropped, find one by name, open its map, bring it back or delete it. It's beside **Edit goals** on the main page once something's in it, at the foot of Goals, and in the phone's ••• menu. An archived goal's map and route say so, with **Bring back**, and the map's trail leads back to the archive.
 - A goal's **route**, top to bottom: **Up next** (the first step you can start on the critical path, in a sub-goal if that's where it is) with Done and a time for it and what it opens up, then what else is ready, what you're waiting on and for how long, the route still ahead to the finish, the sub-goals (each opening to its own route) and what's done. It drops down on each goal's card on the main page (**Route**, remembered in this browser), and it's what a goal opens to on a phone, with the map a tap away. Worked out in `lib/route.ts`, shown by `components/Route.tsx`.
 - The map: the goal as a full-screen route to the finish, with floating controls (where you are and how far along, undo and history, a minimap and zoom, and a dock to add steps, bring in the backlog or change the plan in words). Each kind of step has its own shape: a card with a ring to tick, a sand capsule for what you wait on (with how long it's been), a flag for a key result, a stack of cards with its own ring for a sub-goal.
 - Drag and drop that shows where it lands before you let go: onto an arrow puts it in between, and what comes after slides along to make room; onto a step puts it after, before or alongside it. Moving a step lines it up on guides. Drawing an arrow snaps to the step you reach and says why if it can't; let go on an empty spot for a new step there. A + on every arrow puts a step in between.
@@ -24,6 +26,8 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Changed
 
+- Bringing a goal back brings back the sub-goals that closed with it (the same way, at the same moment), not one you'd finished before it. Before, they stayed closed.
+- **Achieved** is now **Done** on a goal, and Goals' collapsed **Achieved and dropped** list is a link to the Archive.
 - "Flow chart" is now the **Map**. The goal is the finish, on the right, as a ring that fills as its work gets done; every step nothing comes after leads on to it (`buildFlow`'s `ends` and, with `finish`, lanes on to the goal), and the dashed lines from the goal to the first steps are gone. Done steps sit back and the route you've walked fills in with the goal's colour; the step to do now wears Up next; locked steps wait in grey.
 - What you wait on, and a sub-goal, sit right before the step they're for rather than back at the start, so their arrows stay short.
 - A sub-goal is one card on a map until you open it in place (as a frame with a header bar, its chart under it), remembered in this browser under `ds.flow.opened`.

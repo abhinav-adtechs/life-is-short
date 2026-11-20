@@ -15,7 +15,7 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { resolveLabel, type Label } from '@/lib/labels';
-import { activeGoalOf, activeGoals, goalRanker, goalSection, rootOf, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
+import { activeGoalOf, activeGoals, closingLine, goalRanker, goalSection, rootOf, setGoalStatus, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
 import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
 import { applyWorkflow, normalizeOps, recordedIds, type WorkflowRefs } from '@/lib/workflow';
 import { kindOf } from '@/lib/plan';
@@ -44,7 +44,7 @@ import { Phone } from './Phone';
  * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
  * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
  */
-export type SheetKind = 'goals' | 'flow' | 'analytics' | 'review' | 'share' | 'settings';
+export type SheetKind = 'goals' | 'archive' | 'flow' | 'analytics' | 'review' | 'share' | 'settings';
 
 /** A cell of the matrix: one goal ('' for off-goal) at one priority. */
 export interface Cell { goal: string; priority: Priority }
@@ -129,6 +129,11 @@ export interface PlannerApi {
    * or null if nothing changed.
    */
   deleteGoal: (id: string, opts?: { withTasks?: boolean; quiet?: boolean }) => { said: string; undo: () => void } | null;
+  /**
+   * Mark a goal done (or drop it), at once: it goes to the archive with the open goals under it, and its open tasks go
+   * off-goal. Says so with Undo, unless `quiet`. Returns what it said and what undoes it, or null if nothing changed.
+   */
+  closeGoal: (id: string, status: 'achieved' | 'dropped', opts?: { quiet?: boolean }) => { said: string; undo: () => void } | null;
   /** The active goal a task moves, or null for off-goal work. */
   goalOf: (t: Task) => Goal | null;
   /** The top goal above the goal a task moves (the goal itself when it's a top goal), or null for off-goal work. */
@@ -205,7 +210,7 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(goals|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
+const SHEET_HASH = /^#(goals|archive|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -406,6 +411,18 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     if (!opts.quiet) toast(said, undo);
     return { said, undo };
   }, [goals, store, repeats, logGoal, toast]);
+
+  /* ---------- marking a goal done: it goes to the archive ---------- */
+
+  const closeGoal = useCallback((id: string, status: 'achieved' | 'dropped', opts: { quiet?: boolean } = {}) => {
+    const g = goals.list.find(x => x.id === id);
+    if (!g || g.status !== 'active') return null;
+    const said = closingLine(goals.list, store.all(), id, status);
+    if (status === 'achieved') haptic('success');
+    const undo = goals.change(setGoalStatus(id, status));
+    if (!opts.quiet) toast(said, undo);
+    return { said, undo };
+  }, [goals, store, toast]);
 
   /* ---------- scheduling ---------- */
 
@@ -780,7 +797,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
-    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, deleteGoal, goalOf, rootGoalOf, goalById, setGoal,
+    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, deleteGoal, closeGoal, goalOf, rootGoalOf, goalById, setGoal,
     blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,

@@ -6,14 +6,14 @@ import { isEvent } from '@/lib/select';
 import {
   FOCUS_GOALS, GOAL_TITLE_MAX, MAX_ACTIVE, MAX_ALL_RESULTS, MAX_GOAL_DEPTH, MAX_KR_DEPTH, RESULT_MAX, addGoal, addResult, descendantsOf, findResult, goalProgress,
   goalTree, makeGoal, mergeResults, moveGoal, onGoalShare, outlineOf, parseOutline, patchGoal, patchResult, resultDone, resultProgress,
-  resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal, type GoalTally, type KeyResult, type ResultDraft,
+  archivedGoals, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal, type GoalTally, type KeyResult, type ResultDraft,
 } from '@/lib/goals';
 import { fmtDur, shortDate, shortTitle } from '@/lib/format';
 import { DAY_MS, addDays, fromYmd, startOfDay, weekStart } from '@/lib/time';
 import { usePlanner } from './Planner';
 import { LabelPicker } from './Labels';
 import { radio, radioKeys } from './Controls';
-import { CheckIcon, ChevronDown, ChevronUp, PlusIcon, TargetIcon, XIcon } from './icons';
+import { ArchiveIcon, CheckIcon, ChevronDown, ChevronRight, ChevronUp, PlusIcon, TargetIcon, XIcon } from './icons';
 import { useFlowCount } from './Flow';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -286,9 +286,12 @@ function GoalWide({ g, depth, adding, setAdding }: { g: Goal; depth: number; add
   );
 }
 
-/** A goal just deleted, with its Undo: the panel shows it, since the toast's Undo is under the panel while it's open. */
-interface JustDeleted { said: string; undo: () => void }
-const Deleted = createContext<(d: JustDeleted) => void>(() => undefined);
+/**
+ * A goal just marked done, dropped or deleted, with its Undo: the panel shows it, since the toast's Undo is under the
+ * panel while it's open.
+ */
+interface JustSaid { said: string; undo: () => void }
+const Said = createContext<(d: JustSaid) => void>(() => undefined);
 
 /**
  * Asks before deleting a goal for good, saying what goes with it: its sub-goals, and its open tasks if you want them
@@ -296,8 +299,8 @@ const Deleted = createContext<(d: JustDeleted) => void>(() => undefined);
  */
 function DeleteGoal({ g, onCancel }: { g: Goal; onCancel: () => void }) {
   const { goals, tasks, repeats, deleteGoal } = usePlanner();
-  const deleted = useContext(Deleted);
-  const go = (withTasks: boolean) => { const r = deleteGoal(g.id, { withTasks }); if (r) deleted(r); };
+  const deleted = useContext(Said);
+  const go = (withTasks: boolean) => { const r = deleteGoal(g.id, { withTasks, quiet: true }); if (r) deleted(r); };
   const subs = descendantsOf(goals, g.id);
   const ids = new Set([g.id, ...subs.map(x => x.id)]);
   const open = tasks.filter(t => t.goal && ids.has(t.goal) && t.status === 'open' && !isEvent(t));
@@ -311,7 +314,7 @@ function DeleteGoal({ g, onCancel }: { g: Goal; onCancel: () => void }) {
       <p><b>Delete “{shortTitle(g.title, 48)}” for good?</b>{subs.length ? ` ${subs.length === 1 ? 'Its sub-goal goes' : `Its ${subs.length} sub-goals go`} with it.` : ''}</p>
       <p className="muted sm">
         {open.length ? `${open.length === 1 ? 'Its open task stays' : `Its ${open.length} open tasks stay`} in your planner, off-goal, unless you delete ${open.length === 1 ? 'it' : 'them'} too. ` : ''}
-        Done tasks stay. To keep it but stop working on it, drop it instead.
+        Done tasks stay. To keep it but stop working on it, mark it done or drop it: it goes to the archive.
       </p>
       <div className="acts">
         <button type="button" className="btn sm pri" autoFocus onClick={() => go(false)}>Delete</button>
@@ -328,7 +331,8 @@ function DeleteGoal({ g, onCancel }: { g: Goal; onCancel: () => void }) {
 
 /** A sub-goal: a compact row that opens into its own key results and sub-goals. */
 function SubGoal({ g, depth, adding, setAdding }: { g: Goal; depth: number; adding: Adding; setAdding: (a: Adding) => void }) {
-  const { goals, changeGoals, openSheet, toast } = usePlanner();
+  const { goals, changeGoals, openSheet, closeGoal } = usePlanner();
+  const said = useContext(Said);
   const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -359,8 +363,9 @@ function SubGoal({ g, depth, adding, setAdding }: { g: Goal; depth: number; addi
         <button type="button" className="link sm" onClick={() => setEditing(true)}>Edit</button>
         {!done && <button type="button" className="link sm" onClick={() => { setOpen(true); setNewKr(true); }}>+ key result</button>}
         {!done && depth < MAX_GOAL_DEPTH && <button type="button" className="link sm" onClick={() => { setOpen(true); setAdding({ parent: g.id, kr: null }); }}>+ sub-goal</button>}
-        <button type="button" className="link sm" onClick={() => changeGoals(setGoalStatus(g.id, done ? 'active' : 'achieved'))}>{done ? 'Bring back' : 'Achieved'}</button>
-        {!done && <button type="button" className="link sm" onClick={() => toast(`Dropped · ${shortTitle(g.title, 30)}`, changeGoals(setGoalStatus(g.id, 'dropped')))}>Drop</button>}
+        {done ? <button type="button" className="link sm" onClick={() => changeGoals(setGoalStatus(g.id, 'active'))}>Bring back</button>
+          : <button type="button" className="link sm" onClick={() => { const r = closeGoal(g.id, 'achieved', { quiet: true }); if (r) said(r); }}>Done</button>}
+        {!done && <button type="button" className="link sm" onClick={() => { const r = closeGoal(g.id, 'dropped', { quiet: true }); if (r) said(r); }}>Drop</button>}
         <button type="button" className="link sm warn" aria-expanded={deleting} onClick={() => setDeleting(d => !d)}>Delete</button>
       </div>
       {deleting && <DeleteGoal g={g} onCancel={() => setDeleting(false)} />}
@@ -378,7 +383,8 @@ function SubGoal({ g, depth, adding, setAdding }: { g: Goal; depth: number; addi
 function GoalCard({ g, rank, count, week, ever, open, onTasks, adding, setAdding }: {
   g: Goal; rank: number; count: number; week: GoalTally; ever: GoalTally; open: number; onTasks: () => void; adding: Adding; setAdding: (a: Adding) => void;
 }) {
-  const { prefs, changeGoals, toast, now, wide, openSheet, goals } = usePlanner();
+  const { prefs, changeGoals, closeGoal, now, openSheet, goals } = usePlanner();
+  const said = useContext(Said);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [newKr, setNewKr] = useState(false);
@@ -400,12 +406,8 @@ function GoalCard({ g, rank, count, week, ever, open, onTasks, adding, setAdding
     );
   }
 
-  const close = (status: 'achieved' | 'dropped') => {
-    const undo = changeGoals(setGoalStatus(g.id, status));
-    const tail = open ? ` Its ${open} open task${open === 1 ? ' is' : 's are'} off-goal now.` : '';
-    // Bring it back from the list below while the panel is open, or with Undo once it's closed.
-    toast(`${status === 'achieved' ? 'Achieved' : 'Dropped'} · ${shortTitle(g.title, 30)}${subs ? `, with its ${subs} sub-goal${subs === 1 ? '' : 's'}` : ''}.${tail}`, undo);
-  };
+  // To the archive at once, with Undo at the top of the panel; it comes back from the archive too.
+  const close = (status: 'achieved' | 'dropped') => { const r = closeGoal(g.id, status, { quiet: true }); if (r) said(r); };
 
   return (
     <li className="gcard" style={tint(section?.color)}>
@@ -440,7 +442,7 @@ function GoalCard({ g, rank, count, week, ever, open, onTasks, adding, setAdding
         <span className="spacer" />
         <button type="button" className="ib bare" aria-label={`Move ${g.title} up`} disabled={rank === 0} onClick={() => changeGoals(moveGoal(g.id, -1))}><ChevronUp /></button>
         <button type="button" className="ib bare" aria-label={`Move ${g.title} down`} disabled={rank === count - 1} onClick={() => changeGoals(moveGoal(g.id, 1))}><ChevronDown /></button>
-        <button type="button" className="btn text sm" onClick={() => close('achieved')}>Achieved</button>
+        <button type="button" className="btn text sm" onClick={() => close('achieved')} title="Mark it done: it goes to the archive"><CheckIcon size={13} w={2.2} />Done</button>
         <button type="button" className="btn text sm" onClick={() => close('dropped')}>Drop</button>
         <button type="button" className="btn text sm warn" aria-expanded={deleting} onClick={() => setDeleting(d => !d)}>Delete</button>
       </div>
@@ -470,19 +472,15 @@ function WeekBar({ goals, week }: { goals: Goal[]; week: Map<string, GoalTally> 
  * this week's time went. Everything else is off-goal, which is fine, as long as you know.
  */
 export function Goals() {
-  const { goals, activeGoals, changeGoals, deleteGoal, toast, setFilter, closeSheet, wide, setPhoneTab, goalsLoaded } = usePlanner();
+  const { goals, activeGoals, changeGoals, toast, setFilter, closeSheet, openSheet, wide, setPhoneTab, goalsLoaded } = usePlanner();
   const stats = useGoalWeek();
   const tops = topGoals(goals);
   const [adding, setAdding] = useState(false);
   const [addingSub, setAddingSub] = useState<Adding>(null);
-  const [showClosed, setShowClosed] = useState(false);
-  // Deleting a goal from the list below takes a second click; its Undo is here, since the panel covers the toast's.
-  const [armed, setArmed] = useState<string | null>(null);
-  const [justDeleted, setJustDeleted] = useState<JustDeleted | null>(null);
-  // Closed goals, unless they went with a goal above them (they come back with it).
-  const byId = new Map(goals.map(g => [g.id, g]));
-  const closed = goals.filter(g => g.status !== 'active' && !(g.parent && byId.get(g.parent)?.status !== 'active' && byId.get(g.parent)?.status === g.status))
-    .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+  // What a goal's Done, Drop or Delete just did, with its Undo here, since the panel covers the toast's.
+  const [justSaid, setJustSaid] = useState<JustSaid | null>(null);
+  const closed = archivedGoals(goals);
+  const closedDone = closed.filter(g => g.status === 'achieved').length;
   const onTime = activeGoals.reduce((n, g) => n + (stats.week.get(g.id)?.spent ?? 0), 0);
   const offTime = stats.week.get('')?.spent ?? 0;
   const full = tops.length >= MAX_ACTIVE;
@@ -494,13 +492,13 @@ export function Goals() {
   };
 
   return (
-    <Deleted.Provider value={setJustDeleted}>
+    <Said.Provider value={setJustSaid}>
     <div className="gpanel">
-      {justDeleted && (
+      {justSaid && (
         <p className="gundo" role="status">
-          <span>{justDeleted.said}</span>
-          <button type="button" className="link" onClick={() => { justDeleted.undo(); setJustDeleted(null); }}>Undo</button>
-          <button type="button" className="ib bare" aria-label="Dismiss" onClick={() => setJustDeleted(null)}><XIcon size={11} /></button>
+          <span>{justSaid.said}</span>
+          <button type="button" className="link" onClick={() => { justSaid.undo(); setJustSaid(null); }}>Undo</button>
+          <button type="button" className="ib bare" aria-label="Dismiss" onClick={() => setJustSaid(null)}><XIcon size={11} /></button>
         </p>
       )}
       <section className="gweek" aria-label="This week">
@@ -557,7 +555,7 @@ export function Goals() {
         ) : (
           <div className="acts gadd">
             <button type="button" className={'btn sm ' + (tops.length ? 'sec' : 'pri')} disabled={full} onClick={() => setAdding(true)}><PlusIcon size={13} />Add a goal</button>
-            {full ? <span className="note">That’s {MAX_ACTIVE}, the most at once. Achieve or drop one first, or make it a sub-goal of one.</span>
+            {full ? <span className="note">That’s {MAX_ACTIVE}, the most at once. Mark one done or drop it first, or make it a sub-goal of one.</span>
               : tops.length >= FOCUS_GOALS ? <span className="note">{FOCUS_GOALS} is plenty: the fewer goals, the more each one moves. Break one down into sub-goals instead.</span> : null}
           </div>
         )}
@@ -577,31 +575,15 @@ export function Goals() {
       </section>
 
       {closed.length > 0 && (
-        <section aria-label="Achieved and dropped">
-          <button type="button" className="gh-t gclosed-t" aria-expanded={showClosed} onClick={() => setShowClosed(o => !o)}>
-            Achieved and dropped<span className="gh-n num">{closed.length}</span><ChevronDown />
-          </button>
-          {showClosed && (
-            <ul className="gclosed">
-              {closed.map(g => (
-                <li key={g.id}>
-                  <span className={'loz' + (g.status === 'achieved' ? ' hot' : '')}>{g.status === 'achieved' ? 'Achieved' : 'Dropped'}</span>
-                  <span className="ell">{g.parent ? <span className="muted">{shortTitle(byId.get(g.parent)?.title ?? '', 24)} › </span> : null}{g.title}</span>
-                  <span className="muted sm num">{resultsLine(g) ?? ''}</span>
-                  <span className="spacer" />
-                  <button type="button" className="btn text sm" disabled={full && !g.parent} onClick={() => changeGoals(setGoalStatus(g.id, 'active'))}>Bring back</button>
-                  <button type="button" className="btn text sm warn" onBlur={() => setArmed(a => (a === g.id ? null : a))} onClick={() => {
-                    if (armed !== g.id) { setArmed(g.id); return; }
-                    const r = deleteGoal(g.id);
-                    if (r) setJustDeleted(r);
-                  }}>{armed === g.id ? `${wide ? 'Click' : 'Tap'} again to delete` : 'Delete'}</button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <button type="button" className="garch" onClick={() => openSheet('archive')}>
+          <ArchiveIcon size={16} />
+          <span className="garch-t">Archive</span>
+          <span className="muted sm num">{[closedDone ? `${closedDone} done` : '', closed.length - closedDone ? `${closed.length - closedDone} dropped` : ''].filter(Boolean).join(' · ')}</span>
+          <span className="spacer" />
+          <ChevronRight size={13} />
+        </button>
       )}
     </div>
-    </Deleted.Provider>
+    </Said.Provider>
   );
 }

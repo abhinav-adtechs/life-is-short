@@ -1088,7 +1088,6 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .goff{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--r-md);background:var(--bg)}
 .goff-h{display:flex;align-items:center;gap:8px}
 .goff-h h3{margin:0;font-size:var(--t-15);font-weight:600}
-.gclosed-t{font-size:var(--t-13);font-weight:600;cursor:pointer}
 /* Deleting a goal for good: asks first, in place, saying what goes with it. */
 .gdel{display:flex;flex-direction:column;gap:6px;margin:10px 0 2px;padding:10px 12px;border:1px solid color-mix(in oklch,var(--accent-ink) 35%,var(--hair2));border-radius:var(--r-md);background:color-mix(in oklch,var(--accent) 6%,var(--raised));font-size:var(--t-13);line-height:18px;animation:lisIn 140ms var(--ease) both}
 .gdel p{margin:0}
@@ -1098,8 +1097,41 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .gundo span{flex:1;min-width:0}
 .gundo .link{color:inherit;font-weight:600;text-decoration:underline;text-underline-offset:2px}
 .gundo .ib{color:inherit}
-.gclosed{display:flex;flex-direction:column;margin:8px 0 0;padding:0;list-style:none}
-.gclosed li{display:flex;align-items:center;gap:8px;min-height:40px;border-bottom:1px solid var(--hair);font-size:var(--t-14)}
+/* The way from Goals to the archive. */
+.garch{display:flex;align-items:center;gap:10px;width:100%;min-height:46px;padding:0 12px 0 14px;border:1px solid var(--hair2);border-radius:var(--r-md);background:var(--raised);font:inherit;font-size:var(--t-14);color:var(--ink);text-align:left;cursor:pointer;transition:background var(--fast)}
+.garch:hover{background:var(--soft)}
+.garch>svg{flex:none;color:var(--muted)}
+.garch-t{font-weight:600}
+
+/* The archive: goals marked done or dropped, a month at a time. */
+.ar{display:flex;flex-direction:column;gap:18px}
+.ar-sum{margin:0;font-size:var(--t-17);line-height:23px;color:var(--muted)}
+.ar-sum b{font-size:var(--t-20);font-weight:650;color:var(--ink)}
+.ar-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ar-bar:empty{display:none}
+.ar-n{margin-left:2px;opacity:.65}
+.ar-find{flex:1 1 160px;min-width:0;height:32px;padding:0 10px;border:1px solid var(--hair2);border-radius:var(--r-sm);background:var(--raised);font-size:var(--t-13);color:var(--ink)}
+.ar-g{display:flex;flex-direction:column;gap:8px}
+.ar-mh{margin:0;font-size:var(--t-12);font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.ar-l{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.ar-i{position:relative;display:flex;flex-direction:column;gap:4px;padding:11px 12px 6px 15px;border:1px solid var(--hair2);border-radius:var(--r-md);background:var(--raised);animation:var(--row-in)}
+.ar-i::before{content:"";position:absolute;left:-1px;top:10px;bottom:10px;width:3px;border-radius:0 2px 2px 0;background:var(--c,var(--faint))}
+.ar-i.dropped::before{background:var(--hair2)}
+.ar-i.dropped .ar-t{color:var(--muted)}
+.ar-ih{display:flex;align-items:center;gap:8px;min-height:20px}
+.ar-sec{display:inline-flex;align-items:center;gap:6px;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ar-t{margin:2px 0 0;font-size:var(--t-15);line-height:21px;font-weight:600;letter-spacing:-.005em;text-wrap:pretty}
+.ar-m{margin:0;line-height:18px}
+.ar-acts{display:flex;align-items:center;gap:2px;margin:4px -6px 0;padding-top:4px;border-top:1px solid var(--hair)}
+.ar-acts .btn svg{color:var(--muted)}
+
+/* Done on a goal: one press, and it goes to the archive. */
+.gc-fin svg{color:var(--muted)}
+.gc-fin:hover svg{color:var(--c,var(--accent-ink))}
+.goal-acts .btn svg{color:var(--muted)}
+.ru-arch{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:9px 12px;border-radius:var(--r-md);background:var(--soft);font-size:var(--t-13);line-height:18px}
+.ru-arch>svg{flex:none;color:var(--muted)}
+.ru-arch .link{font-weight:600}
 .goal-chips .gchip{max-width:100%}
 .goal-chips .gchip .ell{max-width:240px}
 .goal-chips .gchip.off{color:var(--muted)}
@@ -1396,6 +1428,9 @@ button.gh-t[aria-expanded="false"] svg{transform:rotate(-90deg)}
 .mp-prog{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted);white-space:nowrap}
 .mp-prog b{font-weight:620;color:var(--ink)}
 .mp-prog .hot{color:var(--accent-ink)}
+.mp-arch{display:inline-flex;align-items:center;gap:5px;flex:none;height:22px;margin-left:8px;padding:0 8px;border-radius:6px;background:var(--soft);font-size:12px;font-weight:550;color:var(--muted);white-space:nowrap}
+.mp-done{color:var(--ink)}
+.mp-done svg{color:var(--c,var(--accent))}
 .mp-bar{position:relative;width:120px;height:6px;border-radius:3px;background:color-mix(in srgb,var(--c,var(--accent)) 14%,var(--soft));overflow:hidden}
 .mp-bar i{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--c,var(--accent))}
 .mp-tools{right:max(16px,env(safe-area-inset-right,0px));top:calc(16px + env(safe-area-inset-top,0px))}

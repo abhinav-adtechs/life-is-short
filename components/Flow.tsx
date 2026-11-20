@@ -20,8 +20,9 @@ import { dayName, occurrenceOf, type Repeat } from '@/lib/repeat';
 import { WeekLog } from './Repeating';
 import {
   CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ClockIcon, FitIcon, FlagIcon, HistoryIcon, HourglassIcon, InboxIcon, LockIcon, MicIcon, MinusIcon,
-  MoreIcon, OpenIcon, PlayIcon, PlusIcon, RepeatIcon, RouteIcon, SparkIcon, StopIcon, TrophyIcon, UndoIcon, XIcon, MapIcon,
+  MoreIcon, OpenIcon, PlayIcon, PlusIcon, RepeatIcon, RouteIcon, SparkIcon, StopIcon, TrophyIcon, UndoIcon, XIcon, MapIcon, ArchiveIcon,
 } from './icons';
+import { NO_ROOM, useArchiveActs } from './Archive';
 import { askWorkflow } from '@/lib/api';
 import { promptContext } from '@/lib/capture';
 import { joinWords } from '@/lib/speech';
@@ -161,10 +162,12 @@ export function FlowPanel() {
   return <FlowChart key={goal.id} goal={goal} onRoute={wide ? undefined : () => setView('route')} />;
 }
 
-/** A goal on a phone: its ring, then its route, with the map a tap away. */
+/** A goal on a phone: its ring, then its route, with the map a tap away. Done sends it to the archive, with Undo here. */
 function RoutePage({ goal, onMap }: { goal: Goal; onMap: () => void }) {
   const { prefs, now, closeSheet, goals, openSheet } = usePlanner();
   const share = useShare(goal);
+  const acts = useArchiveActs(goal);
+  const [said, setSaid] = useState<{ said: string; undo: () => void } | null>(null);
   const section = prefs.labels.find(l => l.id === goal.section) ?? null;
   const left = goal.by ? daysLeft(goal.by, now) : null;
   const up = ancestorsOf(new Map(goals.map(g => [g.id, g])), goal);
@@ -173,9 +176,24 @@ function RoutePage({ goal, onMap }: { goal: Goal; onMap: () => void }) {
       <div className="ru-pbar">
         <button type="button" className="ib bare touch" aria-label="Close" onClick={closeSheet}><ChevronLeft size={18} /></button>
         <span className="spacer" />
+        {!acts.closed && <button type="button" className="btn text sm" onClick={() => setSaid(acts.done())}><CheckIcon size={14} w={2.2} />Done</button>}
         <button type="button" className="btn sec sm" onClick={onMap}><MapIcon size={14} />Map</button>
         <button type="button" className="ib bare touch" aria-label="Close" onClick={closeSheet}><XIcon size={16} /></button>
       </div>
+      {said && (
+        <p className="gundo" role="status">
+          <span>{said.said}</span>
+          <button type="button" className="link" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+          <button type="button" className="ib bare" aria-label="Dismiss" onClick={() => setSaid(null)}><XIcon size={11} /></button>
+        </p>
+      )}
+      {acts.closed && !said && (
+        <p className="ru-arch">
+          <ArchiveIcon size={14} /><span>In the archive · {acts.when}</span><span className="spacer" />
+          {acts.noRoom ? <span className="muted sm">{NO_ROOM}</span>
+            : <button type="button" className="link" onClick={() => setSaid(acts.bringBack())}>Bring back</button>}
+        </p>
+      )}
       <div className="ru-hero">
         <span className="ru-hring"><Ring value={share} size={76} stroke={7} label={false} /><b className="num">{Math.round(share * 100)}%</b></span>
         <div>
@@ -304,6 +322,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const tint = section ? ({ '--c': section.color } as React.CSSProperties) : undefined;
   const share = useShare(goal);
   const pct = useCountUp(share);
+  const acts = useArchiveActs(goal);
 
   const say = useCallback((msg: React.ReactNode, undo = false) => {
     const id = Date.now() + Math.random();
@@ -1405,14 +1424,22 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
         <button type="button" className="mp-hb icon" aria-label="Close the map" title="Back (Esc)" onClick={closeSheet}><ChevronLeft size={16} /></button>
         {trail.length > 0 ? trail.map(a => (
           <span key={a.id} className="mp-crumb"><button type="button" className="link" onClick={() => openSheet('flow', a.id)}>{shortTitle(a.title, 22)}</button><span aria-hidden="true">/</span></span>
-        )) : <span className="mp-crumb wide-only"><button type="button" className="link" onClick={() => openSheet('goals')}>Goals</button><span aria-hidden="true">/</span></span>}
+        )) : <span className="mp-crumb wide-only"><button type="button" className="link" onClick={() => openSheet(acts.closed ? 'archive' : 'goals')}>{acts.closed ? 'Archive' : 'Goals'}</button><span aria-hidden="true">/</span></span>}
         <span className="mp-gname"><i aria-hidden="true" />{goal.title}</span>
+        {acts.closed && <span className="mp-arch" title="In the archive"><ArchiveIcon size={12} />{acts.when}</span>}
         <span className="mp-vsep wide-only" />
         <span className="mp-prog wide-only"><span className="mp-bar"><i style={{ width: `${Math.round(pct * 100)}%` }} /></span><span><b className="num">{Math.round(pct * 100)}%</b> there</span>{left && <><span>·</span><span className={left.hot ? 'hot' : undefined}>{left.text}</span></>}</span>
       </div>
 
       <div className="mp-hud mp-tools">
         {onRoute && <button type="button" className="mp-hb icon" aria-label="Back to the route" title="The route" onClick={onRoute}><RouteIcon size={16} /></button>}
+        {acts.closed ? (
+          <button type="button" className="mp-hb" disabled={acts.noRoom} title={acts.noRoom ? NO_ROOM : 'Back among the goals you’re working on'}
+            onClick={() => { const r = acts.bringBack(); if (r) { remember('bring it back', r.undo); say(r.said, true); } }}>Bring back</button>
+        ) : (
+          <button type="button" className={'mp-hb mp-done' + (wide ? '' : ' icon')} aria-label="Done: archive this goal" title="Mark it done: it goes to the archive"
+            onClick={() => { const r = acts.done(); if (r) { remember('mark it done', r.undo); say(r.said, true); } }}><CheckIcon size={15} w={2.2} /><span className="wide-only">Done</span></button>
+        )}
         <button type="button" className={'mp-hb' + (wide ? '' : ' icon')} disabled={!undoLabel} aria-label="Undo" onClick={undo} title={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : 'Nothing to undo'}><UndoIcon size={15} /><span className="wide-only">Undo</span></button>
         {wide && <button type="button" className="mp-hb" aria-pressed={panel === 'history'} onClick={() => { setSel(null); setPanel(p => (p === 'history' ? 'inspect' : 'history')); }}><HistoryIcon size={15} />History</button>}
         <button type="button" className="mp-hb icon" aria-label="More" aria-expanded={menu} onClick={() => setMenu(m => !m)}><MoreIcon size={16} /></button>

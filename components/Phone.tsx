@@ -5,6 +5,7 @@ import { PRI } from '@/lib/model';
 import { hasSupabase } from '@/lib/supabase';
 import { progress } from '@/lib/select';
 import { dueLabel, fmtDur } from '@/lib/format';
+import { archivedGoals } from '@/lib/goals';
 import { usePlanner } from './Planner';
 import { Brand } from './Brand';
 import { NextCard } from './Next';
@@ -13,18 +14,19 @@ import { PhoneCalendar } from './Calendar';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
 import { Ambient } from './Ambient';
-import { AnalyticsIcon, MoreIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
+import { AnalyticsIcon, ArchiveIcon, MoreIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
 import { useGoalWeek } from './Goals';
 
 const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
-/** The ••• menu: how the day and week are going and how much went to goals, then Goals, Analytics, Share and Settings. */
+/** The ••• menu: how the day and week are going and how much went to goals, then Goals, the archive, Analytics, Share and Settings. */
 function Menu({ onClose }: { onClose: () => void }) {
-  const { tasks, now, prefs, openSheet, inbox, topGoals: activeGoals } = usePlanner();
+  const { tasks, now, prefs, openSheet, inbox, topGoals: activeGoals, goals } = usePlanner();
   const m = progress(tasks, now, prefs.weekStart);
+  const archived = archivedGoals(goals);
   const g = useGoalWeek();
   const share = g.share == null ? null : Math.round(g.share * 100);
-  const go = (k: 'goals' | 'analytics' | 'share' | 'settings') => { onClose(); openSheet(k); };
+  const go = (k: 'goals' | 'archive' | 'analytics' | 'share' | 'settings') => { onClose(); openSheet(k); };
   return (
     <>
       <div className="menu-out" onClick={onClose} />
@@ -36,6 +38,7 @@ function Menu({ onClose }: { onClose: () => void }) {
           <div className="menu-r"><span className="muted">Backlog</span><b className="num">{m.backlog.open} open · {m.backlog.urgent} urgent</b></div>
         </div>
         <button type="button" role="menuitem" onClick={() => go('goals')}><TargetIcon size={17} /><span>Goals</span><span className="muted sm">{activeGoals.length ? `${activeGoals.length} in focus` : 'Set them'}</span></button>
+        {archived.length > 0 && <button type="button" role="menuitem" onClick={() => go('archive')}><ArchiveIcon size={17} /><span>Archive</span><span className="muted sm">{archived.filter(g => g.status === 'achieved').length} done</span></button>}
         <button type="button" role="menuitem" onClick={() => go('analytics')}><AnalyticsIcon size={17} /><span>Analytics</span><span className="muted sm">Full breakdown</span></button>
         {hasSupabase() && <button type="button" role="menuitem" onClick={() => go('share')}><ShareIcon size={17} /><span>Share</span>{inbox > 0 && <span className="muted sm">{inbox} waiting</span>}</button>}
         <button type="button" role="menuitem" data-settings-button="" onClick={() => go('settings')}><SettingsIcon size={17} /><span>Settings</span></button>

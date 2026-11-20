@@ -6,14 +6,14 @@ import type { Rule } from '@/lib/repeat';
 import { newId, PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { describeRepeat, describeRule, occurrenceOf, repeatsDone, tallies } from '@/lib/repeat';
-import { flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
+import { archivedGoals, flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
 import { holdups } from '@/lib/flow';
 import { isEvent } from '@/lib/select';
 import { fromYmd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { daysLeft, fmtHrs, useGoalWeek } from './Goals';
 import { useGoalFlow } from './Flow';
-import { CalendarIcon, CheckIcon, ChevronDown, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
+import { ArchiveIcon, CalendarIcon, CheckIcon, ChevronDown, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
 import { RouteList, readRouteOpen, writeRouteOpen } from './Route';
 
 /*
@@ -335,7 +335,7 @@ const SHOWN = { wide: 5, phone: 5 };
 function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
   g: Goal | null; rank: number; items: { t: Task; kind: Kind }[]; open: number; done: number; pri: Priority | null; phone?: boolean; focused?: boolean; Item: Row;
 }) {
-  const { prefs, now, openSheet, setFilter, drag } = usePlanner();
+  const { prefs, now, openSheet, setFilter, drag, closeGoal } = usePlanner();
   const { rolled } = useGoalWeek();
   const flow = useGoalFlow(g ?? OFF);
   const [more, setMore] = useState(false);
@@ -418,6 +418,10 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
         <span className="spacer" />
         {!adding && <button type="button" className="btn text sm" onClick={() => setAdding(true)}><PlusIcon size={12} />Task</button>}
         {g && (
+          <button type="button" className="btn text sm gc-fin" onClick={() => { if (focused) setFilter(null); closeGoal(g.id, 'achieved'); }}
+            title="Mark it done: it goes to the archive, and Undo brings it straight back"><CheckIcon size={13} w={2.2} />Done</button>
+        )}
+        {g && (
           <button type="button" className={'btn text sm gc-route-b' + (route ? ' on' : '')} aria-expanded={route} onClick={toggleRoute} title={route ? 'Back to the list' : 'Its route: up next, what’s ready, what you’re waiting on, and the way to the finish'}>
             <RouteIcon size={13} />Route{route ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
           </button>
@@ -468,6 +472,18 @@ function SetGoals({ phone }: { phone?: boolean }) {
   );
 }
 
+/** The way to the archive, once there's something in it: goals you've marked done or dropped. */
+function ArchiveLink() {
+  const { goals, openSheet } = usePlanner();
+  const n = archivedGoals(goals).length;
+  if (!n) return null;
+  return (
+    <button type="button" className="btn ghost sm" onClick={() => openSheet('archive')} title="Goals you’ve marked done or dropped">
+      <ArchiveIcon size={14} />Archive<span className="muted num">{n}</span>
+    </button>
+  );
+}
+
 /* ---------- laptop ---------- */
 
 /**
@@ -491,6 +507,7 @@ export function MatrixPanel() {
         {focusName && (
           <button type="button" className="fchip" aria-label="Show every goal" onClick={() => setFilter(null)}>{shortTitle(focusName, 34)}<XIcon size={11} /></button>
         )}
+        <ArchiveLink />
         <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><TargetIcon size={14} />Edit goals</button>
       </div>
       <PriChips pri={pri} setPri={setPri} />
