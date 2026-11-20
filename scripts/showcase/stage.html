@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Life is short · showcase</title>
+<style>
+:root{--bg:#0B0F15;--ink:#F3F1EC;--muted:#A5ADB8;--amber:#F2A541;--tide:#0A7DB2;--hair:rgba(255,255,255,.10)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{background:radial-gradient(1200px 700px at 78% -10%,rgba(242,165,65,.20),transparent 60%),radial-gradient(1100px 800px at 0% 110%,rgba(10,125,178,.28),transparent 60%),#0B0F15}
+.fade{transition:opacity .6s ease,transform .7s cubic-bezier(.2,.7,.2,1)}
+#win{position:absolute;left:192px;top:34px;width:1536px;height:916px;border-radius:14px;overflow:hidden;background:#EDF2F4;box-shadow:0 40px 120px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.08);opacity:0;transform:translateY(30px) scale(.985)}
+#win.on{opacity:1;transform:none}
+#win .bar{height:36px;background:#DCE3E7;display:flex;align-items:center;padding:0 14px;gap:8px;border-bottom:1px solid #cfd8dd}
+#win .bar i{width:12px;height:12px;border-radius:50%;display:block}
+#win .url{position:absolute;left:50%;transform:translateX(-50%);top:7px;height:22px;padding:0 14px;border-radius:7px;background:#EEF2F4;color:#4F5E69;font:500 12.5px 'Inter';display:flex;align-items:center;gap:6px}
+#win iframe{display:block;width:1536px;height:880px;border:0;background:#EDF2F4}
+#phone{position:absolute;left:50%;top:44px;width:418px;height:872px;margin-left:-209px;border-radius:62px;background:#05070A;padding:14px;box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 2px #2A313B inset,0 0 0 1px rgba(255,255,255,.12);opacity:0;transform:translateY(40px)}
+#phone.on{opacity:1;transform:none}
+#phone:not(.on),#win:not(.on){pointer-events:none}
+#phone iframe{width:390px;height:844px;border:0;border-radius:48px;display:block;background:#0D1117}
+#phone .island{position:absolute;left:50%;top:26px;width:118px;height:34px;margin-left:-59px;border-radius:20px;background:#000;z-index:2}
+#cap{position:absolute;left:0;right:0;top:966px;text-align:center;opacity:0}
+#cap.on{opacity:1}
+#cap .k{font:700 14px 'Inter';letter-spacing:.18em;color:var(--amber);text-transform:uppercase;margin-bottom:8px}
+#cap .t{font:600 36px 'Inter Display','Inter';letter-spacing:-.01em}
+#cap.side{top:auto;bottom:auto}
+.card{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none}
+.card.on{opacity:1}
+.card .in{transform:translateY(24px);transition:transform .8s cubic-bezier(.2,.7,.2,1)}
+.card.on .in{transform:none}
+#title .in{text-align:center}
+#title img{width:132px;height:132px;border-radius:30px;box-shadow:0 20px 60px rgba(0,0,0,.5);margin-bottom:34px}
+#title h1{font:700 110px 'Inter Display','Inter';letter-spacing:-.035em;line-height:1}
+#title p{font:500 38px 'Inter';color:var(--muted);margin-top:22px}
+.chips{display:flex;gap:12px;justify-content:center;margin-top:40px}
+.chip{font:600 17px 'Inter';padding:10px 18px;border-radius:999px;border:1px solid var(--hair);background:rgba(255,255,255,.04);color:#D6DAE0}
+.chip b{color:var(--amber);font-weight:700}
+#mcp .in{display:grid;grid-template-columns:820px 760px;gap:80px;align-items:center}
+.kick{font:700 16px 'Inter';letter-spacing:.18em;color:var(--amber);text-transform:uppercase}
+h2{font:700 64px 'Inter Display','Inter';letter-spacing:-.03em;line-height:1.05;margin:14px 0 14px}
+.sub{font:500 24px 'Inter';color:var(--muted)}
+.chat{margin-top:40px;border:1px solid var(--hair);border-radius:22px;background:rgba(255,255,255,.035);padding:28px;display:flex;flex-direction:column;gap:16px;min-height:330px}
+.msg{opacity:0;transform:translateY(10px);transition:all .5s ease}
+.msg.on{opacity:1;transform:none}
+.you{align-self:flex-end;background:#F3F1EC;color:#12202A;font:600 24px 'Inter';padding:14px 20px;border-radius:18px 18px 4px 18px}
+.tool{font:500 19px 'JetBrains Mono';color:#C9D1DA;display:flex;gap:12px;align-items:center}
+.tool code{background:rgba(242,165,65,.14);color:var(--amber);padding:5px 10px;border-radius:8px;font:600 18px 'JetBrains Mono'}
+.tool span{color:var(--muted);font:500 19px 'Inter'}
+.bot{font:500 23px 'Inter';color:#E6E3DC;line-height:1.4;padding:14px 18px;border-radius:18px 18px 18px 4px;background:rgba(10,125,178,.18);border:1px solid rgba(10,125,178,.35)}
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.t1{border:1px solid var(--hair);border-radius:16px;padding:16px 18px;background:rgba(255,255,255,.03);opacity:0;transform:translateY(8px);transition:all .45s ease}
+.t1.on{opacity:1;transform:none}
+.t1 code{font:600 19px 'JetBrains Mono';color:#F3F1EC}
+.t1 p{font:500 16px 'Inter';color:var(--muted);margin-top:6px;line-height:1.35}
+.t1.w{border-color:rgba(242,165,65,.35)}
+#sec .in{width:1500px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;margin-top:46px}
+.tile{border:1px solid var(--hair);border-radius:22px;padding:30px;background:rgba(255,255,255,.035);opacity:0;transform:translateY(10px);transition:all .5s ease}
+.tile.on{opacity:1;transform:none}
+.tile .ic{width:54px;height:54px;border-radius:14px;background:rgba(242,165,65,.14);display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:20px}
+.tile h3{font:700 26px 'Inter Display','Inter';letter-spacing:-.01em}
+.tile p{font:500 19px 'Inter';color:var(--muted);margin-top:10px;line-height:1.4}
+#end .in{text-align:center}
+#end h2{font-size:84px}
+.code{margin:40px auto 0;text-align:left;font:500 25px/1.7 'JetBrains Mono';background:#05070A;border:1px solid var(--hair);border-radius:20px;padding:30px 40px;width:1060px;color:#D6DAE0}
+.code .p{color:var(--amber)}
+.code .c{color:#6C7683}
+.repo{margin-top:40px;font:700 40px 'Inter Display','Inter';letter-spacing:-.01em}
+.repo img{width:42px;height:42px;vertical-align:-8px;margin-right:14px;border-radius:10px}
+#cur{position:absolute;left:0;top:0;transform:translate(960px,700px);width:30px;height:30px;pointer-events:none;z-index:50;opacity:0;transition:opacity .3s}
+#cur.on{opacity:1}
+#cur svg{filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))}
+#cur .ring{position:absolute;left:-18px;top:-18px;width:36px;height:36px;border-radius:50%;background:rgba(242,165,65,.45);transform:scale(0);opacity:0}
+#cur .ring.go{animation:ring .5s ease-out}
+@keyframes ring{0%{transform:scale(.2);opacity:.9}100%{transform:scale(1.6);opacity:0}}
+</style></head>
+<body>
+<div id="win" class="fade"><div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i><div class="url">🔒 localhost:3000/app</div></div><iframe id="app" title="Life is short"></iframe></div>
+<div id="phone" class="fade"><iframe id="ph" title="Life is short on a phone"></iframe></div>
+
+<div id="title" class="card fade"><div class="in">
+  <img src="/brand/logo-512.png" alt="">
+  <h1>Life is short</h1>
+  <p>Do the one thing that matters right now.</p>
+  <div class="chips"><span class="chip">Goals first</span><span class="chip">Dump · Slot · Do</span><span class="chip"><b>MCP</b> server for Claude</span><span class="chip">Open source · MIT</span></div>
+</div></div>
+
+<div id="mcp" class="card fade"><div class="in">
+  <div>
+    <div class="kick">Connect Claude</div>
+    <h2>Your planner,<br>as a Claude connector.</h2>
+    <div class="sub">A built-in MCP server at <b style="color:#E6E3DC">/mcp</b> · OAuth 2.1 with PKCE · your own sign-in</div>
+    <div class="chat">
+      <div class="msg you">Plan my day around my goals.</div>
+      <div class="msg tool"><code>get_today</code><span>what's on today's calendar</span></div>
+      <div class="msg tool"><code>list_goals</code><span>goals, routes and what's blocked</span></div>
+      <div class="msg tool"><code>plan_today</code><span>saves today's outcomes</span></div>
+      <div class="msg bot">Today is for <b>Ship v2</b> and <b>the podcast</b>: the onboarding crash fixed, and episode 1 recorded.</div>
+    </div>
+  </div>
+  <div class="tools">
+    <div class="t1"><code>list_goals</code><p>Goals, sub-goals, key results and each flow chart</p></div>
+    <div class="t1"><code>get_goal</code><p>One goal in full, its chart as Mermaid</p></div>
+    <div class="t1 w"><code>change_goals</code><p>Build goals and charts: up to 40 changes at once</p></div>
+    <div class="t1 w"><code>delete_goal</code><p>A goal and its sub-goals, after asking</p></div>
+    <div class="t1"><code>list_tasks</code><p>Filter by goal, project, due date or words</p></div>
+    <div class="t1"><code>get_task</code><p>One task with its notes and repeat</p></div>
+    <div class="t1"><code>create_task</code><p>On the calendar or in the backlog, repeating too</p></div>
+    <div class="t1"><code>update_task</code><p>Reschedule, re-prioritise, move to a goal</p></div>
+    <div class="t1"><code>complete_task · reopen_task</code><p>Tick it off, or open it again</p></div>
+    <div class="t1 w"><code>delete_task</code><p>Gone for good, after asking</p></div>
+    <div class="t1"><code>get_today</code><p>Is the day planned? What's on it?</p></div>
+    <div class="t1"><code>plan_today</code><p>The goals in focus and today's outcome for each</p></div>
+  </div>
+</div></div>
+
+<div id="sec" class="card fade"><div class="in">
+  <div class="kick">Locked down by default</div>
+  <h2>Your list is a map of your life.<br>It's protected like one.</h2>
+  <div class="grid4">
+    <div class="tile"><div class="ic">🔐</div><h3>PIN + a second step</h3><p>An authenticator code, Face ID or a passkey. No sign-up page, no email links to phish.</p></div>
+    <div class="tile"><div class="ic">🛡️</div><h3>The database checks it</h3><p>Row-level security returns nothing unless this session passed both checks.</p></div>
+    <div class="tile"><div class="ic">🧱</div><h3>Strict by default</h3><p>A per-request CSP nonce, HSTS, no framing. Claude's tokens are stored only as hashes.</p></div>
+    <div class="tile"><div class="ic">🌙</div><h3>Nightly backup</h3><p>To a second database in another region, breach-checked before every copy.</p></div>
+  </div>
+</div></div>
+
+<div id="end" class="card fade"><div class="in">
+  <div class="kick">Open source · MIT</div>
+  <h2>Run your own copy.</h2>
+  <div class="sub">One person, your own database, nobody else's app. No keys needed to try it.</div>
+  <div class="code"><span class="p">$</span> git clone https://github.com/abhinav-adtechs/life-is-short<br><span class="p">$</span> cd life-is-short &amp;&amp; npm install<br><span class="p">$</span> npm run dev <span class="c"># open localhost:3000/app</span></div>
+  <div class="repo"><img src="/brand/logo-120.png" alt="">github.com/abhinav-adtechs/life-is-short</div>
+</div></div>
+
+<div id="cap" class="fade"><div class="k"></div><div class="t"></div></div>
+<div id="cur"><div class="ring"></div><svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 2.5l15.5 8.6-6.6 1.6-3.2 6.3z" fill="#fff" stroke="#12202A" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+<script>
+const $ = s => document.querySelector(s);
+window.stage = {
+  async caption(k, t) {
+    const c = $('#cap');
+    if (c.classList.contains('on')) { c.classList.remove('on'); await new Promise(r => setTimeout(r, 450)); }
+    if (!t) return;
+    c.querySelector('.k').textContent = k; c.querySelector('.t').textContent = t; c.classList.add('on');
+  },
+  show(id, on = true) { $(id).classList.toggle('on', on); },
+  cursor(x, y) { const c = $('#cur'); c.style.transition = 'opacity .3s'; c.style.transform = `translate(${x - 4}px,${y - 3}px)`; },
+  glide(x, y, ms) { const c = $('#cur'); c.style.transition = `opacity .3s, transform ${ms}ms cubic-bezier(.65,0,.35,1)`; c.style.transform = `translate(${x - 4}px,${y - 3}px)`; },
+  cursorOn(on) { $('#cur').classList.toggle('on', on); },
+  press() { const r = $('#cur .ring'); r.classList.remove('go'); void r.offsetWidth; r.classList.add('go'); },
+  async seq(sel, gap) { for (const el of document.querySelectorAll(sel)) { el.classList.add('on'); await new Promise(r => setTimeout(r, gap)); } },
+  reset(sel) { document.querySelectorAll(sel).forEach(e => e.classList.remove('on')); },
+};
+</script>
+</body></html>

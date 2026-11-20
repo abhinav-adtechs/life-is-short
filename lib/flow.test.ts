@@ -14,7 +14,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   id, title: id, raw: '', notes: '', priority: 2, minutes: 60, start: null, due: null, status: 'open', created: 1, order: 1, doneAt: null, goal: 'g1', ...extra,
 });
 const goal = (plan: Plan, extra: Partial<Goal> = {}): Goal => ({
-  id: 'g1', title: 'Give Sam an exit', section: null, by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1,
+  id: 'g1', title: 'Sell the side business', section: null, by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1,
   results: [{ id: 'k1', text: 'Shares transferred', done: false }], plan, ...extra,
 });
 
@@ -42,10 +42,10 @@ const tasks = [
 describe('normalizePlan', () => {
   it('keeps good arrows and waits, and drops duplicates, self-arrows and loops', () => {
     const p = normalizePlan({
-      waits: [{ id: 'w1', title: '  Reply   from Sam ', done: true, doneAt: 5 }, { id: 'bad', title: 'x' }, { id: 'w1', title: 'dupe' }],
+      waits: [{ id: 'w1', title: '  Reply   from the buyer ', done: true, doneAt: 5 }, { id: 'bad', title: 'x' }, { id: 'w1', title: 'dupe' }],
       links: [{ from: 'a', to: 'b' }, { from: 'a', to: 'b' }, { from: 'b', to: 'b' }, { from: 'b', to: 'c' }, { from: 'c', to: 'a' }, { from: 'kr:k1', to: 'a' }, 'junk'],
     });
-    expect(p.waits).toEqual([{ id: 'w1', title: 'Reply from Sam', done: true, created: 0, doneAt: 5 }]);
+    expect(p.waits).toEqual([{ id: 'w1', title: 'Reply from the buyer', done: true, created: 0, doneAt: 5 }]);
     expect(p.links).toEqual([{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'kr:k1', to: 'a' }]);
     expect(normalizePlan(null)).toEqual({ links: [], waits: [] });
   });
@@ -188,7 +188,7 @@ describe('changing a plan', () => {
     p = withLink(plan, { from: 'price', to: 'sign' });
     expect(p.links).toContainEqual({ from: 'price', to: 'sign' });
     expect(withoutLink(p, { from: 'price', to: 'sign' }).links).toEqual(plan.links);
-    p = withWait(plan, { id: 'wsig', title: 'Sam’s signature', done: false, created: 2, doneAt: null });
+    p = withWait(plan, { id: 'wsig', title: 'The buyer’s signature', done: false, created: 2, doneAt: null });
     expect(p.waits.map(w => w.id)).toEqual(['wfunds', 'wsig']);
     p = withoutStep(p, 'wfunds');
     expect(p.waits.map(w => w.id)).toEqual(['wsig']);
@@ -208,7 +208,7 @@ describe('export', () => {
   it('writes a Mermaid flowchart, left to right', () => {
     const m = toMermaid(g, f);
     expect(m.split('\n')[0]).toBe('flowchart LR');
-    expect(m).toContain('goal(["Give Sam an exit"])');
+    expect(m).toContain('goal(["Sell the side business"])');
     expect(m).toContain('n_kr_k1{"Shares transferred"}');
     expect(m).toContain('n_wfunds>"Waiting on: Buyer’s funds"]');
     expect(m).toContain('n_price["price"]:::done');
@@ -219,7 +219,7 @@ describe('export', () => {
 
   it('and plain data', () => {
     const j = toJson(g, f);
-    expect(j.goal).toMatchObject({ id: 'g1', title: 'Give Sam an exit' });
+    expect(j.goal).toMatchObject({ id: 'g1', title: 'Sell the side business' });
     expect(j.steps.find(x => x.id === 'spa')).toEqual({ id: 'spa', kind: 'task', title: 'spa', state: 'blocked', minutes: 120, needs: ['price', 'lawyer'], critical: true });
     expect(j.arrows).toEqual(plan.links);
     expect(j.critical_path).toEqual(['lawyer', 'spa', 'sign']);

@@ -22,7 +22,7 @@ export type GoalStatus = 'active' | 'achieved' | 'dropped';
 
 export interface Goal {
   id: string;
-  /** Specific and finishable: "Give Sam an exit", not "Fundraising". */
+  /** Specific and finishable: "Launch the podcast", not "Podcast". */
   title: string;
   /** The section (label id) it belongs to; its tasks take that section. */
   section: string | null;
@@ -446,7 +446,7 @@ export function openTasksOn(goals: Goal[], tasks: Task[], id: string): number {
 }
 
 /**
- * What marking a goal done (or dropping it) says, before you can undo it: "Done and archived · Close the seed round,
+ * What marking a goal done (or dropping it) says, before you can undo it: "Done and archived · Launch the podcast,
  * with its 2 sub-goals. Its 3 open tasks are off-goal now." A sub-goal stays on its goal's map, so it just says done.
  */
 export function closingLine(goals: Goal[], tasks: Task[], id: string, status: 'achieved' | 'dropped'): string {

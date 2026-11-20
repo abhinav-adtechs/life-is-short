@@ -33,7 +33,7 @@ export const NO_ROOM = `${MAX_ACTIVE} goals in focus is the most. Mark one done 
 /** Something just changed here, with its Undo: the panel shows it, since the toast's Undo is under the panel. */
 interface Said { said: string; undo: () => void }
 
-/** What bringing a goal back says: "Back in your goals · Close the seed round." */
+/** What bringing a goal back says: "Back in your goals · Launch the podcast." */
 const backLine = (index: Map<string, Goal>, g: Goal) => {
   const up = g.parent ? index.get(g.parent) : undefined;
   return `Back ${up ? `on ${shortTitle(up.title, 26)}` : 'in your goals'} · ${shortTitle(g.title, 30)}.`;

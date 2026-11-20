@@ -6,6 +6,8 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- **A showcase video** (`docs/media/showcase.mp4`, 1 min 40 s, 1080p) and a 25-second highlight at the top of the README: the planner, a dump, the map, the review, themes, the phone, Claude over MCP, security and running your own. Recorded from made-up demo data by `scripts/showcase/` (a podcast launch, a half marathon, an app's v2), so it can be re-recorded whenever the planner changes.
+- The README opens with **everything in one place**: the video, every capability at a glance, the 13 MCP tools, and starting in two minutes.
 - **Today isn't planned**, said plainly: a bar across the top of the calendar where the outcomes go, with **Plan with Claude** (opens Claude with the ask filled in) and **Copy the ask**, and a pill on the goal rail. On a phone the calendar tab opens on it.
 - The goal rail's cards show the numbers and the work: how much is done, big, with done and to go; the deadline, key results and time this week; the next three tasks in the order to do them (tick, drag onto the calendar, **more** for the rest); and, once planned, where the goal will be by tonight. Drop a task on a card to put it on that goal.
 - **Two views** on a laptop, switched at the top: **Calendar** and **Goals**.
@@ -35,6 +37,7 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Changed
 
+- The README's images (`hero-light`, `hero-dark`, `phone`, `themes`, `settings`, `dump.gif`) are re-shot from today's planner, goals first. Its examples, the goal editor's placeholders and the tests' sample goals and sections are made-up ones.
 - The laptop header is quieter: the view switch, time on goals this week, the clock, Analytics, Share and Settings. Today's, this week's and the backlog's counts left the header.
 - Bringing a goal back brings back the sub-goals that closed with it (the same way, at the same moment), not one you'd finished before it. Before, they stayed closed.
 - **Achieved** is now **Done** on a goal, and Goals' collapsed **Achieved and dropped** list is a link to the Archive.
