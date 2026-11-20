@@ -140,6 +140,7 @@ Nothing is written until **Apply**, and every apply, move and tick keeps an Undo
 - **Slotting** (`findSlot` in `lib/place.ts`): the next free gap on a 15-minute grid, inside the hours you set, around your Google events and the timed repeats to come.
 - **Missed slots** (`lib/slips.ts`, `backToBacklog` in `lib/select.ts`): a slot that ends without a tick keeps the task on the calendar for an hour (`BACKLOG_GRACE`), then the task goes back on top of the backlog. The slot itself is remembered as a slip, so the review still counts it as missed where it happened.
 - **Repeats** (`lib/repeat.ts`): a rule makes one ordinary task on each day it lands on; only one is open at a time.
+- **A goal's map and route**: `lib/flow.ts` builds a goal's chart (steps, arrows, states, columns, lanes, critical path, and the steps nothing comes after, which lead on to the goal); `lib/flowTree.ts` lays out the map with the goal as the finish on the right and sub-goals opened in place as frames; `lib/route.ts` reads the same tree top to bottom (Up next, what else is ready, what you wait on, the route ahead, sub-goals, done). `components/Flow.tsx` is the full-screen map (camera, drag and drop with previews built from the would-be chart, the side panel, the dock), and `components/Route.tsx` the route, dropped down on a goal's card on the main page and shown first on a phone.
 
 ## Data model
 

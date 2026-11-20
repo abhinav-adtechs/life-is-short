@@ -355,7 +355,7 @@ function SubGoal({ g, depth, adding, setAdding }: { g: Goal; depth: number; addi
         <Progress value={progress} label={g.title} />
       </div>
       <div className="gsub-acts">
-        <button type="button" className="link sm" onClick={() => openSheet('flow', g.id)}>Flow chart</button>
+        <button type="button" className="link sm" onClick={() => openSheet('flow', g.id)}>Map</button>
         <button type="button" className="link sm" onClick={() => setEditing(true)}>Edit</button>
         {!done && <button type="button" className="link sm" onClick={() => { setOpen(true); setNewKr(true); }}>+ key result</button>}
         {!done && depth < MAX_GOAL_DEPTH && <button type="button" className="link sm" onClick={() => { setOpen(true); setAdding({ parent: g.id, kr: null }); }}>+ sub-goal</button>}
@@ -434,7 +434,7 @@ function GoalCard({ g, rank, count, week, ever, open, onTasks, adding, setAdding
       </div>
       <div className="goal-acts">
         <button type="button" className="btn sec sm" onClick={() => openSheet('flow', g.id)}
-          title={`Its steps as a flow chart${steps.blocked ? `: ${steps.blocked} blocked` : ''}`}>Flow chart</button>
+          title={`Every step on one map, to plan it out${steps.blocked ? `: ${steps.blocked} locked` : ''}`}>Map</button>
         <button type="button" className="btn text sm" onClick={onTasks}>Tasks</button>
         <button type="button" className="btn text sm" onClick={() => setEditing(true)}>Edit</button>
         <span className="spacer" />
