@@ -7,8 +7,8 @@ import { DEFAULT_PREFS, normalizePrefs } from './prefs';
 import type { Task } from './model';
 
 const L: Label[] = [
-  { id: 'work', name: 'Superjoin', color: '#3E63DD' },
-  { id: 'side', name: 'Series N', color: '#8E4EC6' },
+  { id: 'work', name: 'Acme', color: '#3E63DD' },
+  { id: 'side', name: 'Side project', color: '#8E4EC6' },
   { id: 'personal', name: 'Personal', color: '#12A594' },
   { id: 'others', name: 'Helping others', color: '#D6409F' },
 ];
@@ -55,9 +55,9 @@ describe('labels', () => {
   });
 
   it('finds a label by name, id or first word', () => {
-    expect(labelNamed(L, 'superjoin')?.id).toBe('work');
-    expect(labelNamed(L, 'SeriesN')?.id).toBe('side');
-    expect(labelNamed(L, 'series-n')?.id).toBe('side');
+    expect(labelNamed(L, 'acme')?.id).toBe('work');
+    expect(labelNamed(L, 'SideProject')?.id).toBe('side');
+    expect(labelNamed(L, 'side-project')?.id).toBe('side');
     expect(labelNamed(L, 'helping')?.id).toBe('others');
     expect(labelNamed(L, 'personal')?.id).toBe('personal');
     expect(labelNamed(L, 'gym')).toBeNull();
@@ -86,7 +86,7 @@ describe('labels when capturing', () => {
     const { ctx } = promptContext([t]);
     expect(ctx[0].label).toBe('work');
     const p = buildPrompt('call mom', NOW, ctx, undefined, L);
-    expect(p).toContain('work = Superjoin, side = Series N, personal = Personal, others = Helping others');
+    expect(p).toContain('work = Acme, side = Side project, personal = Personal, others = Helping others');
     expect(p).toContain('| due | label | goal)');
     expect(p).toMatch(/T1 \| P2 \| Board deck \| backlog \| - \| work/);
     expect(p).toContain('"label": the id of the label');
@@ -122,7 +122,7 @@ describe('labels when capturing', () => {
   });
 
   it('reads a #tag without the AI and leaves it out of the title', () => {
-    expect(localParse('#superjoin send the investor update', NOW, L)[0]).toMatchObject({ title: 'Send the investor update', label: 'work' });
+    expect(localParse('#acme send the investor update', NOW, L)[0]).toMatchObject({ title: 'Send the investor update', label: 'work' });
     expect(localParse('mentor call with Priya tomorrow at 5pm #helping', NOW, L)[0]).toMatchObject({ title: 'Mentor call with Priya', label: 'others', time: '17:00' });
     expect(localParse('fix the #hashtag bug', NOW, L)[0]).toMatchObject({ title: 'Fix the #hashtag bug', label: null });
     const out = applyCapture({ text: 'renew passport #personal', tasks: [], refs: new Map(), labels: L, result: null, via: 'no-key', now: NOW });

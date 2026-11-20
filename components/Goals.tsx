@@ -134,7 +134,7 @@ export function GoalForm({ goal, sub, onSave, onCancel }: {
       <div className="fld">
         <label htmlFor={`${id}-t`}>{sub || goal?.parent ? 'Sub-goal' : 'Goal'}</label>
         <input id={`${id}-t`} type="text" value={title} maxLength={GOAL_TITLE_MAX} autoFocus enterKeyHint="next"
-          placeholder={sub ? 'What has to happen for it: “Close the lawyer’s side”' : 'Specific enough to finish: “Close the seed round”'} onChange={e => setTitle(e.target.value)} />
+          placeholder={sub ? 'What has to happen for it: “Record the first 3 episodes”' : 'Specific enough to finish: “Launch the podcast”'} onChange={e => setTitle(e.target.value)} />
       </div>
       {prefs.labels.length > 0 && !sub && !goal?.parent && (
         <div className="fld">
@@ -145,7 +145,7 @@ export function GoalForm({ goal, sub, onSave, onCancel }: {
       <div className="fld">
         <label htmlFor={`${id}-r`}>Done when <span className="muted sm">key results, one a line; indent a line (Tab) to put it under the one above</span></label>
         <textarea id={`${id}-r`} rows={4} value={results} maxLength={MAX_ALL_RESULTS * (RESULT_MAX + 8)} className="gform-kr"
-          placeholder={'Share transfer signed\n  Buyer’s lawyer approves the SPA\n  Board approves\nMoney in the bank'}
+          placeholder={'Live on Spotify and Apple\n  Cover art approved\n  Feed submitted\n100 subscribers'}
           onChange={e => setResults(e.target.value)} onKeyDown={e => indentKeys(e, setResults)} />
       </div>
       <div className="two">

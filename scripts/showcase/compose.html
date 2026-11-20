@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+.light{background:linear-gradient(160deg,#F3F6F8 0%,#E3EAEE 100%);color:#12202A}
+.dark{background:radial-gradient(700px 420px at 85% -10%,rgba(242,165,65,.22),transparent 60%),radial-gradient(700px 500px at 0% 110%,rgba(10,125,178,.28),transparent 60%),#0B0F15;color:#F3F1EC}
+.win{position:absolute;border-radius:10px;overflow:hidden;box-shadow:0 24px 70px rgba(18,32,42,.22),0 0 0 1px rgba(18,32,42,.08)}
+.dark .win{box-shadow:0 30px 90px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.09)}
+.win .bar{height:22px;background:#DCE3E7;display:flex;align-items:center;gap:6px;padding:0 10px}
+.dark .win .bar{background:#1A212A}
+.win .bar i{width:8px;height:8px;border-radius:50%;display:block}
+.win img{display:block;width:100%}
+.ph{position:absolute;border-radius:40px;background:#05070A;padding:9px;box-shadow:0 24px 70px rgba(18,32,42,.30),0 0 0 1.5px #2A313B inset}
+.dark .ph{box-shadow:0 30px 90px rgba(0,0,0,.7),0 0 0 1.5px #2A313B inset,0 0 0 1px rgba(255,255,255,.1)}
+.ph img{display:block;width:100%;border-radius:32px}
+.ph .isl{position:absolute;left:50%;top:16px;width:72px;height:21px;margin-left:-36px;border-radius:12px;background:#000}
+.cap{position:absolute;text-align:center}
+.cap h3{font:700 26px 'Inter Display','Inter';letter-spacing:-.01em}
+.cap p{font:500 16px 'Inter';color:#4F5E69;margin-top:4px}
+.lab{position:absolute;font:600 15px 'Inter';text-align:center;color:#4F5E69}
+.lab b{color:#12202A}
+</style></head><body><div id="root"></div>
+<script>
+const mode = new URLSearchParams(location.search).get('mode');
+const W = { hero: [1200, 705], phone: [1200, 650], themes: [1200, 384], settings: [1200, 757] };
+const bar = '<div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div>';
+const win = (src, x, y, w) => `<div class="win" style="left:${x}px;top:${y}px;width:${w}px">${bar}<img src="out/raw/${src}.png"></div>`;
+const ph = (src, x, y, w) => `<div class="ph" style="left:${x}px;top:${y}px;width:${w}px"><img src="out/raw/${src}.png"></div>`;
+let html = '', size, cls = 'light';
+if (mode === 'hero-light' || mode === 'hero-dark') {
+  const dark = mode === 'hero-dark'; cls = dark ? 'dark' : 'light'; size = W.hero;
+  html = win(dark ? 'L-night' : 'L-tide', 34, 40, 930) + ph(dark ? 'P-night' : 'P-tide', 896, 96, 270);
+} else if (mode === 'phone') {
+  size = W.phone;
+  const items = [['P-tide', 'Next task', 'One thing. Done or schedule it.'], ['P-cal', 'Today’s outcomes', 'Planned with Claude, ticked off here.'], ['P-night', 'Night train', 'Warm light after dark.']];
+  items.forEach(([s, h, p], i) => { const x = 130 + i * 340; html += ph(s, x, 26, 260) + `<div class="cap" style="left:${x - 40}px;top:578px;width:340px"><h3>${h}</h3><p>${p}</p></div>`; });
+} else if (mode === 'themes') {
+  size = W.themes;
+  [['L-tide', 'Tide', 'calm water by day'], ['L-night', 'Night train', 'warm light after dark'], ['L-day', 'Day train', 'a sunlit carriage']].forEach(([s, n, d], i) => {
+    const x = 30 + i * 385; html += win(s, x, 26, 370) + `<div class="lab" style="left:${x}px;top:${26 + 22 + 212 + 30}px;width:370px"><b>${n}</b> · ${d}</div>`;
+  });
+} else if (mode === 'settings') {
+  size = W.settings; html = win('L-settings', 50, 40, 1100);
+}
+document.body.className = cls;
+document.body.style.width = size[0] + 'px'; document.body.style.height = size[1] + 'px';
+document.getElementById('root').innerHTML = html;
+</script></body></html>

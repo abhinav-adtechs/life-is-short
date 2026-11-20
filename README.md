@@ -13,20 +13,69 @@
 <p align="center"><b>Say what's on your mind. Life is short turns it into tasks, puts them on your calendar,<br>and shows you the one thing to do right now.</b></p>
 
 <p align="center">
+  <a href="#watch-it"><b>Watch it</b></a> ·
+  <a href="#at-a-glance">At a glance</a> ·
+  <a href="#claude-and-mcp-at-a-glance">Claude + MCP</a> ·
+  <a href="#start-in-two-minutes">Start in two minutes</a> ·
   <a href="#features">Features</a> ·
-  <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#docs">Docs</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="#contributing">Contributing</a>
 </p>
-[Goals](#goals-first) · [How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Claude](#connect-claude) · [Security](#locked-down-by-default) · [Run your own](#run-your-own)
+[Goals](#goals-first) · [How it works](#how-it-works) · [Repeats](#things-that-come-back) · [Review](#see-how-it-went) · [Design](#designed-to-get-out-of-the-way) · [Make it yours](#make-it-yours) · [Sharing](#share-a-view-keep-the-keys) · [Claude](#connect-claude) · [Security](#locked-down-by-default) · [Run your own](#quick-start)
+
+<br>
+
+## Watch it
+
+<a href="https://github.com/abhinav-adtechs/life-is-short/raw/main/docs/media/showcase.mp4"><img alt="Life is short in 25 seconds: the planner with today's outcomes, a spoken-style dump turned into a plan, Done on the next task, ticking off a step on a goal's map, the three themes and the phone" src="docs/media/showcase.gif" width="100%"></a>
+
+<p align="center"><b><a href="https://github.com/abhinav-adtechs/life-is-short/raw/main/docs/media/showcase.mp4">▶ Watch the full walkthrough</a></b> (1 min 40 s, 1080p): goals, dumping, the map, the review, themes, the phone, Claude over MCP, security and running your own.<br><sub>Everything on screen is made-up demo data. The recording is reproducible: <a href="scripts/showcase"><code>scripts/showcase</code></a>.</sub></p>
+
+## At a glance
+
+| | What you get |
+|---|---|
+| 🎯 **Goals first** | Four or five goals, each with what **done** means as key results, and sub-goals under them, OKR style. Every task moves a goal or is **off-goal**. Each goal is a **route** (what's up next, what's ready, what you're waiting on) and a **map** with the critical path to the finish. Done goals go to an **archive**. [More ↓](#goals-first) |
+| 🌅 **Plan the day with Claude** | Each morning Claude picks the few goals today is for and the **outcome** each one produces. **Today's outcomes** sit across the top of the calendar, ticked off as you go. [More ↓](#goals-first) |
+| 🎙️ **Dump · Slot · Do** | Type it or say it. The AI pulls out every task, spots what's already on your list, and shows you the plan before anything changes. A day or a time goes on the calendar; the rest waits, ranked. The screen shows **the one thing to do now**. [More ↓](#how-it-works) |
+| 🔁 **Things that come back** | *"Every Monday and Thursday"*, *"4 times a week"*, *"20 times, then stop"*: one at a time, on its day. [More ↓](#things-that-come-back) |
+| 📊 **See how it went** | A score out of 100 for a day, week or month: done and missed, time on each goal, rhythm, flow and load. [More ↓](#see-how-it-went) |
+| 📆 **One calendar** | Calendar events and Google Tasks from up to five Google accounts, read-only, slotted around. [More ↓](#your-whole-life-one-calendar) |
+| 📱 **Every screen** | Live sync between phone and laptop, and **iPhone, iPad and Mac apps** with on-device dictation, Siri and Shortcuts. [More ↓](#on-every-screen-you-own) |
+| 👀 **Share a view** | A view-only window for someone else, signed in with an emailed code. They suggest; you approve. [More ↓](#share-a-view-keep-the-keys) |
+| 🤖 **Claude, over MCP** | A built-in **MCP server** at `/mcp` with OAuth 2.1: **13 tools** to read and change goals, tasks and the day. [More ↓](#claude-and-mcp-at-a-glance) |
+| 🔐 **Locked down** | PIN + authenticator code, Face ID or a passkey; row-level security; a strict CSP; a nightly, breach-checked backup. [More ↓](#locked-down-by-default) |
+| 🪶 **No keys needed** | No AI key? A built-in parser. No database? It runs **entirely in your browser**. [More ↓](#quick-start) |
+
+### Claude and MCP at a glance
+
+Add `https://<your-domain>/mcp` as a custom connector in Claude (claude.ai, the desktop app or Claude Code), sign in to your planner as you always do, and press **Allow**.
+
+| | Tools |
+|---|---|
+| **Goals** | `list_goals` · `get_goal` (its chart as Mermaid) · `change_goals` (up to 40 changes to goals and charts at once) · `delete_goal` |
+| **Tasks** | `list_tasks` · `get_task` · `create_task` · `update_task` · `complete_task` · `reopen_task` · `delete_task` |
+| **The day** | `get_today` · `plan_today` |
+
+Then just ask: *"Plan my day around my goals."* · *"What's blocking the podcast? Draw me its chart."* · *"Make a goal to run a half marathon by February, with 20 training runs before the race."* Claude says what it's about to change before it changes a goal's shape, and asks before deleting anything. Every tool, and how the connection is secured: [Connect Claude ↓](#connect-claude).
+
+### Start in two minutes
+
+```sh
+git clone https://github.com/abhinav-adtechs/life-is-short.git
+cd life-is-short && npm install
+npm run dev        # open http://localhost:3000/app
+```
+
+No keys needed: it runs in your browser with a built-in parser. Add Supabase for sync and sign-in, a free Gemini key for the AI, and Google for your calendars when you want them: the [setup guide](docs/setup.md) and the [go-live checklist](docs/go-live.md) take you to your phone, step by step.
 
 <br>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-  <img alt="Life is short on a laptop and a phone: the Next task at the top, the Priority matrix, and a calendar that fits the day" src="docs/images/hero-light.png">
+  <img alt="Life is short on a laptop and a phone: the Next task, today's outcomes planned with Claude, each goal's card with its progress and next tasks, and the calendar" src="docs/images/hero-light.png">
 </picture>
 
 <br>
@@ -58,17 +107,17 @@ On a laptop the planner has **two views**, a switch at the top:
 - **Calendar.** The task you're on, then **your goals** down the left, one card each: how much of its work is done, big (*20% · 1 done · 4 to go*), its deadline, key results and time this week, and its **next tasks** in the order to do them (tick them off, or drag one onto the calendar; **more** shows the rest). Once today is planned, the goals in today's focus come first and each says where it'll be **by tonight** (*Finish today's 2 and it's 60% by tonight*); the rest wait under **Not today**. Until then the rail says **Today isn't planned**, and so does a bar across the top of the calendar, with **Plan with Claude** (a new Claude conversation, the ask filled in) and **Copy the ask**. The **backlog** (every task not on the calendar, by goal) sits behind a tray at the foot. The calendar shows three days, today first, with **today's outcomes** across its top once the day is planned.
 - **Goals.** Every goal on the left, most important first (**Archived** is a tab: goals you've marked done or dropped). Open one and its sub-goals show under it; the right-hand side shows it in full: what done means, with its sub-goals under the key results they serve, and its **Route**, or its **Map**, which opens in that same pane so the list stays there to jump to another goal (**Full screen** when you want the room). **Backlog** opens beside the list: drag a task onto the goal to put it on that goal. Done, Edit, Drop, Delete and reordering are all there.
 
-- **Specific enough to finish.** "Give Sam a clean exit", not "Fundraising". Each goal says what **done** means (*Share transfer signed*, *Money in the bank*), lines you tick as they come true, and, if you like, a date to get it done by.
+- **Specific enough to finish.** "Launch the podcast", not "Podcast". Each goal says what **done** means (*Live on Spotify and Apple*, *100 subscribers*), lines you tick as they come true, and, if you like, a date to get it done by.
 - **In a section.** Goals sit in the parts of your life you name: your company, a side project, Personal, Helping others. A task on a goal takes its section and its colour.
 - **Ranked.** Your top goal first. The order breaks ties in the backlog.
 - **Broken down, OKR style.** A goal can have **sub-goals**, and they can have their own, a few levels down. A sub-goal can serve the goal as a whole or one of its **key results**, and key results can have key results under them. Type them as an indented outline (Tab indents a line under the one above), or add them in place with **+ Key result** and **+ Sub-goal**. A key result is done once everything under it is, and each goal shows how far along it is, counting its key results and the sub-goals that serve them. The main page keeps one card per top goal: a sub-goal's tasks sit in its top goal's card, in its section, and its time counts towards it. Closing a goal closes what's under it; bringing a sub-goal back brings back the goals above it. **Delete** on any goal or sub-goal (in Goals, or **Delete for good** on a sub-goal on its parent's map) removes it for good with everything under it, after saying what goes: its open tasks stay in your planner off-goal, or go too if you choose, and done tasks stay. The panel offers Undo right there.
-- **Change goals and their charts by saying so.** The chat bar takes more than tasks: *"book the board room before signing, and the exit is done when the money is in the bank"* adds the task, draws the arrow and adds the key result, all in one plan you approve. The plan lists the chart changes under **Goals and charts**, with a box to leave them out.
+- **Change goals and their charts by saying so.** The chat bar takes more than tasks: *"book the studio before recording, and the podcast is done when it has 100 subscribers"* adds the task, draws the arrow and adds the key result, all in one plan you approve. The plan lists the chart changes under **Goals and charts**, with a box to leave them out.
 - **Every task moves a goal, or it's off-goal.** The AI puts each thing you dump on the goal it moves, strictly: loosely related doesn't count. Errands, admin and favours land **off-goal**, which is fine, as long as you know. Change it on any task, drag it to another goal's row, or type a `#tag` naming the goal.
 - **Time on goals, all week.** Tick something off, or sit through a meeting that's on a goal, and the time counts towards it. The header says what share of your week went to goals; **Goals** shows each one's time, what's planned, what's open and what's ticked; the review breaks it down by day, week or month and says which goal got nothing.
-- **Plan the day with Claude, then do it.** Each morning, agree with Claude which few goals today is for and, for each, the **outcome** the day produces in plain words (*"New deck with both leads, follow-ups sent"*). Claude saves it with `plan_today` and the day is **planned**: **Today's outcomes** sit across the top of the calendar, one card per goal in its colour, each with today's steps (tick them off right there), how many are done, and where the goal will be **by tonight**, counted in tasks and key results, never time (*tasks 1 → 4 of 5 by tonight*). The goal cards on the left say **Today**. Until it's planned the calendar has nothing on top, just a quiet *Today isn't planned*. **Clear** un-plans it; Claude can re-plan at any point in the day. The app picks up a plan Claude makes when its window comes to the front, or within two minutes.
+- **Plan the day with Claude, then do it.** Each morning, agree with Claude which few goals today is for and, for each, the **outcome** the day produces in plain words (*"Guests booked and episode 1 recorded"*). Claude saves it with `plan_today` and the day is **planned**: **Today's outcomes** sit across the top of the calendar, one card per goal in its colour, each with today's steps (tick them off right there), how many are done, and where the goal will be **by tonight**, counted in tasks and key results, never time (*tasks 1 → 4 of 5 by tonight*). The goal cards on the left say **Today**. Until it's planned the calendar has nothing on top, just a quiet *Today isn't planned*. **Clear** un-plans it; Claude can re-plan at any point in the day. The app picks up a plan Claude makes when its window comes to the front, or within two minutes.
 - **Done, and into the archive.** Press **Done** on a goal's card on the main page (or in Goals, on its map, or on its route on a phone) and it's archived at once, with Undo; its open tasks go off-goal and the time you spent on it stays in your reviews. **Archive** (beside Edit goals, at the foot of Goals, and in the phone's ••• menu) lists every goal you've marked done or dropped, a month at a time, with how long it took, its key results and the time and tasks it took. Open its map to look back over it, **Bring back** one that isn't done after all (the sub-goals that closed with it come back too), or delete it for good.
 
-**Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The main page is **a card per goal**, most important first. Each card leads with **how much of its work is done**, big (*30% · 3 done, 7 to go*), then its deadline, key results and time this week. **What's blocked is called out** with what's holding it up (*2 blocked, held up by waiting on "Buyer's funds"*), one click from its route. Then its tasks, **on the calendar or not**, in the order to do them: what can start now before what's blocked, then urgent first, nearest deadline, soonest on the calendar. It shows five, then **View more**; **Route** drops down the goal's whole route, and **Map** opens every step on one map. A task on the calendar is **in its own colour** with its time, and a missed one comes back to its goal's card an hour after its slot. An **Off-goal** card comes last. Each task wears its priority as a pill (click it to change it: **Urgent → Important → Later**), and a row of chips shows one priority across every goal. Drag a task onto another goal's card to move it there, or onto a priority chip to change its priority. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
+**Urgent and Important still count**, with goals telling you *what matters* and priority telling you *when*. The main page is **a card per goal**, most important first. Each card leads with **how much of its work is done**, big (*30% · 3 done, 7 to go*), then its deadline, key results and time this week. **What's blocked is called out** with what's holding it up (*2 blocked, held up by waiting on "Guests confirm a date"*), one click from its route. Then its tasks, **on the calendar or not**, in the order to do them: what can start now before what's blocked, then urgent first, nearest deadline, soonest on the calendar. It shows five, then **View more**; **Route** drops down the goal's whole route, and **Map** opens every step on one map. A task on the calendar is **in its own colour** with its time, and a missed one comes back to its goal's card an hour after its slot. An **Off-goal** card comes last. Each task wears its priority as a pill (click it to change it: **Urgent → Important → Later**), and a row of chips shows one priority across every goal. Drag a task onto another goal's card to move it there, or onto a priority chip to change its priority. At the same priority, work on a goal comes before off-goal work, then deadlines, then your goals' order, so the **Next task** is whatever moves your goals soonest. It says which goal it moves.
 
 ### Every goal as a route to the finish
 
@@ -76,10 +125,10 @@ Each goal can be seen two ways: as a **route**, read top to bottom, and as a **m
 
 **The route, right on the main page.** Press **Route** on a goal's card and the card drops down to show:
 
-- **Up next**, big: the first step you can start on the critical path (inside a sub-goal if that's where it is), with **Done** and a time for it, and what it opens up (*Then "Prep for partner meetings" opens up*).
+- **Up next**, big: the first step you can start on the critical path (inside a sub-goal if that's where it is), with **Done** and a time for it, and what it opens up (*Then "Edit episode 1" opens up*).
 - **Also ready**: everything else you can do now, in its sub-goals too, the one on the calendar first.
 - **Waiting on**: what's out of your hands, how long it's been (*1 day*) and what it holds up.
-- **The route to the finish**: the steps still locked (*After "Send the deck"*) and the key results still to reach, in the order they come, on one line.
+- **The route to the finish**: the steps still locked (*After "Record episode 1"*) and the key results still to reach, in the order they come, on one line.
 - **Sub-goals**, each with its own ring, opening to its own route in place; and **Done**, folded away.
 
 The card remembers being open in this browser, and a task on it drags like any task: onto another goal's card, a priority or the calendar. On a phone, opening a goal shows its route first, under a ring of how far along it is, with the map a tap away.
@@ -100,7 +149,7 @@ The card remembers being open in this browser, and a task on it drags like any t
   - **A selected step has its own toolbar**: **Link to…** joins it to a step that comes after it (click that step), and **Move to…** puts it on any goal or sub-goal, or off-goal. The side panel's **Goal** does the same.
   - **Draw an arrow** by dragging from a step's dot: it snaps to the step you reach, says *Then: ‹step›*, and turns red with the reason if it would make a loop. Let go on an empty spot and a new step goes there, after it. Or click the dot and then the step.
   - **A + on every arrow** puts a step in between.
-- **Say what to change.** The bar in the dock takes it in words, typed or spoken (the mic, or **⌘K**; **/** jumps to it): *"after the term sheet, get the board's approval; signing waits on it"*. The changes are **shown on the map in green first**, with what they'll do in words; **Make the changes** (or Enter) makes them, Esc lets them go, and one Undo takes them all back. An empty goal offers to **draft a plan** for you.
+- **Say what to change.** The bar in the dock takes it in words, typed or spoken (the mic, or **⌘K**; **/** jumps to it): *"after recording, send the guest the cut; editing waits on their OK"*. The changes are **shown on the map in green first**, with what they'll do in words; **Make the changes** (or Enter) makes them, Esc lets them go, and one Undo takes them all back. An empty goal offers to **draft a plan** for you.
 - **Keys**: **Tab** adds the next step and **Enter** one alongside, and you type the title straight away. **Space** ticks the selected step off. Arrow keys move to the nearest step that way. **Delete** removes the selected arrow, or asks before deleting the selected step. **⇧1** fits the whole route, **⌘Z** undoes.
 - The **side panel** edits a step: its title, length and priority, a time for it, what it needs first and what it unlocks, something to wait on, and making it repeat. **Repeating tasks** are one step for the whole series, with the repeat icon and how many are done.
 - **History.** Every step added, linked, finished, renamed or resolved is logged, so you can see how the plan changed. Download it, or the map itself as **JSON** or as a **Mermaid** flowchart for GitHub, Notion or any docs tool. Claude reads each goal's chart (`list_goals`, `get_goal`) and builds them too (`change_goals`).
@@ -211,7 +260,7 @@ No AI key? A built-in parser understands "tomorrow at 9", "by Friday", "urgent",
 ## How it works
 
 <p align="center">
-  <img alt="Typing a rambling note into the chat bar: the AI adds three tasks, puts one on Wednesday at 3 PM, and ticks off a finished task" src="docs/images/dump.gif" width="100%">
+  <img alt="Typing a rambling note into the chat bar: the AI ticks off booking the guests, puts a call on tomorrow at 9, gives the passport a deadline and puts a new mic on the podcast goal, and nothing changes until Apply" src="docs/images/dump.gif" width="100%">
 </p>
 
 <table>
@@ -297,7 +346,7 @@ There are only two heavy things on any screen: **the task you're on, and the mic
 Pick a light to plan by. **Tide** is cool and bright: a slow wave runs under the current time, and a hairline across the Next task fills as your day goes. **Night train** is warm amber on deep blue, with the light of a passing platform sweeping across now and then and a lamp glowing by the task you're on. **Day train** is the same carriage by daylight. Prefer stillness? Turn the ambient light down to Quiet or Still.
 
 <p align="center">
-  <img alt="Three phone screens: the Next task above the Priority matrix, the day's timeline with a suggested slot, and Night train" src="docs/images/phone.png" width="100%">
+  <img alt="Three phone screens: the Next task above the goal cards, today's outcomes above the day's timeline, and Night train" src="docs/images/phone.png" width="100%">
 </p>
 
 **On your phone** it's focused: the Next task on top with Done and Schedule, then your goal cards or your calendar a tab away, and the chat bar under your thumb. Tap Schedule, then tap a time; the timeline marks the next free slot for you. Press and hold a task to drag it onto **Done** or the **trash**. How the day and week are going, how much went to goals, Goals, Analytics, Share and Settings are in the `•••` menu.
@@ -335,7 +384,7 @@ It feels fast because it is fast: rows rise in, ticked tasks get a check-and-str
 - Week starts Monday, Sunday or Saturday. Shade weekends, show ISO week numbers, colour events by section, account, calendar or priority.
 
 <p align="center">
-  <img alt="Settings → Appearance in a side panel: theme cards, accent colours and ambient light" src="docs/images/settings.png" width="100%">
+  <img alt="Settings → Appearance in a side panel over the planner: theme cards, accent colours and ambient light" src="docs/images/settings.png" width="100%">
 </p>
 
 Every change previews live and **follows you to your other devices**. The theme, accent and ambient light stay per device, so your phone can follow the sun while your laptop rides the night train.
@@ -400,12 +449,12 @@ Every tool has a JSON schema for its input and output and answers with compact J
 
 **Plan through Claude.** Ask it in your own words, and it builds the chart with `change_goals`, the same operations as the bar on every chart:
 
-- *"Make a goal to close the seed round by March: done when the term sheet is signed and the money's in the bank. Steps: finish the deck, send it to five investors, then wait on the lead investor's reply before the term sheet."*
-- *"On the seed round, add due diligence as a sub-goal for 'money in the bank', with building the data room as its first step."*
-- *"What's blocking the exit? Draw me its chart."* (`get_goal`'s Mermaid, drawn in the conversation)
-- *"I sent the deck: tick it off, and push the board update after the investor call."*
-- *"Move 'Hire a lawyer' under the seed round, for 'money in the bank', and make the half marathon my top goal."*
-- *"Put 'board approves' under 'shares transferred', and delete the old launch goal with its open tasks."*
+- *"Make a goal to launch the podcast by 15 December: done when it's live on Spotify and Apple and has 100 subscribers. Steps: write the outline, book three guests, wait on them to confirm a date, then record episode 1."*
+- *"On the podcast, add 'Grow to 100 subscribers' as a sub-goal for '100 subscribers', with cutting a trailer as its first step."*
+- *"What's blocking the podcast? Draw me its chart."* (`get_goal`'s Mermaid, drawn in the conversation)
+- *"I booked the guests: tick it off, and push the release notes to after the beta call."*
+- *"Move 'Order a new mic' under the podcast, for 'first 3 episodes recorded', and make the half marathon my top goal."*
+- *"Put 'feed submitted' under 'live on Spotify and Apple', and delete the old launch goal with its open tasks."*
 
 Claude says what it's about to change before it changes a goal's shape, and asks before deleting. Every change goes in the chart's history, and the planner shows it the next time its window comes to the front. To undo one, ask Claude to put it back or change it on the chart.
 
@@ -650,15 +699,16 @@ life-is-short/
 │   ├── mcp/                  what each MCP tool does
 │   └── server/               server-only code: auth, Google, sharing, MCP OAuth
 ├── supabase/
-│   ├── migrations/           0001–0009: schema, 2FA rule, PIN, sharing, labels, passkeys, Face ID, connectors
+│   ├── migrations/           0001–0012: schema, 2FA rule, PIN, sharing, labels, passkeys, Face ID, connectors, goals, day plans
 │   └── roles/                backup_reader (primary) and backup_writer (backup) logins
 ├── scripts/
 │   ├── backup/               nightly sync, weekly verify, breach checks, restore
 │   ├── db/                   PGlite harness and SQL tests for sharing and connectors
 │   ├── brand/, scenes/       logo and painted scenes (Python)
+│   ├── showcase/             the demo video and README images, recorded from made-up data
 │   └── seed-sql.mjs          tasks.json → seed SQL
 ├── apple/                    iPhone, iPad and Mac apps (XcodeGen project, Swift core package)
-├── docs/                     setup, go-live, security, apple, architecture, images
+├── docs/                     setup, go-live, security, apple, architecture, images, media (the video)
 ├── proxy.ts                  per-request CSP nonce
 ├── next.config.ts            security headers, no-store on API/MCP/OAuth
 └── .githooks/pre-commit      blocks secrets and task files
@@ -675,6 +725,7 @@ life-is-short/
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)       | Modules, data flow, data model and key files                                                                                              |
 | [`apple/README.md`](apple/README.md)                 | Building the apps from the `apple/` folder                                                                                                |
 | [`scripts/brand/README.md`](scripts/brand/README.md) | How the logo, icons and link previews are drawn                                                                                           |
+| [`scripts/showcase/README.md`](scripts/showcase/README.md) | How the showcase video and the README's images are recorded from made-up demo data                                                  |
 
 ## Roadmap
 

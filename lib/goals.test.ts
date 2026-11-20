@@ -29,8 +29,8 @@ const task = (title: string, extra: Partial<Task> = {}): Task => ({
 const goal = (id: string, title: string, extra: Partial<Goal> = {}): Goal => ({
   id, title, section: null, results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1, ...extra,
 });
-const LABELS: Label[] = [{ id: 'sj', name: 'Superjoin', color: '#4F5BD5' }, { id: 'personal', name: 'Personal', color: '#D98E04' }];
-const EXIT = goal('gexit', 'Give Sam an exit', { section: 'sj', results: [{ id: 'k1', text: 'Share transfer signed', done: false }] });
+const LABELS: Label[] = [{ id: 'acme', name: 'Acme', color: '#4F5BD5' }, { id: 'personal', name: 'Personal', color: '#D98E04' }];
+const EXIT = goal('gexit', 'Sell the side business', { section: 'acme', results: [{ id: 'k1', text: 'Share transfer signed', done: false }] });
 const RUN = goal('grun', 'Run a half marathon', { section: 'personal' });
 const OLD = goal('gold', 'Launch v1', { status: 'achieved', closedAt: 5 });
 const GOALS = [EXIT, RUN, OLD];
@@ -38,7 +38,7 @@ const GOALS = [EXIT, RUN, OLD];
 describe('normalizeGoals', () => {
   it('keeps well-formed goals and cleans up the rest', () => {
     const out = normalizeGoals([
-      { id: 'g1', title: '  Close   the round ', section: 'sj', by: '2026-12-01', status: 'active', results: [{ id: 'k1', text: 'Lead signed', done: true }, { text: '' }, { text: 'Money in' }] },
+      { id: 'g1', title: '  Close   the round ', section: 'acme', by: '2026-12-01', status: 'active', results: [{ id: 'k1', text: 'Lead signed', done: true }, { text: '' }, { text: 'Money in' }] },
       { id: 'g1', title: 'Duplicate id' },
       { id: 'bad id!', title: 'Bad id' },
       { id: 'g2', title: '' },
@@ -46,7 +46,7 @@ describe('normalizeGoals', () => {
       'junk',
     ]);
     expect(out.map(g => g.id)).toEqual(['g1', 'g3']);
-    expect(out[0]).toMatchObject({ title: 'Close the round', section: 'sj', by: '2026-12-01', status: 'active', closedAt: null });
+    expect(out[0]).toMatchObject({ title: 'Close the round', section: 'acme', by: '2026-12-01', status: 'active', closedAt: null });
     expect(out[0].results).toEqual([{ id: 'k1', text: 'Lead signed', done: true }, { id: 'k2', text: 'Money in', done: false }]);
     expect(out[1]).toMatchObject({ status: 'achieved', closedAt: 9 });
     expect(normalizeGoals(null)).toEqual([]);
@@ -63,11 +63,11 @@ describe('normalizeGoals', () => {
 describe('finding a goal', () => {
   it('by id, whole title or a key word, among active goals only', () => {
     expect(pickGoal(GOALS, 'gexit')).toBe('gexit');
-    expect(pickGoal(GOALS, 'Give Sam an exit')).toBe('gexit');
-    expect(goalNamed(GOALS, 'exit')?.id).toBe('gexit');
+    expect(pickGoal(GOALS, 'Sell the side business')).toBe('gexit');
+    expect(goalNamed(GOALS, 'business')?.id).toBe('gexit');
     expect(goalNamed(GOALS, 'marathon')?.id).toBe('grun');
     // Fillers don't name a goal; achieved ones can't be picked.
-    expect(goalNamed(GOALS, 'give')).toBeNull();
+    expect(goalNamed(GOALS, 'the')).toBeNull();
     expect(pickGoal(GOALS, 'Launch v1')).toBeNull();
     expect(pickGoal(GOALS, '')).toBeNull();
     expect(pickGoal(GOALS, 42)).toBeNull();
@@ -129,7 +129,7 @@ describe('tallyGoals', () => {
 
 describe('changing goals', () => {
   it('adds, patches, ranks, achieves, brings back and removes, as pure functions', () => {
-    const g = makeGoal({ title: '  Ship v2  ', section: 'sj', results: ['10 accounts live', ' ', 'Churn under 2%'], by: '2027-01-15' }, 7, 'gship');
+    const g = makeGoal({ title: '  Ship v2  ', section: 'acme', results: ['10 accounts live', ' ', 'Churn under 2%'], by: '2027-01-15' }, 7, 'gship');
     expect(g).toMatchObject({ id: 'gship', title: 'Ship v2', status: 'active', created: 7, by: '2027-01-15' });
     expect(g.results.map(r => r.text)).toEqual(['10 accounts live', 'Churn under 2%']);
     expect(resultsLine(g)).toBe('0 of 2');
@@ -140,8 +140,8 @@ describe('changing goals', () => {
     list = moveGoal('gship', -1)(list);
     expect(list.filter(x => x.status === 'active').map(x => x.id)).toEqual(['gexit', 'gship', 'grun']);
     expect(moveGoal('gexit', -1)(list)).toBe(list);
-    list = patchGoal('gexit', { title: 'Give Sam a clean exit' }, 9)(list);
-    expect(list[0]).toMatchObject({ title: 'Give Sam a clean exit', updatedAt: 9 });
+    list = patchGoal('gexit', { title: 'Sell the side business well' }, 9)(list);
+    expect(list[0]).toMatchObject({ title: 'Sell the side business well', updatedAt: 9 });
     list = setGoalStatus('gexit', 'achieved', 10)(list);
     expect(list.find(x => x.id === 'gexit')).toMatchObject({ status: 'achieved', closedAt: 10 });
     // Back among the active ones, last.
@@ -153,12 +153,12 @@ describe('changing goals', () => {
 
 describe('goals through the chat', () => {
   it('tells the model your goals and each task’s goal', () => {
-    const t = task('Board deck', { label: 'sj', goal: 'gexit' });
+    const t = task('Board deck', { label: 'acme', goal: 'gexit' });
     const { ctx } = promptContext([t], undefined, undefined, x => x.goal ?? null);
     const p = buildPrompt('call the lawyer about escrow', NOW, ctx, undefined, LABELS, undefined, undefined,
-      [{ id: 'gexit', title: 'Give Sam an exit', section: 'sj', results: ['Share transfer signed'], by: '2026-12-31' }]);
-    expect(p).toContain('- gexit = Give Sam an exit (Superjoin). Done when: Share transfer signed. By 2026-12-31');
-    expect(p).toMatch(/T1 \| P2 \| Board deck \| backlog \| - \| sj \| gexit/);
+      [{ id: 'gexit', title: 'Sell the side business', section: 'acme', results: ['Share transfer signed'], by: '2026-12-31' }]);
+    expect(p).toContain('- gexit = Sell the side business (Acme). Done when: Share transfer signed. By 2026-12-31');
+    expect(p).toMatch(/T1 \| P2 \| Board deck \| backlog \| - \| acme \| gexit/);
     expect(p).toContain('"goal": the id of the goal this task directly moves forward');
     expect(p).toContain('"goal": "none" takes it off its goal');
     expect(buildPrompt('x', NOW)).toContain('"goal": null,');
@@ -166,7 +166,7 @@ describe('goals through the chat', () => {
 
   it('puts a new task on the goal the model picked, in its section, and moves tasks on and off goals', () => {
     const chore = task('Chore', { label: 'personal' });
-    const deck = task('Deck', { goal: 'gexit', label: 'sj' });
+    const deck = task('Deck', { goal: 'gexit', label: 'acme' });
     const { refs } = promptContext([chore, deck]);
     const out = applyCapture({
       text: 'call the lawyer for the exit, and the chore is for the marathon, deck is not for the exit', tasks: [chore, deck], refs,
@@ -176,21 +176,21 @@ describe('goals through the chat', () => {
       },
       via: 'ai', now: NOW, newId: () => 'n' + n++, labels: LABELS, goals: GOALS,
     });
-    expect(out.added[0]).toMatchObject({ title: 'Call the lawyer', goal: 'gexit', label: 'sj' });
+    expect(out.added[0]).toMatchObject({ title: 'Call the lawyer', goal: 'gexit', label: 'acme' });
     // An achieved goal can't take new tasks.
     expect(out.added[1]).toMatchObject({ title: 'Water plants', goal: null });
     expect(out.puts.find(t => t.id === chore.id)).toMatchObject({ goal: 'grun', label: 'personal' });
-    expect(out.puts.find(t => t.id === deck.id)).toMatchObject({ goal: null, label: 'sj' });
+    expect(out.puts.find(t => t.id === deck.id)).toMatchObject({ goal: null, label: 'acme' });
     expect(out.summary).toBe('2 added: 0 on the calendar, 2 in the backlog, 1 on goals · 2 updated');
   });
 
   it('says which goal one new task is on', () => {
-    const out = applyCapture({ text: 'x', tasks: [], refs: new Map(), result: { add: [{ title: 'Draft the transfer', goal: 'exit' }], update: [] }, via: 'ai', now: NOW, goals: GOALS });
-    expect(out.summary).toBe('In the backlog · Give Sam an exit · Important');
+    const out = applyCapture({ text: 'x', tasks: [], refs: new Map(), result: { add: [{ title: 'Draft the transfer', goal: 'business' }], update: [] }, via: 'ai', now: NOW, goals: GOALS });
+    expect(out.summary).toBe('In the backlog · Sell the side business · Important');
   });
 
   it('the keyword parser takes a #tag naming a goal, after labels', () => {
-    const [a, b] = localParse('Draft the transfer #exit\nBuy running shoes #personal #marathon', NOW, LABELS, GOALS);
+    const [a, b] = localParse('Draft the transfer #business\nBuy running shoes #personal #marathon', NOW, LABELS, GOALS);
     expect(a).toMatchObject({ title: 'Draft the transfer', goal: 'gexit', label: null });
     expect(b).toMatchObject({ title: 'Buy running shoes', label: 'personal', goal: 'grun' });
     expect(localParse('Fix #nothing', NOW, LABELS, GOALS)[0]).not.toHaveProperty('goal');
@@ -241,7 +241,7 @@ describe('the review, by goal', () => {
 
   it('has a row per goal with time, share and misses, then off-goal', () => {
     expect(r.goals.map(g => [g.name, g.minutes, g.outcomes.missed])).toEqual([
-      ['Give Sam an exit', 120, 1], ['Run a half marathon', 0, 0], ['Launch v1', 60, 0], ['Off-goal', 60, 0],
+      ['Sell the side business', 120, 1], ['Run a half marathon', 0, 0], ['Launch v1', 60, 0], ['Off-goal', 60, 0],
     ]);
     expect(r.goals[0]).toMatchObject({ color: '#4F5BD5', status: 'active', share: 0.5 });
     expect(r.byGoal).toEqual({ gexit: 120, gold: 60, '': 60 });
@@ -259,8 +259,8 @@ describe('the review, by goal', () => {
 
 describe('the goal tree', () => {
   // Exit, with a key result that has two under it, a sub-goal for one of those, and a sub-goal for the goal as a whole.
-  const exit = goal('gexit', 'Give Sam an exit', {
-    section: 'sj',
+  const exit = goal('gexit', 'Sell the side business', {
+    section: 'acme',
     results: [
       { id: 'k1', text: 'Share transfer signed', done: false, results: [
         { id: 'k1a', text: 'Buyer’s lawyer approves the SPA', done: true },
@@ -305,7 +305,7 @@ describe('the goal tree', () => {
 
   it('keeps a sub-goal in its top goal’s section, also when the section changes', () => {
     const list = normalizeGoals([exit, { ...lawyer, section: 'personal' }, { ...deep, section: null }]);
-    expect(list.map(g => g.section)).toEqual(['sj', 'sj', 'sj']);
+    expect(list.map(g => g.section)).toEqual(['acme', 'acme', 'acme']);
     const moved = patchGoal('gexit', { section: 'personal' }, 5)(list);
     expect(moved.map(g => g.section)).toEqual(['personal', 'personal', 'personal']);
     expect(patchGoal('glaw', { title: 'Close the board, fast' }, 6)(list)[0]).toBe(list[0]);
@@ -322,7 +322,7 @@ describe('the goal tree', () => {
   });
 
   it('a task on a sub-goal takes its top goal’s section and rank', () => {
-    expect(goalSection({ goal: 'gdeep' }, index)).toBe('sj');
+    expect(goalSection({ goal: 'gdeep' }, index)).toBe('acme');
     const rank = goalRanker(TREE);
     expect(rank({ goal: 'gdeep' })).toBe(0);
     expect(rank({ goal: 'grun' })).toBe(1);
@@ -393,18 +393,18 @@ describe('the goal tree', () => {
     expect(merged[0].results?.[0]).toMatchObject({ id: 'k1a', done: true });
     expect(merged[0].results?.[1].id).not.toBe('k1b');
     expect(merged[1].id).toBe('k2');
-    const made = makeGoal({ title: 'Sub', section: 'sj', results: parseOutline('A\n  B'), parent: 'gexit', parentKr: 'k2' }, 1, 'gsub');
+    const made = makeGoal({ title: 'Sub', section: 'acme', results: parseOutline('A\n  B'), parent: 'gexit', parentKr: 'k2' }, 1, 'gsub');
     expect(made).toMatchObject({ parent: 'gexit', parentKr: 'k2' });
     expect(made.results[0].results?.[0].text).toBe('B');
   });
 
   it('tells the model sub-goals under their goals, with the key result each serves', () => {
     const p = buildPrompt('book the board room', NOW, [], undefined, LABELS, undefined, undefined, [
-      { id: 'gexit', title: 'Give Sam an exit', section: 'sj', results: openResults(exit) },
-      { id: 'glaw', title: 'Close the board', section: 'sj', parent: 'gexit', forResult: 'Share transfer signed › Board approves' },
-      { id: 'gdeep', title: 'Book the room', section: 'sj', parent: 'glaw' },
+      { id: 'gexit', title: 'Sell the side business', section: 'acme', results: openResults(exit) },
+      { id: 'glaw', title: 'Close the board', section: 'acme', parent: 'gexit', forResult: 'Share transfer signed › Board approves' },
+      { id: 'gdeep', title: 'Book the room', section: 'acme', parent: 'glaw' },
     ]);
-    expect(p).toContain('- gexit = Give Sam an exit (Superjoin). Done when: Share transfer signed › Board approves; Money in the bank');
+    expect(p).toContain('- gexit = Sell the side business (Acme). Done when: Share transfer signed › Board approves; Money in the bank');
     expect(p).toContain('  - glaw = Close the board (sub-goal of gexit, for its key result "Share transfer signed › Board approves")');
     expect(p).toContain('    - gdeep = Book the room (sub-goal of glaw)');
     expect(p).toContain('Pick the most specific one');
@@ -425,10 +425,10 @@ describe('moving goals and key results', () => {
     { id: 'k2', text: 'Paid', done: false },
     { id: 'k3', text: 'Announced', done: false },
   ];
-  const exit = goal('gexit', 'Give Sam an exit', { section: 'sj', results: krs });
+  const exit = goal('gexit', 'Sell the side business', { section: 'acme', results: krs });
   const run = goal('grun', 'Run a half marathon', { section: 'personal' });
-  const legal = goal('glegal', 'Close the lawyer’s side', { parent: 'gexit', parentKr: 'k1', section: 'sj' });
-  const docs = goal('gdocs', 'Get the documents', { parent: 'glegal', section: 'sj' });
+  const legal = goal('glegal', 'Close the lawyer’s side', { parent: 'gexit', parentKr: 'k1', section: 'acme' });
+  const docs = goal('gdocs', 'Get the documents', { parent: 'glegal', section: 'acme' });
   const old = goal('gold', 'Launch v1', { status: 'achieved', closedAt: 5 });
   const list = [exit, run, legal, docs, old];
 
@@ -448,7 +448,7 @@ describe('moving goals and key results', () => {
     expect(topGoals(out).map(g => g.id)).toEqual(['gexit', 'grun', 'glegal']);
     const g = out.find(x => x.id === 'glegal')!;
     expect(g.parent).toBeUndefined();
-    expect(g.section).toBe('sj');
+    expect(g.section).toBe('acme');
     expect(out.find(x => x.id === 'gdocs')!.parent).toBe('glegal');
   });
 
@@ -462,7 +462,7 @@ describe('moving goals and key results', () => {
 
   it('says why a goal can’t go somewhere', () => {
     expect(cantMoveGoal(list, 'gexit', 'gexit')).toMatch(/under itself/);
-    expect(cantMoveGoal(list, 'gexit', 'gdocs')).toMatch(/is under “Give Sam an exit”/);
+    expect(cantMoveGoal(list, 'gexit', 'gdocs')).toMatch(/is under “Sell the side business”/);
     expect(cantMoveGoal(list, 'grun', 'gold')).toMatch(/is achieved; bring it back first/);
     expect(cantMoveGoal(list, 'gold', 'grun')).toBeNull();
     expect(cantMoveGoal(list, 'glegal', 'gnope')).toMatch(/no goal/);
@@ -514,15 +514,15 @@ describe('moving goals and key results', () => {
 describe('sections up the tree, and what a new goal or key result can join', () => {
   it('takes a goal’s own section, else the nearest goal’s above it that has one (fix 2)', () => {
     // As stored before normalizeGoals: sections missing on the way up.
-    const top = goal('gtop', 'Top', { section: 'sj' });
+    const top = goal('gtop', 'Top', { section: 'acme' });
     const mid = goal('gmid', 'Middle', { parent: 'gtop', section: null });
     const low = goal('glow', 'Low', { parent: 'gmid', section: null });
     const own = goal('gown', 'Own', { parent: 'gmid', section: 'personal' });
     const index = new Map([top, mid, low, own].map(g => [g.id, g]));
-    expect(sectionFor(index, low)).toBe('sj');
+    expect(sectionFor(index, low)).toBe('acme');
     expect(sectionFor(index, own)).toBe('personal');
     expect(sectionFor(index, goal('gnone', 'None'))).toBeNull();
-    expect(goalSection({ goal: 'glow' }, index)).toBe('sj');
+    expect(goalSection({ goal: 'glow' }, index)).toBe('acme');
     expect(goalSection({ goal: null }, index)).toBeNull();
   });
 
