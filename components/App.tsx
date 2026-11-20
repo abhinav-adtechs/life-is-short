@@ -8,6 +8,7 @@ import { hasSupabase, supabase } from '@/lib/supabase';
 import { mfaState } from '@/lib/mfa';
 import { nextStep, type PinStatus } from '@/lib/pin';
 import { faceIdReady } from '@/lib/faceid';
+import { sendWidget } from '@/lib/native';
 import Planner from './Planner';
 import { CodeCheck, CreatePin, EnrollTotp, PinUnlock, Shell, SignIn } from './Auth';
 
@@ -85,6 +86,10 @@ export default function App({ children }: { children?: (you: { email: string | n
     document.addEventListener('visibilitychange', vis);
     return () => { sub.subscription.unsubscribe(); document.removeEventListener('visibilitychange', vis); clearTimeout(lockTimer.current); };
   }, [check]);
+
+  // Signed out, the iPhone and iPad widgets forget your day too.
+  const signedOut = state.phase === 'signin';
+  useEffect(() => { if (signedOut) sendWidget(null); }, [signedOut]);
 
   const signOut = () => { supabase().auth.signOut(); };
   const locked = async () => {

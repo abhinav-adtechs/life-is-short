@@ -1,7 +1,8 @@
 name: Apple apps
 
-# The iPhone, iPad and Mac apps (apple/): the Swift core's tests, both apps built, each app run against a local copy of
-# the planner (the smoke test, with snapshots), and the release archives signed the way apple-release.yml signs them.
+# The iPhone, iPad and Mac apps (apple/): the Swift core's tests, both apps built (the iPhone app with its widgets), each
+# app run against a local copy of the planner (the smoke test, with snapshots and pictures of every widget), and the
+# release archives signed the way apple-release.yml signs them.
 on:
   pull_request:
     paths:
@@ -121,4 +122,12 @@ jobs:
           if [ ${{ matrix.platform }} = macos ]; then
             codesign -d --entitlements - --xml "$app" | grep -q com.apple.security.app-sandbox
             lipo -info "$app/Contents/MacOS/Life is short"
+          fi
+          # The widgets ride in the iPhone app, with their own App ID and the App Group they share with it.
+          if [ ${{ matrix.platform }} = ios ]; then
+            appex="$app/PlugIns/LifeIsShortWidgets.appex"
+            test -d "$appex" || { echo "::error::The widget extension isn't in the app"; exit 1; }
+            codesign -d --entitlements - --xml "$appex" | grep -q 'ABCDE12345.io.github.abhinav-adtechs.lifeisshort.widgets'
+            codesign -d --entitlements - --xml "$appex" | grep -q 'group.io.github.abhinav-adtechs.lifeisshort'
+            codesign -d --entitlements - --xml "$app" | grep -q 'group.io.github.abhinav-adtechs.lifeisshort'
           fi

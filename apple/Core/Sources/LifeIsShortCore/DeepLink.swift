@@ -13,6 +13,8 @@ public enum NativeCommand: Equatable {
     /// Open the chat bar and start listening.
     case listen
     case open(Sheet)
+    /// Open a task: one tapped on a widget.
+    case task(id: String)
     /// The answer from Google's sign-in sheet: the app loads it into the planner's callback page.
     case googleCallback(query: String)
     /// Asks the planner to answer `pong`, to show the round trip works (the CI smoke test).
@@ -24,6 +26,7 @@ public enum NativeCommand: Equatable {
         case .dump(let text): return text.map { ["name": "dump", "text": $0] } ?? ["name": "dump"]
         case .listen: return ["name": "listen"]
         case .open(let sheet): return ["name": "open", "sheet": sheet.rawValue]
+        case .task(let id): return ["name": "task", "id": id]
         case .ping: return ["name": "ping"]
         case .googleCallback: return nil
         }
@@ -31,7 +34,8 @@ public enum NativeCommand: Equatable {
 }
 
 /// The app's own links: lifeisshort://dump?text=…, lifeisshort://listen, lifeisshort://settings (analytics, review,
-/// share), and lifeisshort://google/callback?…, where Google's sign-in sheet hands its answer back.
+/// share), lifeisshort://task/<id> (a task tapped on a widget), and lifeisshort://google/callback?…, where Google's
+/// sign-in sheet hands its answer back.
 public enum DeepLink {
     public static let scheme = "lifeisshort"
     /// The longest dump a link or Siri can hand over.
@@ -48,9 +52,22 @@ public enum DeepLink {
         case "google":
             guard url.path == "/callback" else { return nil }
             return .googleCallback(query: parts?.percentEncodedQuery ?? "")
+        case "task":
+            let id = String(url.path.dropFirst())
+            return isTaskId(id) ? .task(id: id) : nil
         case let action:
             return Sheet(rawValue: action).map(NativeCommand.open)
         }
+    }
+
+    /// A widget's link to a task.
+    public static func taskURL(_ id: String) -> URL? {
+        isTaskId(id) ? URL(string: "\(scheme)://task/\(id)") : nil
+    }
+
+    /// A task's id as links carry it: letters, digits and . _ : -, up to 64 (lib/native.ts → TASK_ID).
+    public static func isTaskId(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".:_-".unicodeScalars.contains($0)) }
     }
 
     /// Home Screen quick actions (UIApplicationShortcutItems in the iOS Info.plist).

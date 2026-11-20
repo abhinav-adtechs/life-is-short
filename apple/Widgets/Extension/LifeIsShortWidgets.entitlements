@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The App Group the app keeps today's picture in for its widgets (docs/apple.md → Widgets). The release signs
+	     with the same group (apple/scripts/adhoc-sign.sh). -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.$(LIS_BUNDLE_ID)</string>
+	</array>
+</dict>
+</plist>

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { APP_STATE, appReturnUrl, googleState, onNativeCommand, readCommand } from './native';
+import { APP_STATE, appReturnUrl, googleState, onNativeCommand, readCommand, sendWidget } from './native';
 
 describe('readCommand', () => {
   it('takes the commands the app sends', () => {
@@ -11,6 +11,8 @@ describe('readCommand', () => {
     expect(readCommand({ name: 'dump', text: 'a'.repeat(5000) })).toEqual({ name: 'dump', text: 'a'.repeat(4000) });
     expect(readCommand({ name: 'listen' })).toEqual({ name: 'listen' });
     expect(readCommand({ name: 'open', sheet: 'review' })).toEqual({ name: 'open', sheet: 'review' });
+    expect(readCommand({ name: 'task', id: 't1kz9x2abc' })).toEqual({ name: 'task', id: 't1kz9x2abc' });
+    expect(readCommand({ name: 'task', id: 'r8f2k.2026-11-20' })).toEqual({ name: 'task', id: 'r8f2k.2026-11-20' });
   });
 
   it('drops anything else', () => {
@@ -18,6 +20,10 @@ describe('readCommand', () => {
     expect(readCommand('dump')).toBeNull();
     expect(readCommand({ name: 'open', sheet: 'billing' })).toBeNull();
     expect(readCommand({ name: 'eval', code: '1' })).toBeNull();
+    expect(readCommand({ name: 'task' })).toBeNull();
+    expect(readCommand({ name: 'task', id: '' })).toBeNull();
+    expect(readCommand({ name: 'task', id: '../settings' })).toBeNull();
+    expect(readCommand({ name: 'task', id: 'x'.repeat(65) })).toBeNull();
   });
 });
 
@@ -109,6 +115,21 @@ describe('Bridge.js', () => {
     win.lisNative._receive({ kind: 'command', command: { name: 'open', sheet: 'settings' } });
     expect(posted.map(m => m.type)).toContain('pong');
     expect(got).toEqual([{ name: 'open', sheet: 'settings' }]);
+  });
+
+  it('hands the widgets today’s picture on iPhone and iPad, and not on the Mac or in a browser', async () => {
+    const phone = loadBridge({});
+    vi.stubGlobal('window', phone.win);
+    sendWidget(null);
+    await tick();
+    expect(phone.posted).toContainEqual({ type: 'widget' });
+    const mac = loadBridge({ platform: 'macos' });
+    vi.stubGlobal('window', mac.win);
+    sendWidget(null);
+    await tick();
+    expect(mac.posted.map(m => m.type)).not.toContain('widget');
+    vi.stubGlobal('window', {});
+    expect(() => sendWidget(null)).not.toThrow();
   });
 
   it('reports the page colour and stops pinch zoom on iPhone and iPad', () => {
