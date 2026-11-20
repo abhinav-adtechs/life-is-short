@@ -67,7 +67,7 @@ export function NextCard({ phone }: { phone?: boolean }) {
       </h1>
       {goal ? (
         <p className="next-goal" style={tint(label?.color)} key={`g:${cur.id}`}>
-          <button type="button" onClick={() => openSheet('flow', goal.id)} title="See where it sits on the goal’s flow chart">
+          <button type="button" onClick={() => openSheet('flow', goal.id)} title="See where it sits on the goal’s map">
             <TargetIcon size={13} /><span className="muted">Moves</span><span className="ell">{goal.title}</span>
           </button>
           {blocked.has(cur.id) && <span className="loz">Blocked</span>}

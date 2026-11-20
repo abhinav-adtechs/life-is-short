@@ -12,7 +12,7 @@ import { SharingSection } from './SharingSection';
 import { Goals } from './Goals';
 import { FlowPanel } from './Flow';
 
-const TITLES = { goals: 'Goals', flow: 'Flow chart', analytics: 'Analytics', review: 'Review', share: 'Share', settings: 'Settings', edit: 'Edit task' };
+const TITLES = { goals: 'Goals', flow: 'Map', analytics: 'Analytics', review: 'Review', share: 'Share', settings: 'Settings', edit: 'Edit task' };
 
 /**
  * Goals, Analytics, the review, Share, Settings and the task editor. On a laptop they slide in from the right over the
@@ -43,13 +43,18 @@ function Frame({ kind, wide, onClose, children }: { kind: keyof typeof TITLES; w
   useTrap(ref);
   return (
     <aside ref={ref} className={(wide ? 'side' : 'sheet') + (kind === 'edit' || kind === 'review' || kind === 'goals' || kind === 'flow' ? ` ${kind}` : '')} role="dialog" aria-modal="true" aria-labelledby="panel-h" tabIndex={-1}>
-      {!wide && <div className="grab" aria-hidden="true" />}
-      <div className="side-h">
-        <h2 id="panel-h">{TITLES[kind]}</h2>
-        <span className="spacer" />
-        {wide && <span className="kbd">esc</span>}
-        <button type="button" className={'ib' + (wide ? '' : ' bare touch')} aria-label="Close" onClick={onClose}><XIcon size={wide ? 14 : 16} /></button>
-      </div>
+      {/* A goal's map fills the screen and floats its own controls (components/Flow.tsx). */}
+      {kind === 'flow' ? <h2 id="panel-h" className="sr">{TITLES[kind]}</h2> : (
+        <>
+          {!wide && <div className="grab" aria-hidden="true" />}
+          <div className="side-h">
+            <h2 id="panel-h">{TITLES[kind]}</h2>
+            <span className="spacer" />
+            {wide && <span className="kbd">esc</span>}
+            <button type="button" className={'ib' + (wide ? '' : ' bare touch')} aria-label="Close" onClick={onClose}><XIcon size={wide ? 14 : 16} /></button>
+          </div>
+        </>
+      )}
       {children}
     </aside>
   );

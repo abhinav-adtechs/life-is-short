@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Priority, Task } from '@/lib/model';
 import type { Rule } from '@/lib/repeat';
 import { newId, PRI } from '@/lib/model';
@@ -13,7 +13,8 @@ import { fromYmd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { daysLeft, fmtHrs, useGoalWeek } from './Goals';
 import { useGoalFlow } from './Flow';
-import { CalendarIcon, CheckIcon, ChevronDown, PlusIcon, RepeatIcon, TargetIcon, XIcon } from './icons';
+import { CalendarIcon, CheckIcon, ChevronDown, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
+import { RouteList, readRouteOpen, writeRouteOpen } from './Route';
 
 /*
  * The main page's backlog: a card per goal, most important first, each with how far along it is, its deadline, its
@@ -126,7 +127,7 @@ function useTag(t: Task, kind: Kind) {
   if (kind === 'new') return { text: 'New', cls: 'tag' };
   if (plan.ticks.has(t.id)) return { text: 'Tick off', cls: 'tag' };
   if (kind === 'open' && focus.now?.id === t.id) return { text: 'Now', cls: 'tag now' };
-  // Held up by a step before it on its goal's flow chart.
+  // Held up by a step before it on its goal's map.
   if (kind === 'open' && blocked.has(t.id)) return { text: 'Blocked', cls: 'tag blocked' };
   return null;
 }
@@ -339,6 +340,15 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
   const flow = useGoalFlow(g ?? OFF);
   const [more, setMore] = useState(false);
   const [adding, setAdding] = useState(false);
+  // Its route, dropped down in place of the list; remembered in this browser.
+  const [route, setRoute] = useState(false);
+  useEffect(() => { if (g) setRoute(readRouteOpen().includes(g.id)); }, [g]);
+  const toggleRoute = () => {
+    if (!g) return;
+    const on = !route, rest = readRouteOpen().filter(x => x !== g.id);
+    setRoute(on);
+    writeRouteOpen(on ? [...rest, g.id] : rest);
+  };
   const stagger = useStagger(30, 12);
   const id = g?.id ?? '';
   const section = g ? prefs.labels.find(l => l.id === g.section) ?? null : null;
@@ -378,8 +388,8 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
       </header>
       {g && pct != null && <div className="gc-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></div>}
 
-      {held.blocked.length > 0 && g && (
-        <button type="button" className="gc-block" onClick={() => openSheet('flow', g.id)} title="See what’s holding it up on its flow chart">
+      {held.blocked.length > 0 && g && !route && (
+        <button type="button" className="gc-block" onClick={toggleRoute} title="See what’s holding it up on its route">
           <b className="num">{held.blocked.length} blocked</b>
           <span className="gc-block-by">
             {held.by.length ? <>held up by {held.by.slice(0, 2).map((s, i) => <span key={s.id}>{i ? ', ' : ''}{s.kind === 'wait' ? 'waiting on ' : ''}“{shortTitle(s.title, 34)}”</span>)}{held.by.length > 2 ? ` and ${held.by.length - 2} more` : ''}</> : 'see the chart'}
@@ -387,25 +397,32 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
         </button>
       )}
 
-      {shown.length > 0 ? (
+      {route && g ? (
+        <div className="gc-route"><RouteList goal={g} /></div>
+      ) : shown.length > 0 ? (
         <div className="gc-list">
           {shown.map((x, i) => <Item key={x.t.id} t={x.t} kind={x.kind} delay={stagger(i)} card={id} />)}
         </div>
       ) : (
         <p className="gc-empty">
           {open ? `Nothing ${pri ? PRI[pri].toLowerCase() : ''} here. ` : g ? 'Nothing open on it. ' : 'Nothing off-goal. '}
-          {g && !open && <>Add the next task, or plan it out in its <button type="button" className="link" onClick={() => openSheet('flow', g.id)}>flow chart</button>.</>}
+          {g && !open && <>Add the next task, or plan it out on its <button type="button" className="link" onClick={() => openSheet('flow', g.id)}>map</button>.</>}
         </p>
       )}
       {adding && <QuickAdd goal={g} priority={pri ?? 2} onDone={() => setAdding(false)} />}
 
       <footer className="gc-f">
-        {items.length > cap && !focused && (
+        {items.length > cap && !focused && !route && (
           <button type="button" className="link sm" aria-expanded={more} onClick={() => setMore(o => !o)}>{more ? 'Show fewer' : `View ${items.length - cap} more`}</button>
         )}
         <span className="spacer" />
         {!adding && <button type="button" className="btn text sm" onClick={() => setAdding(true)}><PlusIcon size={12} />Task</button>}
-        {g && <button type="button" className="btn sec sm" onClick={() => openSheet('flow', g.id)} title="Every step, as a flow chart">Flow chart</button>}
+        {g && (
+          <button type="button" className={'btn text sm gc-route-b' + (route ? ' on' : '')} aria-expanded={route} onClick={toggleRoute} title={route ? 'Back to the list' : 'Its route: up next, what’s ready, what you’re waiting on, and the way to the finish'}>
+            <RouteIcon size={13} />Route{route ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+        )}
+        {g && <button type="button" className="btn sec sm" onClick={() => openSheet('flow', g.id)} title="Every step on one map, to plan it out"><MapIcon size={13} />Map</button>}
         {focused && <button type="button" className="btn text sm" onClick={() => setFilter(null)}>All goals</button>}
       </footer>
     </article>

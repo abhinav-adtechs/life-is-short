@@ -154,6 +154,8 @@ export interface Flow {
   links: Link[];
   /** Steps nothing comes before: the goal leads straight to them. */
   roots: string[];
+  /** Steps nothing comes after: they lead straight to the goal, the finish. */
+  ends: string[];
   cols: number;
   /** How many rows each column has, lanes included (index 0 is the goal's). */
   rows: number[];
@@ -174,6 +176,9 @@ export const RECENT_DONE = 30 * DAY_MS;
 
 export const linkKey = (l: Link) => `${l.from}>${l.to}`;
 
+/** Where the arrows out of the steps nothing comes after go: the goal itself, the finish. */
+export const FINISH = '@goal';
+
 /** A task on the chart is done once ticked off; a meeting, once it's over. */
 const taskDone = (t: Task, now: number) => (isEvent(t) ? t.start != null && endOf(t) <= now : t.status === 'done');
 
@@ -186,7 +191,7 @@ export const repeatNode = (r: Pick<Repeat, 'id'>) => `rep:${r.id}`;
  * counted in `older` instead. A repeating task (with `repeats` given) is one step for the whole series: done once the
  * repeat is over (done as many times as it had to be, or past its last day), so a repeat with no end never is.
  */
-export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: boolean; goals?: Goal[]; repeats?: Repeat[] } = {}): Flow {
+export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: boolean; goals?: Goal[]; repeats?: Repeat[]; finish?: boolean } = {}): Flow {
   const plan = planOf(goal);
   const goals = opts.goals ?? [];
   const linked = new Set(plan.links.flatMap(l => [l.from, l.to]));
@@ -275,6 +280,10 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
   };
   const loose = (s: Step) => s.kind === 'milestone' && !s.needs.length && !s.unblocks.length;
   for (const s of steps) if (!loose(s)) s.col = colOf(s.id, new Set());
+  // Something you're waiting on, or a sub-goal, sits right before what it's for, not back at the start.
+  for (const s of steps) {
+    if ((s.kind === 'wait' || s.kind === 'goal') && !s.needs.length && s.unblocks.length) s.col = Math.max(1, Math.min(...s.unblocks.map(id => (byId.get(id) as Step).col)) - 1);
+  }
   const last = Math.max(1, ...steps.filter(s => s.col).map(s => s.col));
   for (const s of steps) if (!s.col) s.col = steps.some(x => x.col && x.kind !== 'milestone') ? last + 1 : last;
   const cols = Math.max(1, ...steps.map(s => s.col));
@@ -296,6 +305,20 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
     b.needs = b.needs.map(x => (x === l.from ? ids[ids.length - 1] : x));
     laneIds.set(linkKey(l), ids);
   }
+  // With `finish`, each step nothing comes after leads on to the goal, past the last column: a lane in each column it
+  // crosses on the way, keyed "<id>>@goal".
+  const ends = steps.filter(s => !s.unblocks.length).map(s => s.id);
+  if (opts.finish) {
+    for (const id of ends) {
+      const a = byId.get(id) as Step;
+      if (a.col >= cols) continue;
+      const key = `${id}>${FINISH}`, ids: string[] = [];
+      for (let c = a.col + 1; c <= cols; c++) ids.push(`${key}#${c}`);
+      ids.forEach((lid, i) => slots.set(lid, { id: lid, col: a.col + 1 + i, row: 0, needs: [i ? ids[i - 1] : id], unblocks: i < ids.length - 1 ? [ids[i + 1]] : [] }));
+      a.unblocks = [...a.unblocks, ids[0]];
+      laneIds.set(key, ids);
+    }
+  }
   const all = [...slots.values()];
   const columns = Array.from({ length: cols + 1 }, (_, c) => all.filter(x => x.col === c));
   const place = () => columns.forEach(list => list.forEach((x, i) => { x.row = i; }));
@@ -308,6 +331,7 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
   // Back to the real steps on either end.
   for (const [key, ids] of laneIds) {
     const [from, to] = key.split('>');
+    if (to === FINISH) { const a = byId.get(from) as Step; a.unblocks = a.unblocks.filter(x => x !== ids[0]); continue; }
     const a = byId.get(from) as Step, b = byId.get(to) as Step;
     a.unblocks = a.unblocks.map(x => (x === ids[0] ? to : x));
     b.needs = b.needs.map(x => (x === ids[ids.length - 1] ? from : x));
@@ -337,7 +361,7 @@ export function buildFlow(goal: Goal, tasks: Task[], now: number, opts: { all?: 
 
   const work = steps.filter(s => s.kind !== 'milestone');
   return {
-    steps, byId, links, roots: steps.filter(s => !s.needs.length && s.kind !== 'milestone').map(s => s.id), cols, rows, lanes, critical,
+    steps, byId, links, roots: steps.filter(s => !s.needs.length && s.kind !== 'milestone').map(s => s.id), ends, cols, rows, lanes, critical,
     counts: { steps: work.length, done: work.filter(s => s.done).length, ready: work.filter(s => s.state === 'ready').length, blocked: work.filter(s => s.state === 'blocked').length },
     older,
   };

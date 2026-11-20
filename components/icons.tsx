@@ -72,3 +72,45 @@ export const ChevronUp = ({ size = 12 }: P) => (
 export const PlusIcon = ({ size = 14 }: P) => (
   <svg {...svg(size, 1.6)}><path d="M8 3v10M3 8h10" /></svg>
 );
+export const LockIcon = ({ size = 12 }: P) => (
+  <svg {...svg(size, 1.6)}><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 015 0v2" /></svg>
+);
+export const HourglassIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M4 2.5h8M4 13.5h8M5 2.5c0 3 6 3 6 5.5s-6 2.5-6 5.5M11 2.5c0 1.6-1.4 2.4-3 3.2" /></svg>
+);
+export const FlagIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M3.5 14V2.5M3.5 3h7.5l-1.8 3 1.8 3H3.5" /></svg>
+);
+export const MapIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M2 4l4-1.5 4 1.5 4-1.5v9.5L10 13.5 6 12l-4 1.5zM6 2.5V12M10 4v9.5" /></svg>
+);
+export const RouteIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><circle cx="4" cy="3.5" r="1.5" /><circle cx="12" cy="12.5" r="1.5" /><path d="M5.5 3.5H10a2.5 2.5 0 010 5H6a2.5 2.5 0 000 5h4.5" /></svg>
+);
+export const PlayIcon = ({ size = 9 }: P) => (
+  <svg width={size} height={size} viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6L8.6 5z" fill="currentColor" /></svg>
+);
+export const TrophyIcon = ({ size = 12 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M5 2.5h6v3.5a3 3 0 01-6 0zM5 3.5H3a2 2 0 002 3M11 3.5h2a2 2 0 01-2 3M8 9v2.5M5.5 13.5h5M6.5 11.5h3v2h-3z" /></svg>
+);
+export const SparkIcon = ({ size = 15 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M8 2l1.3 3.7L13 7l-3.7 1.3L8 12l-1.3-3.7L3 7l3.7-1.3z" /><path d="M13 11.5l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z" /></svg>
+);
+export const UndoIcon = ({ size = 15 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M5.5 3L2.5 6l3 3" /><path d="M2.5 6h7a4 4 0 010 8h-2" /></svg>
+);
+export const FitIcon = ({ size = 15 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" /></svg>
+);
+export const MinusIcon = ({ size = 15 }: P) => (
+  <svg {...svg(size, 1.6)}><path d="M3.5 8h9" /></svg>
+);
+export const InboxIcon = ({ size = 16 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M2.5 9.5h3l1 1.5h3l1-1.5h3" /><path d="M2.5 9.5l1.6-5.2A1 1 0 015.05 3.5h5.9a1 1 0 01.95.8l1.6 5.2v3a1 1 0 01-1 1h-9a1 1 0 01-1-1z" /></svg>
+);
+export const OpenIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M6 3.5H3.5v9h9V10M9 2.5h4.5V7M13.5 2.5L7.5 8.5" /></svg>
+);
+export const ClockIcon = ({ size = 12 }: P) => (
+  <svg {...svg(size, 1.5)}><circle cx="8" cy="8" r="6" /><path d="M8 4.75V8l2 1.5" /></svg>
+);

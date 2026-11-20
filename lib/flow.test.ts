@@ -84,11 +84,26 @@ describe('buildFlow', () => {
   });
 
   it('lays steps out in columns by what comes before them, the goal leading to the ones nothing comes before', () => {
-    expect([s('price').col, s('lawyer').col, s('wfunds').col, s('spa').col, s('sign').col, s('kr:k1').col]).toEqual([1, 1, 1, 2, 3, 4]);
+    // The buyer's funds hold up signing, so they wait right before it rather than back at the start.
+    expect([s('price').col, s('lawyer').col, s('wfunds').col, s('spa').col, s('sign').col, s('kr:k1').col]).toEqual([1, 1, 2, 2, 3, 4]);
     expect(f.roots.sort()).toEqual(['lawyer', 'price', 'wfunds']);
     expect(f.cols).toBe(4);
     // Two in a column are on different rows.
-    expect(new Set([s('price').row, s('lawyer').row, s('wfunds').row]).size).toBe(3);
+    expect(s('price').row).not.toBe(s('lawyer').row);
+    expect(s('wfunds').row).not.toBe(s('spa').row);
+  });
+
+  it('knows the steps nothing comes after, and with `finish` gives each a lane on to the goal', () => {
+    expect(f.ends).toEqual(['kr:k1']);
+    expect(f.lanes.size).toBe(0);
+    // A step nothing comes after, in the first column: lanes across the three after it.
+    const loose = buildFlow(goal(plan), [...tasks, task('call', {})], NOW, { finish: true });
+    expect(loose.ends.sort()).toEqual(['call', 'kr:k1']);
+    expect(loose.lanes.get('call>@goal')?.map(l => l.col)).toEqual([2, 3, 4]);
+    // The last column needs none, and the steps' own arrows are as they were.
+    expect(loose.lanes.has('kr:k1>@goal')).toBe(false);
+    expect(loose.byId.get('call')?.unblocks).toEqual([]);
+    expect(buildFlow(goal(plan), [...tasks, task('call', {})], NOW).lanes.size).toBe(0);
   });
 
   it('finds the critical path: the chain with the most work left', () => {

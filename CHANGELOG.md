@@ -6,6 +6,11 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- A goal's **route**, top to bottom: **Up next** (the first step you can start on the critical path, in a sub-goal if that's where it is) with Done and a time for it and what it opens up, then what else is ready, what you're waiting on and for how long, the route still ahead to the finish, the sub-goals (each opening to its own route) and what's done. It drops down on each goal's card on the main page (**Route**, remembered in this browser), and it's what a goal opens to on a phone, with the map a tap away. Worked out in `lib/route.ts`, shown by `components/Route.tsx`.
+- The map: the goal as a full-screen route to the finish, with floating controls (where you are and how far along, undo and history, a minimap and zoom, and a dock to add steps, bring in the backlog or change the plan in words). Each kind of step has its own shape: a card with a ring to tick, a sand capsule for what you wait on (with how long it's been), a flag for a key result, a stack of cards with its own ring for a sub-goal.
+- Drag and drop that shows where it lands before you let go: onto an arrow puts it in between, and what comes after slides along to make room; onto a step puts it after, before or alongside it. Moving a step lines it up on guides. Drawing an arrow snaps to the step you reach and says why if it can't; let go on an empty spot for a new step there. A + on every arrow puts a step in between.
+- Ticking a step off on the map: the check bursts, the arrows out of it fill in with the goal's colour, what it held up lifts with its lock gone, and the ring counts up. Hover a step to light up what comes before and after it. Space ticks the selected step off; ⇧1 fits the whole route; / jumps to the bar.
+- An empty goal's map offers to draft a plan for it.
 - A goal's flow chart shows its whole tree: each sub-goal opens in place with its own chart to its right, as deep as they go, with its own arrows, and its steps work as on their own chart. A toggle on each sub-goal's card closes it to one card with how many steps are inside, remembered in this browser; one with nothing on it says "No tasks yet". Laid out in `lib/flowTree.ts`.
 - `get_goal` takes a `depth`: over 1, each sub-goal step carries its own chart (steps, arrows, critical path) and the Mermaid has a subgraph per sub-goal. 1, the default, is as before.
 - Claude builds your goals and their flow charts: `change_goals` takes the chart builder's operations (goals, sub-goals, key results, steps, waiting steps, arrows, edits, moves, removals; up to 40 in one call), and `get_goal` shows one goal in full with its chart as Mermaid and its history. `supabase/migrations/0011_connector_goals.sql` lets a connection write goals and the charts' history.
@@ -16,6 +21,10 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Changed
 
+- "Flow chart" is now the **Map**. The goal is the finish, on the right, as a ring that fills as its work gets done; every step nothing comes after leads on to it (`buildFlow`'s `ends` and, with `finish`, lanes on to the goal), and the dashed lines from the goal to the first steps are gone. Done steps sit back and the route you've walked fills in with the goal's colour; the step to do now wears Up next; locked steps wait in grey.
+- What you wait on, and a sub-goal, sit right before the step they're for rather than back at the start, so their arrows stay short.
+- A sub-goal is one card on a map until you open it in place (as a frame with a header bar, its chart under it), remembered in this browser under `ds.flow.opened`.
+- A change you ask for on the map is shown in green first, with what it'll do in words; **Make the changes** (or Enter) makes it, and one Undo still takes it all back.
 - The chart builder looks a step named by its title up on the operation's own goal when no chart is in focus.
 - The chart builder finds an achieved or dropped goal by its title too, so it can be brought back or deleted by name.
 - `change_goals` lists a goal as touched when only its repeating steps changed.

@@ -150,7 +150,7 @@ export function Editor({ task: t, onClose }: { task: Task; onClose: () => void }
               <>
                 <GoalPicker labelledBy="ed-goal" value={goal} onChange={setGoal} />
                 <p className="note">
-                  {goal ? <>Time on this counts towards the goal. <button type="button" className="link" onClick={() => openSheet('flow', goal)}>{blocked.has(t.id) ? 'Blocked: see' : 'See'} its flow chart</button></> : 'Not on a goal. Fine, as long as it’s a choice.'}
+                  {goal ? <>Time on this counts towards the goal. <button type="button" className="link" onClick={() => openSheet('flow', goal)}>{blocked.has(t.id) ? 'Locked: see what’s in its way on' : 'See it on'} its map</button></> : 'Not on a goal. Fine, as long as it’s a choice.'}
                 </p>
               </>
             ) : (

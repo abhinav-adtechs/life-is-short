@@ -3,7 +3,7 @@ import type { Task } from './model';
 import { normalizeGoals, type Goal } from './goals';
 import { buildFlow, toMermaid, type Plan } from './flow';
 import {
-  COL1_X, FRAME, GAP_X, NODE_H, NODE_W, PAD, ROW_H, buildTree, layoutTree, normalizeCollapsed, pathD, toMermaidTree, toggleCollapsed, treeJson,
+  COL1_X, FRAME, GAP_X, HEAD, NODE_H, NODE_W, RING, ROW_H, buildTree, layoutTree, normalizeCollapsed, pathD, toMermaidTree, toggleCollapsed, treeJson,
   type Box, type Edge, type Pt, type TreeLayout,
 } from './flowTree';
 
@@ -68,13 +68,17 @@ function samples(e: Edge): Pt[] {
   return out;
 }
 
-/** No two cards overlap, no card sits half in a frame, and no connector crosses a card. */
+/**
+ * No two cards overlap, no card sits half in a frame, frames only nest, nothing covers the goal, and no connector
+ * crosses a card, or a frame it isn't in or coming out of.
+ */
 function expectClean(l: TreeLayout) {
-  const cards = [...l.cards.values()];
+  // An open sub-goal's card is its frame.
+  const cards = [...l.cards.values()].filter(c => !c.open);
   for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++) {
     if (overlap(cards[i].box, cards[j].box)) throw new Error(`${cards[i].key} overlaps ${cards[j].key}`);
   }
-  for (const c of cards) expect(overlap(c.box, l.goal)).toBe(false);
+  for (const c of l.cards.values()) if (overlap(c.box, l.goal)) throw new Error(`${c.key} covers the goal`);
   for (const f of l.frames) for (const c of cards) {
     if (overlap(f.box, c.box) && !contains(f.box, c.box)) throw new Error(`${c.key} is half in the frame of ${f.key}`);
   }
@@ -88,6 +92,12 @@ function expectClean(l: TreeLayout) {
       if (c.key === e.from || c.key === e.to) continue;
       const hit = pts.find(p => inside(p, c.box));
       if (hit) throw new Error(`${e.key} runs through ${c.key} at ${Math.round(hit.x)},${Math.round(hit.y)}`);
+    }
+    const ends = [l.cards.get(e.from)?.box, l.cards.get(e.to)?.box].filter(Boolean) as Box[];
+    for (const f of l.frames) {
+      if (f.key === e.from || f.key === e.to || ends.some(b => contains(f.box, b))) continue;
+      const hit = pts.find(p => inside(p, f.box));
+      if (hit) throw new Error(`${e.key} runs through ${f.key} at ${Math.round(hit.x)},${Math.round(hit.y)}`);
     }
   }
 }
@@ -118,17 +128,34 @@ describe('buildTree', () => {
 /* ---------- the layout ---------- */
 
 describe('layoutTree', () => {
-  it('lays a flat chart out as it always has: columns from the goal, each centred on the tallest', () => {
+  it('lays a flat chart out in columns, each centred on the goal’s ring, and the goal at the end as the finish', () => {
     const goals = normalizeGoals([g('g1', 'G', null, { waits: [], links: [{ from: 'a', to: 'b' }, { from: 'a', to: 'c' }] })]);
     const l = layoutTree(treeOf(goals, [task('a', 'g1'), task('b', 'g1'), task('c', 'g1')]));
     const box = (k: string) => l.cards.get(k)!.box;
-    expect(box('a')).toEqual({ x: COL1_X, y: PAD + ROW_H / 2, w: NODE_W, h: NODE_H });
+    const midY = (b: Box) => b.y + b.h / 2;
+    expect(box('a')).toMatchObject({ x: COL1_X, w: NODE_W, h: NODE_H });
+    expect(midY(box('a'))).toBe(l.port.y);
     expect([box('b').x, box('c').x]).toEqual([COL1_X + NODE_W + GAP_X, COL1_X + NODE_W + GAP_X]);
-    expect([box('b').y, box('c').y].sort((x, y) => x - y)).toEqual([PAD, PAD + ROW_H]);
-    expect(l.goal).toMatchObject({ x: PAD, w: 176 });
+    expect([box('b').y, box('c').y].sort((x, y) => x - y)).toEqual([l.port.y - ROW_H / 2 - NODE_H / 2, l.port.y + ROW_H / 2 - NODE_H / 2]);
+    // The goal is past the last column; arrows reach its ring's left edge.
+    expect(l.goal.x).toBeGreaterThan(box('b').x + NODE_W + GAP_X);
+    expect(l.port.x).toBe(l.goal.x + (l.goal.w - RING) / 2);
     expect(l.frames).toEqual([]);
-    expect(l.edges.map(e => e.key).sort()).toEqual(['a>b', 'a>c', 'root:a']);
-    expect(pathD(l.edges.find(e => e.key === 'root:a')!)).toMatch(/^M 212 \d+(\.\d+)? C /);
+    // The steps nothing comes after lead on to the goal; nothing leads from it.
+    expect(l.edges.map(e => `${e.kind}:${e.key}`).sort()).toEqual(['finish:b>@goal', 'finish:c>@goal', 'link:a>b', 'link:a>c']);
+    const fin = l.edges.find(e => e.key === 'b>@goal')!;
+    expect(fin.segs[fin.segs.length - 1].to).toEqual({ x: l.port.x - 4, y: l.port.y });
+    expect(fin.start).toEqual({ x: box('b').x + NODE_W, y: midY(box('b')) });
+    expect(pathD(fin)).toMatch(/^M 576 /);
+    expectClean(l);
+  });
+
+  it('runs an arrow on to the goal through lanes, past the steps in later columns', () => {
+    const goals = normalizeGoals([g('g1', 'G', null, { waits: [], links: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'a', to: 'd' }] })]);
+    const l = layoutTree(treeOf(goals, ['a', 'b', 'c', 'd', 'e'].map(id => task(id, 'g1'))));
+    // d and e lead nowhere; e is in the first column, so its line crosses two more.
+    expect(l.edges.filter(e => e.kind === 'finish').map(e => e.from).sort()).toEqual(['c', 'd', 'e']);
+    expectClean(l);
   });
 
   it('opens every sub-goal in place: all three layers of Close the round, each to the right of its card', () => {
@@ -140,20 +167,18 @@ describe('layoutTree', () => {
     const c = (k: string) => l.cards.get(k)!;
     for (const card of l.cards.values()) {
       if (!card.depth) continue;
-      // Its parent's card is the head of the chart it's on.
+      // Inside its parent's frame, under the header; the first column just inside the frame's edge.
       const parent = [...l.cards.values()].find(p => p.sub === card.tree)!;
-      expect(card.box.x).toBe(parent.box.x + NODE_W + GAP_X);
+      expect(contains(parent.box, card.box)).toBe(true);
+      expect(card.box.y).toBeGreaterThanOrEqual(parent.box.y + HEAD);
+      if (card.step.col === 1) expect(card.box.x).toBe(parent.box.x + FRAME);
     }
     expect([c('goal:gcap').depth, c('gcap/goal:gra').depth, c('gfund/tmemo').depth]).toEqual([0, 1, 2]);
     // Open, with a frame: the three threads and Fund North. The people with no tasks are plain cards.
     expect(l.frames.map(f => f.key).sort()).toEqual(['gang/goal:gfund', 'goal:gang', 'goal:gcap', 'goal:gfound']);
     expect(c('gcap/goal:gra')).toMatchObject({ open: false, sub: expect.objectContaining({ flow: expect.objectContaining({ steps: [] }) }) });
-    // A dashed line from each head to the steps on its chart, and no arrows: the goals have none.
-    expect(l.edges.filter(e => e.kind === 'root').map(e => `${e.from ?? 'goal'}>${e.to}`).sort()).toEqual([
-      'gang/goal:gfund>gfund/tmemo', 'goal:gang>gang/goal:gfund', 'goal:gang>gang/tangid', 'goal:gcap>gcap/goal:gra', 'goal:gcap>gcap/goal:grb',
-      'goal:gcap>gcap/goal:grc', 'goal:gcap>gcap/tcapid', 'goal:gfound>gfound/tfound', 'goal>goal:gang', 'goal>goal:gcap', 'goal>goal:gfound',
-    ]);
-    expect(l.edges.filter(e => e.kind === 'link')).toEqual([]);
+    // No arrows, the goals have none: each of the three threads leads on to the goal, and nothing inside them does.
+    expect(l.edges.map(e => `${e.kind}:${e.from}>${e.to}`).sort()).toEqual(['finish:goal:gang>@goal', 'finish:goal:gcap>@goal', 'finish:goal:gfound>@goal']);
     expectClean(l);
     // Each frame holds its card and everything inside it.
     for (const f of l.frames) {
@@ -170,7 +195,7 @@ describe('layoutTree', () => {
     expect(l.cards.get('goal:gcap')).toMatchObject({ open: false, sub: expect.objectContaining({ flow: expect.objectContaining({ steps: expect.any(Array) }) }) });
     expect(l.cards.get('goal:gcap')!.sub!.flow.steps).toHaveLength(4);
     expect([...l.cards.keys()].some(k => k.startsWith('gcap/'))).toBe(false);
-    expect(l.edges.some(e => e.from === 'goal:gcap')).toBe(false);
+    expect(l.edges.some(e => e.from.startsWith('gcap/'))).toBe(false);
     expect(l.frames.some(f => f.key === 'goal:gcap')).toBe(false);
     expect(l.height).toBeLessThan(all.height);
     // Closing one deeper down leaves the rest open.
@@ -187,9 +212,9 @@ describe('layoutTree', () => {
     expect(links.map(e => [e.key, e.from, e.to])).toEqual([
       ['gfund/tmemo>tcall', 'gfund/tmemo', 'gfund/tcall'], ['gfund/wreply>tcall', 'gfund/wreply', 'gfund/tcall'],
     ]);
-    // Arrows run left to right, as on Fund North's own chart; the dashed lines go to the steps nothing comes before.
+    // Arrows run left to right, as on Fund North's own chart, starting just inside its frame.
     expect(l.cards.get('gfund/tcall')!.box.x).toBe(l.cards.get('gfund/tmemo')!.box.x + NODE_W + GAP_X);
-    expect(l.edges.filter(e => e.from === 'gang/goal:gfund').map(e => e.to).sort()).toEqual(['gfund/tmemo', 'gfund/wreply']);
+    expect(l.cards.get('gfund/tmemo')!.box.x).toBe(l.cards.get('gang/goal:gfund')!.box.x + FRAME);
     expectClean(l);
   });
 
@@ -199,7 +224,8 @@ describe('layoutTree', () => {
     const l = layoutTree(treeOf(closeGoals({ top }), closeTasks([task('tdeck', 'ground', { title: 'Pitch deck' }), task('tterm', 'ground', { title: 'Term sheet' })])));
     const ang = l.cards.get('goal:gang')!, frame = l.frames.find(f => f.key === 'goal:gang')!.box;
     const out = l.edges.find(e => e.key === 'goal:gang>tterm')!;
-    expect(out.start).toEqual({ x: frame.x + frame.w, y: ang.box.y + NODE_H / 2 });
+    expect(out.start).toEqual({ x: frame.x + frame.w, y: frame.y + frame.h / 2 });
+    expect(ang.box).toEqual(frame);
     const deck = l.edges.find(e => e.key === 'tdeck>tterm')!;
     const deckCard = l.cards.get('tdeck')!;
     // The deck is narrower than its column: straight to the column's edge, then the curve.
@@ -235,7 +261,7 @@ describe('layoutTree', () => {
     // A step being dragged follows the pointer; its chart comes with it.
     const d = layoutTree(tree, { drag: { id: 'goal:gfound', x: 900, y: 40 } });
     expect(d.cards.get('goal:gfound')!.box).toMatchObject({ x: 900, y: 40 });
-    expect(d.cards.get('gfound/tfound')!.box.x).toBe(900 + NODE_W + GAP_X);
+    expect(d.cards.get('gfound/tfound')!.box.x).toBe(900 + FRAME);
     // Not off the top of the canvas.
     const t = layoutTree(tree, { pos: { 'goal:gcap': { x: 600, y: 0 } } });
     expect(t.frames.find(f => f.key === 'goal:gcap')!.box.y).toBeGreaterThanOrEqual(FRAME);
@@ -243,13 +269,15 @@ describe('layoutTree', () => {
 });
 
 describe('the checks themselves', () => {
-  it('catch a line through a card, and two cards on top of each other', () => {
+  it('catch a line through a card or a frame, and two cards on top of each other', () => {
     const l = layoutTree(treeOf(closeGoals(), closeTasks()));
-    const card = l.cards.get('goal:gcap')!.box;
-    const through: Edge = { key: 'x', kind: 'link', tree: l.cards.get('goal:gcap')!.tree, depth: 0, from: null, to: 'goal:gang', start: { x: card.x - 10, y: card.y + 10 }, segs: [{ to: { x: card.x + card.w + 10, y: card.y + 10 } }], mid: { x: 0, y: 0 } };
-    expect(() => expectClean({ ...l, edges: [...l.edges, through] })).toThrow(/runs through goal:gcap/);
+    const frame = l.cards.get('goal:gcap')!.box;
+    const line = (b: Box, to: string): Edge => ({ key: 'x', kind: 'link', tree: l.cards.get('goal:gcap')!.tree, depth: 0, from: 'goal:gfound', to, start: { x: b.x - 10, y: b.y + 30 }, segs: [{ to: { x: b.x + b.w + 10, y: b.y + 30 } }], mid: { x: 0, y: 0 } });
+    expect(() => expectClean({ ...l, edges: [...l.edges, line(frame, 'goal:gang')] })).toThrow(/runs through/);
+    const card = l.cards.get('gcap/goal:gra')!.box;
+    expect(() => expectClean({ ...l, edges: [...l.edges, line(card, 'goal:gang')] })).toThrow(/runs through gcap\/goal:gra/);
     const cards = new Map(l.cards);
-    cards.set('goal:gang', { ...cards.get('goal:gang')!, box: { ...card, x: card.x + 30 } });
+    cards.set('gcap/goal:grb', { ...cards.get('gcap/goal:grb')!, box: { ...card, x: card.x + 30 } });
     expect(() => expectClean({ ...l, cards })).toThrow(/overlaps/);
   });
 });
