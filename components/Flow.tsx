@@ -120,7 +120,7 @@ type KeyLike = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 
 interface On { goal: Goal; flow: Flow; top: boolean; key: (id: string) => string }
 
 function FlowChart({ goal }: { goal: Goal }) {
-  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice } = usePlanner();
+  const { tasks, now, prefs, wide, store, changeGoals, deleteGoal, logGoal, openSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice } = usePlanner();
   const [all, setAll] = useState(false);
   /** The goal's chart, with every sub-goal's own chart inside it. */
   const tree = useMemo(() => buildTree(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
@@ -399,6 +399,19 @@ function FlowChart({ goal }: { goal: Goal }) {
     removeStep(s, s.repeat || (s.task && !external) ? how : 'off', on);
     const verb = s.kind === 'goal' ? 'Dropped' : s.repeat ? (how === 'off' ? 'Took off its goal:' : 'Stopped repeating') : s.task && (how === 'off' || external) ? 'Took off its goal:' : s.kind === 'wait' ? 'Removed' : 'Deleted';
     say(`${verb} “${shortTitle(s.title, 40)}”. ⌘Z undoes it.`);
+    scroller.current?.focus({ preventScroll: true });
+  };
+
+  /** A sub-goal deleted for good, with the goals under it, as from the Goals panel: its open tasks go off-goal. */
+  const purgeGoal = (s: Step) => {
+    if (!s.goal) return;
+    const back = deleteGoal(s.goal.id, { quiet: true });
+    if (back) {
+      remember('delete the sub-goal', back.undo);
+      say(`Deleted “${shortTitle(s.title, 40)}” and what was under it; its open tasks are off-goal. ⌘Z undoes it.`);
+    }
+    setSel(null);
+    setConfirm(null);
     scroller.current?.focus({ preventScroll: true });
   };
 
@@ -758,7 +771,7 @@ function FlowChart({ goal }: { goal: Goal }) {
   const actsFor = (on: On): Acts => ({
     rename: (s, t) => rename(s, t, on), toggle: s => toggle(s, on), link: l => link(l, on), unlink: l => unlink(l, on),
     addTask: o => addTask(o, on), addWait: h => addWait(h, undefined, on), removeStep: (s, how) => removeStep(s, how, on), patchTask,
-    addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on),
+    addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on), deleteGoal: purgeGoal,
     open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null,
   });
 
@@ -939,12 +952,14 @@ function FlowChart({ goal }: { goal: Goal }) {
                     onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                     <p>{what}</p>
                     {s.repeat ? <p className="muted sm">No more of it will come{s.task ? ', and the open one goes' : ''}. The ones you’ve done stay done.</p>
+                      : s.goal ? <p className="muted sm">Dropping keeps it, under Achieved and dropped. Deleting it removes it for good; its open tasks go off-goal.</p>
                       : s.task && !external && <p className="muted sm">It’s a task in your planner too, so it goes from there as well.</p>}
                     <div className="acts">
                       <button type="button" className="btn sm pri" autoFocus onClick={() => confirmDelete(s, 'delete', on)}>
                         {s.repeat ? 'Stop it' : s.kind === 'goal' ? 'Drop it' : s.kind === 'wait' ? 'Remove' : external ? 'Take it off' : 'Delete'}
                       </button>
                       {(s.repeat || (s.task && !external)) && <button type="button" className="btn sec sm" onClick={() => confirmDelete(s, 'off', on)}>Only off {on.top ? 'this goal' : 'its goal'}</button>}
+                      {s.goal && <button type="button" className="btn sec sm" onClick={() => purgeGoal(s)}>Delete for good</button>}
                       <button type="button" className="btn text sm" onClick={() => { setConfirm(null); scroller.current?.focus({ preventScroll: true }); }}>Cancel</button>
                     </div>
                     <p className="muted sm"><kbd>Delete</kbd> or <kbd>Enter</kbd> to confirm · <kbd>Esc</kbd> to keep it</p>
@@ -1028,6 +1043,8 @@ interface Acts {
   patchTask: (s: Step, part: Partial<Task>, label: string) => void;
   addSubGoal: (kr?: string) => void;
   addKr: (under: string | null) => void;
+  /** Delete a sub-goal for good, with what's under it. */
+  deleteGoal: (s: Step) => void;
   /** Open a goal's own chart. */
   open: (goal: string) => void;
   /** A repeat by id. */
@@ -1186,7 +1203,12 @@ function Inspector({ s, flow, focus, onFocused, goal, within, empty, act }: {
         {t && <button type="button" className="btn text sm" onClick={() => openEditor(t.id)}>Open in the editor</button>}
         <span className="spacer" />
         {s.kind === 'wait' && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Remove</button>}
-        {s.goal && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Drop this sub-goal</button>}
+        {s.goal && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Drop this sub-goal</button>}
+        {s.goal && (
+          <button type="button" className="btn text sm warn" onBlur={() => setArmed(false)} onClick={() => { if (!armed) { setArmed(true); return; } act.deleteGoal(s); }}>
+            {armed ? 'Click again to delete' : 'Delete for good'}
+          </button>
+        )}
         {s.result && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'off')}>Delete key result</button>}
         {s.repeat && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')}>Take off this goal</button>}
         {s.repeat && <button type="button" className="btn text sm warn" onClick={() => act.removeStep(s, 'delete')}>Stop repeating</button>}
