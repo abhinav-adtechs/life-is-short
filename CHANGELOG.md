@@ -6,6 +6,8 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- **Today isn't planned**, said plainly: a bar across the top of the calendar where the outcomes go, with **Plan with Claude** (opens Claude with the ask filled in) and **Copy the ask**, and a pill on the goal rail. On a phone the calendar tab opens on it.
+- The goal rail's cards show the numbers and the work: how much is done, big, with done and to go; the deadline, key results and time this week; the next three tasks in the order to do them (tick, drag onto the calendar, **more** for the rest); and, once planned, where the goal will be by tonight. Drop a task on a card to put it on that goal.
 - **Two views** on a laptop, switched at the top: **Calendar** and **Goals**.
   - **Calendar:** the Next task, then a rail with only your goals: progress, key results, by-tonight numbers, today's focus first and "Not today" after (`components/GoalRail.tsx`). The backlog sits behind a tray: the goal cards with their tasks, as before, with a way back. The view and the open goal are kept in this browser.
   - **Goals:** a list with Active and Archived tabs. The open goal shows its sub-goals under it. On the right is the open goal: done-when with its sub-goals, then its Route or its Map (`components/GoalsView.tsx`). The map runs inside the pane (`GoalMap`, the map's `embed`), so the list stays; Full screen opens it as before. A Backlog column opens beside the list: drag a task onto the goal to put it on it.

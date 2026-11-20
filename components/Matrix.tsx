@@ -100,7 +100,7 @@ export const useOpenCount = () => [...useByCard().values()].reduce((n, e) => n +
  * The order to do a goal's tasks in: what can start now before what's blocked; then urgent first, then the nearest
  * deadline, then the soonest on the calendar, then the oldest.
  */
-const doOrder = (blocked: Set<string>) => (a: Task, b: Task) =>
+export const doOrder = (blocked: Set<string>) => (a: Task, b: Task) =>
   Number(blocked.has(a.id)) - Number(blocked.has(b.id)) || a.priority - b.priority
   || (a.due ?? '9999').localeCompare(b.due ?? '9999') || (a.start ?? Infinity) - (b.start ?? Infinity) || (a.created || 0) - (b.created || 0);
 
