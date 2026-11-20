@@ -15,6 +15,7 @@ import { daysLeft, fmtHrs, useGoalWeek } from './Goals';
 import { useGoalFlow } from './Flow';
 import { ArchiveIcon, CalendarIcon, CheckIcon, ChevronDown, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
 import { RouteList, readRouteOpen, writeRouteOpen } from './Route';
+import { useTodayGoals } from './Today';
 
 /*
  * The main page's backlog: a card per goal, most important first, each with how far along it is, its deadline, its
@@ -332,8 +333,10 @@ const SHOWN = { wide: 5, phone: 5 };
  * results and time this week; what's holding it up; and its tasks in the order to do them, five and then the rest.
  * Drop a task on it to put the task on this goal.
  */
-function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
+function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item, today }: {
   g: Goal | null; rank: number; items: { t: Task; kind: Kind }[]; open: number; done: number; pri: Priority | null; phone?: boolean; focused?: boolean; Item: Row;
+  /** In focus in today's plan. */
+  today?: boolean;
 }) {
   const { prefs, now, openSheet, setFilter, drag, closeGoal } = usePlanner();
   const { rolled } = useGoalWeek();
@@ -371,6 +374,7 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
           <p className="gc-m">
             {g ? (
               <>
+                {today && <span className="gc-today">Today</span>}
                 {section && <span>{section.name}</span>}
                 {left && g?.by && <span className={left.hot ? 'hot' : undefined}>By {shortDate(fromYmd(g.by).getTime(), now)} · {left.text}</span>}
                 {krs.length > 0 && <span>Key results {krs.filter(resultDone).length} of {krs.length}</span>}
@@ -440,6 +444,7 @@ const OFF: Goal = { id: '', title: '', section: null, results: [], by: null, sta
 function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean; Item: Row }) {
   const { topGoals, filter, plan, rootGoalOf, blocked } = usePlanner();
   const byCard = useByCard();
+  const inFocus = useTodayGoals();
   const keep = (t: Task) => pri == null || t.priority === pri;
   const itemsOf = (id: string) => [
     ...plan.added.filter(t => (rootGoalOf(t)?.id ?? '') === id && keep(t)).map(t => ({ t, kind: 'new' as Kind })),
@@ -453,7 +458,7 @@ function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean
         const id = c.g?.id ?? '';
         const e = byCard.get(id);
         return <GoalCard key={id || '-'} g={c.g} rank={c.rank} items={itemsOf(id)} open={(e?.open.length ?? 0) + (e?.later ?? 0)} done={e?.done ?? 0}
-          pri={pri} phone={phone} focused={!!filter} Item={Item} />;
+          pri={pri} phone={phone} focused={!!filter} Item={Item} today={!!c.g && inFocus.has(c.g.id)} />;
       })}
     </div>
   );

@@ -8,6 +8,7 @@ import { DAYS, splitFor, type Days } from '@/lib/layout';
 import { VIEW_LABELS, VIEW_FOR_DAYS, rangeTitle, stepDay, viewDays } from '@/lib/calview';
 import { DOW, DOWL, MIN, MON, addDays, atMinutes, endOf, isWeekend, minsOf, startOfDay, weekStart, ymd } from '@/lib/time';
 import { usePlanner, suggestOn } from './Planner';
+import { NotPlanned, TodayBand } from './Today';
 import { ChevronLeft, ChevronRight, RepeatIcon } from './icons';
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -243,6 +244,7 @@ export function LaptopCalendar() {
   const hour = Math.max(allHours ? 28 : 20, (h - CHAT_CLEARANCE) / (h1 - h0));
   const cols = `52px repeat(${days.length}, minmax(0, 1fr))`;
   const todayKey = ymd(now);
+  const showsToday = days.some(d => ymd(d) === todayKey);
   const unit = days.length === 7 ? 'week' : days.length === 1 ? 'day' : `${days.length} days`;
   const hidden = !allHours && (fit.earlier.some(Boolean) || fit.later.some(Boolean));
   return (
@@ -253,9 +255,11 @@ export function LaptopCalendar() {
         <button type="button" className="ib" aria-label={`Next ${unit}`} onClick={() => setDay(stepDay(view, day, 1, prefs))}><ChevronRight /></button>
         <h2 className="cal-title ell">{rangeTitle(days, prefs)}</h2>
         <span className="spacer" />
+        {showsToday && <NotPlanned />}
         <DaysSwitch narrow={split.calW < 720} />
       </div>
       <PickStrip />
+      {showsToday && <TodayBand />}
       <div className="cal-heads" style={{ gridTemplateColumns: cols }}>
         <span className="cal-fit">{allHours && <button type="button" className="link sm" title="Back to your day" onClick={() => setAllHours(false)}>Fit</button>}</span>
         {days.map((d, i) => {
@@ -289,7 +293,7 @@ export function LaptopCalendar() {
  * picked, the best free slot shows dashed: tap it, or tap any other time.
  */
 export function PhoneCalendar() {
-  const { day, setDay, prefs, now, tasks, onCalendar, plan, picked, place, store, busyTasks, hours, upcomingOn } = usePlanner();
+  const { day, setDay, prefs, now, tasks, onCalendar, plan, picked, place, store, busyTasks, hours, upcomingOn, todayPlan } = usePlanner();
   const itemsOf = useItems();
   const timeline = useRef<HTMLDivElement>(null);
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
@@ -314,9 +318,12 @@ export function PhoneCalendar() {
     const scroller = el?.closest('.ph-scroll') as HTMLElement | null;
     if (!el || !scroller || target == null) return;
     const y = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop + ((target - h0 * 60) / 60) * hour;
-    scroller.scrollTo({ top: Math.max(0, y - 200) });
-    // When the day or the pick changes, not on every minute.
-  }, [ymd(d), picked, h0]); // eslint-disable-line react-hooks/exhaustive-deps
+    // A planned day opens on its outcomes, above the timeline, unless you're picking a time.
+    const band = !sugMin ? scroller.querySelector<HTMLElement>('.tb') : null;
+    const bandTop = band ? band.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 8 : Infinity;
+    scroller.scrollTo({ top: Math.max(0, Math.min(y - 200, bandTop)) });
+    // When the day, the pick or today's plan changes, not on every minute.
+  }, [ymd(d), picked, h0, !!todayPlan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tapAt = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pickedTask) return;
@@ -342,8 +349,10 @@ export function PhoneCalendar() {
         <span className="dayrow-t">{isToday ? 'Today' : DOWL[d.getDay()]}</span>
         <span className="muted sm">{DOW[d.getDay()]} {d.getDate()} {MON[d.getMonth()]}{more ? ` · ${more}` : ''}</span>
         <span className="spacer" />
+        {isToday && <NotPlanned />}
         {!isToday && <button type="button" className="btn sec" onClick={() => setDay(startOfDay(Date.now()))}>Today</button>}
       </div>
+      {isToday && <TodayBand phone />}
       <div className="ph-card tl-card">
         <div ref={timeline} className={'tl col' + (prefs.shadeWeekends && isWeekend(d) ? ' wk' : '') + (pickedTask ? ' armed' : '')}
           data-day={ymd(d)} data-h0={h0} data-h1={h1} data-hour={hour}

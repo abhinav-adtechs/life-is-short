@@ -61,7 +61,26 @@ describe('the MCP server', () => {
       expect(repeat, name).toContain('"time"');
       expect(repeat, name).toContain('"freq"');
     }
-    expect(tools).toHaveLength(11);
+    expect(tools).toHaveLength(13);
+  });
+
+  it('offers plan_today and get_today, and a planned day’s answer fits the schema it advertises', async () => {
+    const { dayIn } = await import('../../mcp/when');
+    const today = dayIn(Date.now(), 'Asia/Kolkata');
+    settings['day-plans'] = [{ day: today, at: Date.now(), by: 'claude', focus: [{ goal: 'gfund', text: 'Memo out to Fund North', tasks: ['tmemo'] }] }];
+    const call = await connect();
+    const list = await call('tools/list', {});
+    type Tool = { name: string; inputSchema: { properties: Record<string, unknown> }; annotations?: Record<string, unknown> };
+    const tools = (list.result as { tools: Tool[] }).tools;
+    expect(Object.keys(tools.find(t => t.name === 'plan_today')!.inputSchema.properties).sort()).toEqual(['day', 'focus']);
+    expect(tools.find(t => t.name === 'get_today')!.annotations).toMatchObject({ readOnlyHint: true });
+    const res = await call('tools/call', { name: 'get_today', arguments: {} });
+    const out = res.result as { isError?: boolean; content: { text: string }[]; structuredContent: { planned: boolean; focus: { outcome: string; steps: { id: string }[] }[] } };
+    expect(res.error, JSON.stringify(res.error)).toBeUndefined();
+    expect(out.isError, out.content?.[0]?.text).toBeFalsy();
+    expect(out.structuredContent.planned).toBe(true);
+    expect(out.structuredContent.focus[0]).toMatchObject({ outcome: 'Memo out to Fund North', steps: [{ id: 'tmemo' }] });
+    delete settings['day-plans'];
   });
 
   it('offers get_goal a depth, and its answer at any depth fits the schema it advertises', async () => {

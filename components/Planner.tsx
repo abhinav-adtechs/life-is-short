@@ -32,6 +32,8 @@ import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
 import { useGoals } from './goalStore';
+import { useDayPlans } from './dayStore';
+import { planOn, type DayPlan, type DaysFn } from '@/lib/today';
 import { useGoalLog } from './goalLog';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
@@ -122,6 +124,10 @@ export interface PlannerApi {
   goalsLoaded: boolean;
   /** Change your goals. Returns what undoes it. */
   changeGoals: (fn: GoalsFn) => () => void;
+  /** Today's plan (lib/today.ts): the goals in focus and their outcomes, once the day is planned; null until then. */
+  todayPlan: DayPlan | null;
+  /** Change your day plans. Returns what undoes it. */
+  changeDays: (fn: DaysFn) => () => void;
   /**
    * Delete a goal and every goal under it, for good, as Claude's delete_goal does (lib/workflow.ts): it comes off its
    * parent's chart, and its open tasks go off-goal, or with `withTasks` are deleted (never Google's) and its repeats
@@ -222,6 +228,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slipLog = useSlips(repo);
   const repeats = useRepeats(repo, toast);
   const goals = useGoals(repo, toast);
+  const dayPlans = useDayPlans(repo, toast);
   const goalLog = useGoalLog(repo);
   const { add: logGoal } = goalLog;
   const voice = useVoiceProfile(repo, toast);
@@ -792,12 +799,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const blocked = useMemo(() => blockedTasks(goals.list, store.tasks, now, repeats.list), [goals.list, store.tasks, now, repeats.list]);
   const derived = useMemo(() => lists(store.tasks, now, isOff, rank, blocked), [store.tasks, now, isOff, rank, blocked]);
 
+  const todayPlan = useMemo(() => planOn(dayPlans.list, ymd(now)), [dayPlans.list, now]);
+
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
     prefs, setPrefs, hours, phoneTab, setPhoneTab,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
-    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, deleteGoal, closeGoal, goalOf, rootGoalOf, goalById, setGoal,
+    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, todayPlan, changeDays: dayPlans.change, deleteGoal, closeGoal, goalOf, rootGoalOf, goalById, setGoal,
     blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,

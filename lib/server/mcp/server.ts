@@ -2,13 +2,13 @@ import 'server-only';
 import { McpServer, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import {
-  MAX_CHART_DEPTH, PRIORITIES, TaskError, changeGoals, completeTask, createTask, deleteGoal, deleteTask, getGoal, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx,
+  MAX_CHART_DEPTH, PRIORITIES, TaskError, changeGoals, completeTask, createTask, deleteGoal, deleteTask, getDay, getGoal, getTask, listGoals, listTasks, planDay, reopenTask, updateTask, type Ctx,
 } from '../../mcp/tools';
 import { zoneOr } from '../../mcp/when';
 import { connectionRepo } from './db';
 
 /*
- * The MCP server: eleven tools over your tasks, your goals and their flow charts. A fresh one is made for every request (createMcpHandler in app/mcp),
+ * The MCP server: thirteen tools over your tasks, your goals and their flow charts, and the plan for your day. A fresh one is made for every request (createMcpHandler in app/mcp),
  * bound to the connection whose token came with it, so nothing about one connection is kept for the next.
  */
 
@@ -110,7 +110,11 @@ saying what has to be done before what. To plan or change how a goal gets done, 
 change_goals, using the step ids get_goal shows; in one call you can add goals, sub-goals, key results, steps, waiting steps
 and arrows, and move, reorder, rename, close or delete any of them (move_goal puts a goal under another, or back to the top). Say what you're about to change before you change a goal's structure, and ask before deleting anything.
 Prefer complete_task over delete_task for anything the user did. Items from Google Calendar or Google Tasks are read-only apart
-from their priority, project, notes and status. ${TIME_NOTE}`;
+from their priority, project, notes and status. ${TIME_NOTE}
+Each morning the user plans the day with you. Read get_today (what's on the calendar, and any plan already made), agree on
+the few goals today is for and, for each, the outcome the day produces in plain words ("Term sheet out to both leads") and the
+tasks that make it, then save it with plan_today. That marks the day as planned: the app shows those outcomes above its
+calendar. Until then the day is not planned. Plans can change during the day: call plan_today again.`;
 
 /** A tool's answer: compact JSON as text for any client, and the same object as structured content. */
 const ok = (out: object): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(out) }], structuredContent: out as Record<string, unknown> });
@@ -379,6 +383,57 @@ export function buildServer(auth: AuthInfo): McpServer {
     outputSchema: z.object({ deleted: z.object({ id: z.string(), title: z.string() }) }),
     annotations: { title: 'Delete a task', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async ({ id: tid }) => run(() => deleteTask(c, tid)));
+
+  /* ---------- planning the day ---------- */
+
+  const dayArg = date('The day, YYYY-MM-DD. Default: today in the user’s time zone.').optional();
+  const dayOutcome = z.object({
+    goal_id: z.string(), goal: z.string(), goal_status: z.enum(['active', 'achieved', 'dropped']).describe('active, or achieved or dropped since the day was planned.'),
+    outcome: z.string().describe('What the day produces for this goal.'),
+    steps: z.array(summary).describe('Today’s steps: the tasks named for it, then the goal’s (and its sub-goals’) other tasks on the calendar that day or ticked off that day.'),
+    steps_done: z.number().int(),
+    tasks: z.object({ done: z.number().int(), by_tonight: z.number().int(), all: z.number().int() }).describe('The goal’s tasks, its sub-goals’ too: done now, done by tonight if every step gets done, and in all.'),
+    key_results: z.object({ done: z.number().int(), all: z.number().int() }).describe('Its top key results: done, and in all.'),
+  });
+  const dayOut = z.object({
+    day: z.string(),
+    planned: z.boolean().describe('True once the goals in focus and their outcomes are set; the app then shows them above its calendar.'),
+    planned_at: orNull('When it was planned (RFC 3339), or null.'),
+    planned_by: z.enum(['claude', 'app']).nullable().describe('Who planned it: Claude, or the user in the app; null while not planned.'),
+    focus: z.array(dayOutcome).describe('The goals in focus, most important first.'),
+    calendar: z.array(summary).describe('Everything on the calendar that day, meetings too, in time order.'),
+    timezone: z.string(),
+  });
+
+  server.registerTool('get_today', {
+    title: 'Get today’s plan',
+    description: 'Whether a day (today by default) is planned and, if it is, the goals in focus with the outcome each one produces '
+      + 'that day, its steps (tasks) and how far along it is, counted in tasks and key results, never time. Also everything on '
+      + 'the calendar that day, meetings too. Start the morning’s planning here, with list_goals and list_tasks (the backlog).',
+    inputSchema: z.object({ day: dayArg }),
+    outputSchema: dayOut,
+    annotations: { title: 'Get today’s plan', ...READ },
+  }, async args => run(() => getDay(c, args)));
+
+  server.registerTool('plan_today', {
+    title: 'Plan the day',
+    description: 'Mark a day (today by default) as planned: the goals the user is focusing on, most important first (1 to 5), each '
+      + 'with the outcome the day produces in plain words, what will be true by tonight ("Term sheet out to both leads", not "Work on '
+      + 'the seed round"), and optionally the tasks that make it (task ids from list_tasks; the goal’s tasks on the calendar that day '
+      + 'count anyway). It replaces the day’s plan; an empty focus un-plans the day. The app then shows the outcomes across the top '
+      + 'of its calendar. Agree the plan with the user before saving it. It schedules nothing: put steps on the calendar with '
+      + 'update_task (scheduled) or create_task.',
+    inputSchema: z.object({
+      day: dayArg,
+      focus: z.array(z.object({
+        goal: goal.describe('The goal’s id (from list_goals) or title. An active goal; a sub-goal is fine.'),
+        outcome: z.string().min(1).max(140).describe('What the day produces for it, in plain words: what will be true by tonight.'),
+        tasks: z.array(id).max(8).optional().describe('The tasks that make it, in order: ids from list_tasks or create_task. Not Google Calendar events.'),
+      })).max(5).describe('The goals in focus today, most important first. Empty: the day isn’t planned any more.'),
+    }),
+    outputSchema: dayOut,
+    annotations: { title: 'Plan the day', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async args => run(() => planDay(c, args)));
 
   return server;
 }
