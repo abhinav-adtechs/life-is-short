@@ -7,7 +7,7 @@ import { rootOf } from '@/lib/goals';
 import { fmtTime, shortTitle } from '@/lib/format';
 import { addDays, startOfDay, ymd } from '@/lib/time';
 import { usePlanner } from './Planner';
-import { CheckIcon } from './icons';
+import { CheckIcon, SparkIcon, TargetIcon } from './icons';
 
 /*
  * Today, once it's planned: the outcome each goal in focus produces by tonight, across the top of the calendar, with
@@ -121,9 +121,32 @@ export function TodayBand({ phone }: { phone?: boolean }) {
   );
 }
 
-/** A quiet word in the calendar's bar while today isn't planned. */
-export function NotPlanned() {
-  const { todayPlan, goalsLoaded, topGoals } = usePlanner();
+/** What to ask Claude in the morning; the connector's plan_today saves the answer. */
+export const PLAN_ASK = 'Plan my day in Life is short: look at my goals, my calendar and my backlog, agree with me which goals today is for and what each one produces by tonight, then save it with plan_today.';
+const PLAN_URL = `https://claude.ai/new?q=${encodeURIComponent(PLAN_ASK)}`;
+
+/**
+ * Today isn't planned: say so plainly, across the top of the calendar where the outcomes will go, with the way to plan
+ * it. No goals show up here until the day is planned.
+ */
+export function PlanPrompt({ phone }: { phone?: boolean }) {
+  const { todayPlan, goalsLoaded, topGoals, toast } = usePlanner();
   if (todayPlan || !goalsLoaded || !topGoals.length) return null;
-  return <span className="tb-not muted sm" title="Plan it with Claude: ask it to plan your day, and today’s outcomes show here">Today isn’t planned</span>;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(PLAN_ASK); toast('Copied. Paste it into Claude to plan your day.'); }
+    catch { toast('Couldn’t copy it here. Ask Claude to “plan my day”.'); }
+  };
+  return (
+    <section className={'pp' + (phone ? ' ph' : '')} aria-labelledby="pp-h">
+      <span className="pp-i" aria-hidden="true"><TargetIcon size={16} /></span>
+      <div className="pp-b">
+        <h3 id="pp-h">Today isn’t planned yet</h3>
+        <p>Agree with Claude which goals today is for, and what each one produces by tonight. The outcomes show up here.</p>
+      </div>
+      <div className="pp-acts">
+        <a className="btn pri sm" href={PLAN_URL} target="_blank" rel="noopener noreferrer"><SparkIcon size={13} />Plan with Claude</a>
+        <button type="button" className="btn text sm" onClick={copy} title={PLAN_ASK}>Copy the ask</button>
+      </div>
+    </section>
+  );
 }
