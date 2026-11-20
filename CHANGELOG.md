@@ -11,6 +11,9 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 - Drag and drop that shows where it lands before you let go: onto an arrow puts it in between, and what comes after slides along to make room; onto a step puts it after, before or alongside it. Moving a step lines it up on guides. Drawing an arrow snaps to the step you reach and says why if it can't; let go on an empty spot for a new step there. A + on every arrow puts a step in between.
 - Ticking a step off on the map: the check bursts, the arrows out of it fill in with the goal's colour, what it held up lifts with its lock gone, and the ring counts up. Hover a step to light up what comes before and after it. Space ticks the selected step off; ⇧1 fits the whole route; / jumps to the bar.
 - An empty goal's map offers to draft a plan for it.
+- Delete any goal for good in the app: **Delete** on every goal and sub-goal in Goals, and **Delete for good** on a sub-goal on its parent's map. It says what goes first (its sub-goals; its open tasks stay off-goal, or go too if you choose; done tasks stay), and offers Undo in the panel. It's the same change as Claude's `delete_goal`.
+- `delete_goal`, an MCP tool of its own for what `change_goals`' `delete_goal` does.
+- Repeating tasks through Claude: `create_task` and `update_task` take `repeat` (how often, and at what time of day each one goes on the calendar, read in your time zone). `update_task` makes a task repeat, changes or reschedules its series, or stops it with `repeat: null`, and takes a series' id (`rep:<id>`, shown by `get_task`) when none of it is open. A task on a goal keeps its arrows when it starts repeating.
 - A goal's flow chart shows its whole tree: each sub-goal opens in place with its own chart to its right, as deep as they go, with its own arrows, and its steps work as on their own chart. A toggle on each sub-goal's card closes it to one card with how many steps are inside, remembered in this browser; one with nothing on it says "No tasks yet". Laid out in `lib/flowTree.ts`.
 - `get_goal` takes a `depth`: over 1, each sub-goal step carries its own chart (steps, arrows, critical path) and the Mermaid has a subgraph per sub-goal. 1, the default, is as before.
 - Claude builds your goals and their flow charts: `change_goals` takes the chart builder's operations (goals, sub-goals, key results, steps, waiting steps, arrows, edits, moves, removals; up to 40 in one call), and `get_goal` shows one goal in full with its chart as Mermaid and its history. `supabase/migrations/0011_connector_goals.sql` lets a connection write goals and the charts' history.
@@ -32,6 +35,7 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Fixed
 
+- Deleting a dropped or achieved goal in Goals left its tasks naming a goal that was gone. They're made off-goal now, as Claude's delete does.
 - `change_goals` → `edit_goal` ignored `parent` without a word. It now moves an existing goal under a parent (and one of its key results, with `for_result`) or to the top with `parent: null`, by the same rules as `add_goal`, and takes `rank` to reorder it.
 - Goal sections: `add_goal` and `edit_goal` take `section` by label name or id, checked like a task's project. Sub-goals take their top goal's, and a task made on a goal takes the nearest section up the tree as its project.
 - `add_step` takes `due` (YYYY-MM-DD), checked as `create_task` checks it.

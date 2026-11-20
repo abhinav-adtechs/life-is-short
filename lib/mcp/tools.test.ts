@@ -3,7 +3,7 @@ import type { Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { normalizeRepeats, startRepeat, occurrence, REPEATS_KEY } from '../repeat';
 import { SLIPS_KEY } from '../slips';
-import { TaskError, changeGoals, completeTask, createTask, cutByLimits, deleteTask, getGoal, getTask, listGoals, listTasks, refsFor, reopenTask, updateTask, type Ctx } from './tools';
+import { TaskError, changeGoals, completeTask, createTask, cutByLimits, deleteGoal, deleteTask, getGoal, getTask, listGoals, listTasks, refsFor, reopenTask, updateTask, type Ctx } from './tools';
 import { normalizeGoals } from '../goals';
 import { LOG_KEY, normalizeLog } from '../flow';
 
@@ -734,5 +734,168 @@ describe('get_goal with depth', () => {
     expect(mermaid).toContain('n_goal_gcap --> n_gcap__goal_gra');
     expect(mermaid).toContain('n_gang__goal_gfund --> n_gfund__tmemo');
     expect(mermaid).toContain('n_gfund__tmemo --> n_gfund__tcall');
+  });
+});
+
+describe('delete_goal', () => {
+  const G = (id: string, title: string, parent: string | null, extra: Record<string, unknown> = {}) => ({
+    id, title, section: 'work', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1, ...(parent ? { parent } : {}), ...extra,
+  });
+  // A launch with a press sub-goal (which has one of its own), and the press sub-goal on the launch's chart.
+  const GOALS = [
+    G('glaunch', 'Launch the app', null, { plan: { links: [{ from: 'tbeta', to: 'goal:gpress' }], waits: [] } }),
+    G('gpress', 'Get press', 'glaunch'),
+    G('gpod', 'Book podcasts', 'gpress'),
+    G('gfit', 'Get fit', null),
+  ];
+  const seed = () => {
+    const r = startRepeat({ title: 'Pitch a journalist', notes: '', priority: 2, minutes: 30, label: 'work', goal: 'gpress', raw: '', rule: { freq: 'week', every: 1, days: [1], monthDay: null }, time: null, from: '2026-11-09' }, NOW - 48 * H, 'rpitch');
+    return memRepo([
+      task('tbeta', { goal: 'glaunch' }),
+      task('tlist', { goal: 'gpress', title: 'List the outlets' }),
+      task('tmail', { goal: 'gpod', title: 'Email hosts' }),
+      task('told', { goal: 'gpress', status: 'done', doneAt: NOW - H }),
+      task('tgoogle', { goal: 'gpress', externalId: 'gtask:x', title: 'From Google' }),
+      task('trun', { goal: 'gfit' }),
+    ], { prefs: LABELS, goals: GOALS, [REPEATS_KEY]: [r] });
+  };
+  const goalsIn = (m: ReturnType<typeof memRepo>) => normalizeGoals(m.store.goals);
+
+  it('deletes a sub-goal with the goals under it, takes it off its parent’s chart, and leaves its open tasks off-goal', async () => {
+    const m = seed();
+    const out = await deleteGoal(ctx(m), { goal: 'Get press' });
+    expect(out.deleted).toEqual({ id: 'gpress', title: 'Get press', sub_goals: 1 });
+    expect(goalsIn(m).map(g => g.id)).toEqual(['glaunch', 'gfit']);
+    expect(goalsIn(m)[0].plan?.links ?? []).toEqual([]);
+    // Open tasks stay in the planner, off-goal; done ones and the rest are as they were.
+    for (const id of ['tlist', 'tmail', 'tgoogle']) expect(m.rows.get(id)).toMatchObject({ goal: null, status: 'open' });
+    expect(m.rows.get('told')).toMatchObject({ status: 'done' });
+    expect(m.rows.get('tbeta')!.goal).toBe('glaunch');
+    // Its repeating task carries on, off-goal.
+    const [rep] = normalizeRepeats(m.store[REPEATS_KEY]);
+    expect(rep).toMatchObject({ id: 'rpitch', title: 'Pitch a journalist' });
+    expect(rep.goal ?? null).toBeNull();
+    expect(out.changed.join(' ')).toMatch(/Deleted “Get press” and 1 sub-goal under it/);
+    // The launch's chart history says the step went.
+    expect(normalizeLog(m.store[LOG_KEY])).toContainEqual(expect.objectContaining({ goal: 'glaunch', op: 'remove', step: 'goal:gpress' }));
+  });
+
+  it('with with_tasks deletes the open tasks too, except Google’s, and stops the repeating ones', async () => {
+    const m = seed();
+    const out = await deleteGoal(ctx(m), { goal: 'gpress', with_tasks: true });
+    expect([...m.rows.keys()].sort()).toEqual(['tbeta', 'tgoogle', 'told', 'trun']);
+    expect(m.rows.get('tgoogle')!.goal).toBeNull();
+    expect(normalizeRepeats(m.store[REPEATS_KEY])).toEqual([]);
+    expect(out.changed.join(' ')).toMatch(/2 open tasks deleted.*1 repeating task stopped/);
+  });
+
+  it('deletes a top goal, or a closed one, by id or title, and says when there’s no such goal', async () => {
+    const m = seed();
+    await deleteGoal(ctx(m), { goal: 'gfit' });
+    expect(goalsIn(m).map(g => g.id)).toEqual(['glaunch', 'gpress', 'gpod']);
+    expect(m.rows.get('trun')!.goal).toBeNull();
+    const closed = memRepo([], { prefs: LABELS, goals: [{ ...G('gold', 'Old plan', null), status: 'dropped', closedAt: 2 }] });
+    expect((await deleteGoal(ctx(closed), { goal: 'Old plan' })).deleted.id).toBe('gold');
+    expect(goalsIn(closed)).toEqual([]);
+    await expect(deleteGoal(ctx(seed()), { goal: 'Run a marathon' })).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+describe('repeating tasks', () => {
+  // NOW is Wednesday 11 November, 05:00 in New York (the connection's zone); the test runner's clock is Kolkata's.
+  const GOALS = [{ id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1,
+    plan: { links: [{ from: 'tshoes', to: 'tlong' }], waits: [], pos: { tshoes: { x: 300, y: 40 } } } }];
+  const seed = (extra: Task[] = [], repeats: unknown[] = []) => memRepo([
+    task('tplain', { title: 'Water the plants' }),
+    task('tshoes', { goal: 'grun', title: 'Buy shoes' }),
+    task('tlong', { goal: 'grun', title: 'Long run' }),
+    task('gt', { externalId: 'gtask:abc', title: 'Google task' }),
+    ...extra,
+  ], { prefs: LABELS, goals: GOALS, [REPEATS_KEY]: repeats });
+  const repeatsIn = (m: ReturnType<typeof memRepo>) => normalizeRepeats(m.store[REPEATS_KEY]);
+
+  it('adds a repeating task on the calendar at a time of day, in the user’s zone', async () => {
+    const m = seed();
+    const t = await createTask(ctx(m), { title: 'Team sync prep', scheduled: '2026-11-12T09:00', repeat: { freq: 'week' } });
+    const [r] = repeatsIn(m);
+    expect(r).toMatchObject({ title: 'Team sync prep', time: '09:00', from: '2026-11-12', made: '2026-11-12', rule: { freq: 'week', every: 1, days: [4] } });
+    // This task is its first one: Thursday at 09:00 New York time.
+    expect(t).toMatchObject({ id: `${r.id}.2026-11-12`, scheduled: '2026-11-12T09:00:00-05:00', repeating: true, series: `rep:${r.id}`, repeat: expect.stringMatching(/Thu/) });
+    expect(m.rows.has(t.id)).toBe(true);
+  });
+
+  it('adds one that waits in the backlog, or one whose time comes from repeat.time', async () => {
+    const m = seed();
+    const daily = await createTask(ctx(m), { title: 'Stretch', repeat: { freq: 'day', times: 30 } });
+    const stretch = repeatsIn(m).find(r => r.title === 'Stretch')!;
+    expect(daily).toMatchObject({ id: `${stretch.id}.2026-11-11`, scheduled: null });
+    expect(stretch).toMatchObject({ time: null, rule: { freq: 'day', times: 30 } });
+    const timed = await createTask(ctx(m), { title: 'Journal', repeat: { freq: 'day', time: '21:30' }, goal: 'marathon' });
+    expect(timed).toMatchObject({ scheduled: '2026-11-11T21:30:00-05:00', goal: 'Run a half marathon', project: 'Home life' });
+    expect(repeatsIn(m).find(r => r.title === 'Journal')).toMatchObject({ time: '21:30', goal: 'grun', label: 'home' });
+  });
+
+  it('refuses a repeat it can’t read, or one that starts done', async () => {
+    await expect(createTask(ctx(seed()), { title: 'x', repeat: { freq: 'fortnight' } })).rejects.toMatchObject({ code: 'invalid' });
+    await expect(createTask(ctx(seed()), { title: 'x', repeat: { freq: 'day', until: 'soon' } })).rejects.toThrow(/until/);
+    await expect(createTask(ctx(seed()), { title: 'x', repeat: { freq: 'day', time: '9am' } })).rejects.toThrow(/time of day/);
+    await expect(createTask(ctx(seed()), { title: 'x', status: 'done', repeat: { freq: 'day' } })).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('makes a task repeat, and on a goal its arrows go to the series', async () => {
+    const m = seed();
+    const out = await updateTask(ctx(m), 'tshoes', { repeat: { freq: 'month' } });
+    const [r] = repeatsIn(m);
+    expect(out).toMatchObject({ changed: true, id: `${r.id}.2026-11-11`, title: 'Buy shoes', series: `rep:${r.id}` });
+    expect(m.rows.has('tshoes')).toBe(false);
+    expect(r).toMatchObject({ goal: 'grun', rule: { freq: 'month', monthDay: 11 } });
+    const g = normalizeGoals(m.store.goals)[0];
+    expect(g.plan!.links).toEqual([{ from: `rep:${r.id}`, to: 'tlong' }]);
+    expect(g.plan!.pos).toEqual({ [`rep:${r.id}`]: { x: 300, y: 40 } });
+    // Google's items and done tasks can't start repeating.
+    await expect(updateTask(ctx(m), 'gt', { repeat: { freq: 'day' } })).rejects.toMatchObject({ code: 'read_only' });
+    await expect(updateTask(ctx(m), 'tplain', { status: 'done', repeat: { freq: 'day' } })).rejects.toMatchObject({ code: 'invalid' });
+    await expect(updateTask(ctx(m), 'tplain', { repeat: null })).rejects.toThrow(/doesn't repeat/);
+  });
+
+  it('changes how and when a series repeats from one of its tasks, and stops it', async () => {
+    const r = startRepeat({ title: 'Weekly review', notes: '', priority: 2, minutes: 60, label: null, goal: null, raw: '', rule: { freq: 'week', every: 1, days: [3], monthDay: null }, time: '17:00', from: '2026-11-04' }, NOW - 200 * H, 'rweek');
+    const open = occurrence(r, '2026-11-11', NOW);
+    const m = seed([open], [r]);
+    // New days and a new time for every one to come; this one stays where it is.
+    const out = await updateTask(ctx(m), open.id, { repeat: { freq: 'week', days: ['mon', 'fri'], time: '18:00' } });
+    expect(out.changed).toBe(true);
+    expect(repeatsIn(m)[0]).toMatchObject({ time: '18:00', rule: { days: [1, 5] } });
+    expect(m.rows.get(open.id)!.start).toBe(open.start);
+    // The same again changes nothing; leaving the time out keeps it.
+    expect((await updateTask(ctx(m), open.id, { repeat: { freq: 'week', days: ['mon', 'fri'] } })).changed).toBe(false);
+    // Stopping it keeps this one.
+    await updateTask(ctx(m), open.id, { repeat: null });
+    expect(repeatsIn(m)).toEqual([]);
+    expect(m.rows.get(open.id)).toMatchObject({ status: 'open', title: 'Weekly review' });
+  });
+
+  it('changes a series by "rep:<id>" when none of it is open, and says what a series doesn’t have', async () => {
+    const r = startRepeat({ title: 'Call mum', notes: '', priority: 2, minutes: 30, label: null, goal: null, raw: '', rule: { freq: 'week', every: 1, days: [0], monthDay: null }, time: null, from: '2026-11-08' }, NOW - 200 * H, 'rmum');
+    const done = { ...occurrence(r, '2026-11-08', NOW), status: 'done' as const, doneAt: NOW - 50 * H };
+    const m = seed([done], [r]);
+    expect((await getTask(ctx(m), done.id)).series).toBe('rep:rmum');
+    const out = await updateTask(ctx(m), 'rep:rmum', { title: 'Call Mum and Dad', priority: 'urgent', repeat: { freq: 'week', days: ['sat'], time: '11:00' } });
+    expect(out).toMatchObject({ id: 'rep:rmum', title: 'Call Mum and Dad', priority: 'urgent', changed: true, repeat: expect.stringMatching(/Sat/) });
+    expect(repeatsIn(m)[0]).toMatchObject({ title: 'Call Mum and Dad', priority: 1, time: '11:00', rule: { days: [6] } });
+    // A done one keeps its title.
+    expect(m.rows.get(done.id)!.title).toBe('Call mum');
+    await expect(updateTask(ctx(m), 'rep:rmum', { scheduled: '2026-11-14T10:00' })).rejects.toThrow(/series as a whole has no scheduled/);
+    await expect(updateTask(ctx(m), 'rep:nope', { title: 'x' })).rejects.toMatchObject({ code: 'not_found' });
+    expect((await updateTask(ctx(m), 'rep:rmum', { repeat: null }))).toMatchObject({ changed: true, repeat: expect.stringMatching(/^Stopped/) });
+    expect(repeatsIn(m)).toEqual([]);
+  });
+
+  it('renames a series’ open one along with it', async () => {
+    const r = startRepeat({ title: 'Stand-up notes', notes: '', priority: 2, minutes: 15, label: null, goal: null, raw: '', rule: { freq: 'day', every: 1, days: [], monthDay: null }, time: null, from: '2026-11-10' }, NOW - 30 * H, 'rstand');
+    const open = occurrence(r, '2026-11-11', NOW);
+    const m = seed([open], [r]);
+    await updateTask(ctx(m), 'rep:rstand', { title: 'Stand-up', minutes: 30 });
+    expect(m.rows.get(open.id)).toMatchObject({ title: 'Stand-up', minutes: 30 });
   });
 });

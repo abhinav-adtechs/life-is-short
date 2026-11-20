@@ -48,6 +48,22 @@ describe('the MCP server', () => {
   ];
   rows.push(T('tmemo', 'gfund'), T('tcall', 'gfund'), T('tangid', 'gang'));
 
+  it('offers delete_goal as its own tool, and repeats on create_task and update_task', async () => {
+    const call = await connect();
+    const list = await call('tools/list', {});
+    type Tool = { name: string; inputSchema: { properties: Record<string, Record<string, unknown>> }; annotations?: Record<string, unknown> };
+    const tools = (list.result as { tools: Tool[] }).tools;
+    const del = tools.find(t => t.name === 'delete_goal')!;
+    expect(del.annotations).toMatchObject({ destructiveHint: true, readOnlyHint: false });
+    expect(Object.keys(del.inputSchema.properties).sort()).toEqual(['goal', 'with_tasks']);
+    for (const name of ['create_task', 'update_task']) {
+      const repeat = JSON.stringify(tools.find(t => t.name === name)!.inputSchema.properties.repeat);
+      expect(repeat, name).toContain('"time"');
+      expect(repeat, name).toContain('"freq"');
+    }
+    expect(tools).toHaveLength(11);
+  });
+
   it('offers get_goal a depth, and its answer at any depth fits the schema it advertises', async () => {
     const call = await connect();
     const list = await call('tools/list', {});

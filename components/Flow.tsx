@@ -256,7 +256,7 @@ const plainD = (a: Box, b: Pt) => {
 /* ---------- the map ---------- */
 
 function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
-  const { tasks, now, prefs, wide, store, changeGoals, logGoal, openSheet, closeSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice, slot } = usePlanner();
+  const { tasks, now, prefs, wide, store, changeGoals, deleteGoal, logGoal, openSheet, closeSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice, slot } = usePlanner();
   const [all, setAll] = useState(false);
   const tree = useMemo(() => buildTree(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
   const flow = tree.flow;
@@ -589,6 +589,19 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     removeStep(s, s.repeat || (s.task && !external) ? how : 'off', on);
     const verb = s.kind === 'goal' ? 'Dropped' : s.repeat ? (how === 'off' ? 'Took off its goal:' : 'Stopped repeating') : s.task && (how === 'off' || external) ? 'Took off its goal:' : s.kind === 'wait' ? 'Removed' : 'Deleted';
     say(<>{verb} “{shortTitle(s.title, 40)}”</>, true);
+    vp.current?.focus({ preventScroll: true });
+  };
+
+  /** A sub-goal deleted for good, with the goals under it, as from the Goals panel: its open tasks go off-goal. */
+  const purgeGoal = (s: Step) => {
+    if (!s.goal) return;
+    const back = deleteGoal(s.goal.id, { quiet: true });
+    if (back) {
+      remember('delete the sub-goal', back.undo);
+      say(<>Deleted “{shortTitle(s.title, 40)}” and what was under it; its open tasks are off-goal</>, true);
+    }
+    setSel(null);
+    setConfirm(null);
     vp.current?.focus({ preventScroll: true });
   };
 
@@ -1128,7 +1141,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const actsFor = (on: On): Acts => ({
     rename: (s, t) => rename(s, t, on), toggle: s => toggle(s, on), link: l => link(l, on), unlink: l => unlink(l, on),
     addTask: o => addTask(o, on), addWait: h => addWait(h, undefined, on), removeStep: (s, how) => removeStep(s, how, on), patchTask,
-    addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on),
+    addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on), deleteGoal: purgeGoal,
     open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null, slot,
     go: id => { const k = on.key(id), c = cardOf(k); if (c) { setSel({ kind: 'step', id: k }); reveal(c.box); } },
   });
@@ -1349,12 +1362,14 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
                 onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                 <p>{what}</p>
                 {s.repeat ? <p className="muted sm">No more of it will come{s.task ? ', and the open one goes' : ''}. The ones you’ve done stay done.</p>
+                  : s.goal ? <p className="muted sm">Dropping keeps it, under Achieved and dropped. Deleting it removes it for good; its open tasks go off-goal.</p>
                   : s.task && !external && <p className="muted sm">It’s a task in your planner too, so it goes from there as well.</p>}
                 <div className="acts">
                   <button type="button" className="btn sm pri" autoFocus onClick={() => confirmDelete(s, 'delete', on)}>
                     {s.repeat ? 'Stop it' : s.kind === 'goal' ? 'Drop it' : s.kind === 'wait' ? 'Remove' : external ? 'Take it off' : 'Delete'}
                   </button>
                   {(s.repeat || (s.task && !external)) && <button type="button" className="btn sec sm" onClick={() => confirmDelete(s, 'off', on)}>Only off {on.top ? 'this goal' : 'its goal'}</button>}
+                  {s.goal && <button type="button" className="btn sec sm" onClick={() => purgeGoal(s)}>Delete for good</button>}
                   <button type="button" className="btn text sm" onClick={() => { setConfirm(null); vp.current?.focus({ preventScroll: true }); }}>Cancel</button>
                 </div>
                 <p className="muted sm"><kbd>Delete</kbd> or <kbd>Enter</kbd> to confirm · <kbd>Esc</kbd> to keep it</p>
@@ -1628,6 +1643,8 @@ interface Acts {
   patchTask: (s: Step, part: Partial<Task>, label: string) => void;
   addSubGoal: (kr?: string) => void;
   addKr: (under: string | null) => void;
+  /** Delete a sub-goal for good, with what's under it. */
+  deleteGoal: (s: Step) => void;
   /** Open a goal's own map. */
   open: (goal: string) => void;
   /** Select another step on the map. */
@@ -1662,6 +1679,7 @@ function Inspector({ s, flow, focus, onFocused, goal, within, empty, next, act, 
 }) {
   const { now, openEditor } = usePlanner();
   const [title, setTitle] = useState(s.title);
+  const [armed, setArmed] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => setTitle(s.title), [s.title]);
   useEffect(() => { if (focus && input.current) { input.current.focus(); input.current.select(); onFocused(); } }, [focus, onFocused]);
@@ -1802,7 +1820,12 @@ function Inspector({ s, flow, focus, onFocused, goal, within, empty, next, act, 
         {t && <button type="button" className="btn text sm" onClick={() => openEditor(t.id)}>Editor</button>}
         <span className="spacer" />
         {t && <button type="button" className="btn text sm" onClick={() => act.removeStep(s, 'off')} title="Take it off this goal: it stays in your planner, off-goal">Off this goal</button>}
-        <button type="button" className="btn text sm mp-warn" onClick={onDelete}>{s.kind === 'goal' ? 'Drop' : s.kind === 'wait' ? 'Remove' : s.repeat ? 'Stop' : 'Delete'}</button>
+        <button type="button" className={'btn text sm' + (s.goal ? '' : ' mp-warn')} onClick={onDelete} title={s.goal ? 'Drop it, or delete it for good' : undefined}>{s.kind === 'goal' ? 'Drop' : s.kind === 'wait' ? 'Remove' : s.repeat ? 'Stop' : 'Delete'}</button>
+        {s.goal && (
+          <button type="button" className="btn text sm mp-warn" onBlur={() => setArmed(false)} onClick={() => { if (!armed) { setArmed(true); return; } act.deleteGoal(s); }}>
+            {armed ? 'Click again to delete' : 'Delete for good'}
+          </button>
+        )}
       </div>
     </div>
   );

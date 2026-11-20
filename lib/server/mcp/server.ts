@@ -2,13 +2,13 @@ import 'server-only';
 import { McpServer, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import {
-  MAX_CHART_DEPTH, PRIORITIES, TaskError, changeGoals, completeTask, createTask, deleteTask, getGoal, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx,
+  MAX_CHART_DEPTH, PRIORITIES, TaskError, changeGoals, completeTask, createTask, deleteGoal, deleteTask, getGoal, getTask, listGoals, listTasks, reopenTask, updateTask, type Ctx,
 } from '../../mcp/tools';
 import { zoneOr } from '../../mcp/when';
 import { connectionRepo } from './db';
 
 /*
- * The MCP server: ten tools over your tasks, your goals and their flow charts. A fresh one is made for every request (createMcpHandler in app/mcp),
+ * The MCP server: eleven tools over your tasks, your goals and their flow charts. A fresh one is made for every request (createMcpHandler in app/mcp),
  * bound to the connection whose token came with it, so nothing about one connection is kept for the next.
  */
 
@@ -21,6 +21,16 @@ const project = z.string().min(1).max(40);
 const goal = z.string().min(1).max(80);
 const minutes = z.number().int().min(15).max(480).multipleOf(15).describe('How long it takes, in minutes: 15 to 480, in steps of 15.');
 const id = z.string().min(1).max(64).describe('The task id, from list_tasks or create_task.');
+/** How a task repeats, for create_task and update_task. */
+const repeatInput = z.object({
+  freq: z.enum(['day', 'week', 'month']), every: z.number().int().min(1).max(52).optional().describe('Every n days, weeks or months. Default 1.'),
+  days: z.array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])).optional().describe('Weekly: the days. Default: the day of its first one.'),
+  monthday: z.number().int().min(1).max(31).nullable().optional().describe('Monthly: the day of the month. Default: the date of its first one.'),
+  until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().describe('YYYY-MM-DD it stops after; null for no end date.'),
+  times: z.number().int().min(1).max(999).nullable().optional().describe('How many times in all; it ends once that many are done.'),
+  per: z.number().int().min(1).max(7).nullable().optional().describe('How many times a week (or month), on any day, instead of on set days.'),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional().describe('HH:MM in the user’s time zone: each one goes on the calendar then. null: each waits in the backlog, due its day. Left out: create_task takes scheduled’s time of day (none without scheduled); update_task keeps the series’ time.'),
+});
 /** A string or null. Bounded, so it renders as anyOf rather than a type array, which more clients read. */
 const orNull = (what: string) => z.string().max(400).nullable().describe(what);
 
@@ -44,6 +54,7 @@ const detail = summary.extend({
   created: z.string(),
   done_at: orNull('When it was ticked off (RFC 3339), or null.'),
   repeat: z.string().optional().describe('How often it repeats, in words.'),
+  series: z.string().optional().describe('For a repeating task: its whole series, "rep:<id>". update_task takes it to change or stop the series, even when none of it is open.'),
 });
 const changed = detail.extend({ changed: z.boolean().describe('False when the task already looked like this, so nothing was written.') });
 
@@ -269,6 +280,24 @@ export function buildServer(auth: AuthInfo): McpServer {
     annotations: { title: 'Change goals and their charts', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   }, async args => run(() => changeGoals(c, args)));
 
+  server.registerTool('delete_goal', {
+    title: 'Delete a goal',
+    description: 'Delete a goal for good, by id or title, with every sub-goal under it, and take it off its parent’s chart. Its '
+      + 'open tasks go off-goal and stay in the planner; with with_tasks they are deleted too (except Google items) and its repeating '
+      + 'tasks stop. Done tasks always stay. There’s no undo from here, so confirm with the user first. To keep a goal but stop '
+      + 'working on it, drop it instead (change_goals edit_goal with status dropped), which the user can undo in the app.',
+    inputSchema: z.object({
+      goal: goal.describe('The goal’s id (from list_goals) or title. Any goal: a top goal, a sub-goal, or an achieved or dropped one.'),
+      with_tasks: z.boolean().optional().describe('Also delete its open tasks and stop its repeating tasks, instead of making them off-goal. Only when the user says so. Default false.'),
+    }),
+    outputSchema: z.object({
+      deleted: z.object({ id: z.string(), title: z.string(), sub_goals: z.number().int().min(0).describe('How many goals under it were deleted with it.') }),
+      changed: z.array(z.string()).describe('What happened, one line each.'),
+      skipped: z.array(z.string()).describe('What couldn’t be done, and why.'),
+    }),
+    annotations: { title: 'Delete a goal', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  }, async args => run(() => deleteGoal(c, args)));
+
   server.registerTool('get_task', {
     title: 'Get a task',
     description: 'One task by id, with everything the app keeps on it: notes, the words it was added with, when it was created '
@@ -281,7 +310,9 @@ export function buildServer(auth: AuthInfo): McpServer {
   server.registerTool('create_task', {
     title: 'Create a task',
     description: 'Add a task. With a scheduled time it goes on the calendar; without one it waits in the backlog. A due date is a '
-      + `deadline, separate from when it's scheduled. Defaults: priority important, 30 minutes, open, no project. ${TIME_NOTE}`,
+      + 'deadline, separate from when it\'s scheduled. With repeat it\'s a repeating task, and this is its first one: with scheduled '
+      + '(or repeat.time) each one goes on the calendar at that time of day, e.g. every Monday at 09:00. '
+      + `Defaults: priority important, 30 minutes, open, no project. ${TIME_NOTE}`,
     inputSchema: z.object({
       title: z.string().min(1).max(160).describe('Short title, as the user would write it.'),
       description: z.string().max(5000).optional().describe('Notes for the task.'),
@@ -292,6 +323,7 @@ export function buildServer(auth: AuthInfo): McpServer {
       status: status.optional().describe('open (the default) or done, to log something already finished.'),
       scheduled: when(`When to put it on the calendar, e.g. 2026-11-12T15:00. ${TIME_NOTE}`).nullable().optional(),
       minutes: minutes.optional(),
+      repeat: repeatInput.optional().describe('Make it a repeating task (on a goal too). This task is its first one.'),
     }),
     outputSchema: detail,
     annotations: { title: 'Create a task', ...WRITE, idempotentHint: false },
@@ -299,11 +331,14 @@ export function buildServer(auth: AuthInfo): McpServer {
 
   server.registerTool('update_task', {
     title: 'Update a task',
-    description: 'Change any fields of a task by id; fields left out stay as they are. Set scheduled to null to take it off the '
-      + 'calendar (back to the backlog), due or project to null to clear them. Changing a repeating task’s title, priority, '
-      + `length, project or notes changes the ones to come too. ${TIME_NOTE}`,
+    description: 'Change any fields of a task by id; fields left out stay as they are. scheduled reschedules it (null takes it off '
+      + 'the calendar, back to the backlog); due or project null clears them. Changing a repeating task’s title, priority, '
+      + 'length, project or notes changes the ones to come too, while scheduled moves only this one. repeat makes a task repeat, '
+      + 'or changes how and when its series repeats (repeat.time reschedules every one to come); repeat null stops the series and '
+      + 'keeps this one. id can also be a series, "rep:<id>" (get_task shows it), to change or stop it when none of it is open. '
+      + `${TIME_NOTE}`,
     inputSchema: z.object({
-      id,
+      id: id.describe('The task id (list_tasks, create_task), or a repeating task’s series, "rep:<id>" (get_task shows it).'),
       title: z.string().min(1).max(160).optional(),
       description: z.string().max(5000).optional().describe('Replaces the notes.'),
       due: date('Deadline (YYYY-MM-DD), or null to clear it.').nullable().optional(),
@@ -313,6 +348,7 @@ export function buildServer(auth: AuthInfo): McpServer {
       status: status.optional(),
       scheduled: when(`New time on the calendar, or null for the backlog. ${TIME_NOTE}`).nullable().optional(),
       minutes: minutes.optional(),
+      repeat: repeatInput.nullable().optional().describe('Make it repeat, or change how its series repeats and at what time; null stops the series (this one stays).'),
     }),
     outputSchema: changed,
     annotations: { title: 'Update a task', ...WRITE, idempotentHint: true },
@@ -337,7 +373,8 @@ export function buildServer(auth: AuthInfo): McpServer {
   server.registerTool('delete_task', {
     title: 'Delete a task',
     description: 'Delete a task for good. There’s no undo from here, so confirm with the user first, and use complete_task for '
-      + 'anything they did. Deleting one occurrence of a repeating task skips just that one. Google items can’t be deleted here.',
+      + 'anything they did. Deleting one occurrence of a repeating task skips just that one; to stop the whole series, use update_task with '
+      + 'repeat null. Google items can’t be deleted here.',
     inputSchema: z.object({ id }),
     outputSchema: z.object({ deleted: z.object({ id: z.string(), title: z.string() }) }),
     annotations: { title: 'Delete a task', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
