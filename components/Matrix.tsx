@@ -398,7 +398,7 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
       )}
 
       {route && g ? (
-        <div className="gc-route"><RouteList goal={g} /></div>
+        <div className="gc-route"><RouteList goal={g} draggable={!phone} /></div>
       ) : shown.length > 0 ? (
         <div className="gc-list">
           {shown.map((x, i) => <Item key={x.t.id} t={x.t} kind={x.kind} delay={stagger(i)} card={id} />)}

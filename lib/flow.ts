@@ -447,6 +447,29 @@ export const withoutPos = (p: Plan): Plan => { const { pos: _, ...base } = p; re
 export const withWait = (p: Plan, w: Wait): Plan => ({ ...p, waits: [...p.waits.filter(x => x.id !== w.id), w] });
 export const patchWait = (p: Plan, id: string, patch: Partial<Omit<Wait, 'id'>>): Plan => ({ ...p, waits: p.waits.map(w => (w.id === id ? { ...w, ...patch } : w)) });
 
+/** Where a step goes on a chart: between the two ends of an arrow, after a step, before one, alongside one, or on its own. */
+export type Place = { between?: Link; after?: string; before?: string; beside?: string };
+
+/**
+ * A step lifted out of its place on a chart, to put somewhere else: its arrows go, and what came before it now leads
+ * straight to what came after it, so the route it was on stays whole. Its waiting step (if it is one) stays.
+ */
+export function liftStep(p: Plan, id: string): Plan {
+  const before = p.links.filter(l => l.to === id).map(l => l.from), after = p.links.filter(l => l.from === id).map(l => l.to);
+  let q: Plan = withPos({ ...p, links: p.links.filter(l => l.from !== id && l.to !== id) }, id, null);
+  for (const a of before) for (const b of after) q = withLink(q, { from: a, to: b });
+  return q;
+}
+
+/** A step put in a place on a chart (lib/flow.ts Place). Arrows that would loop are left out. */
+export function placeStep(p: Plan, id: string, at: Place): Plan {
+  if (at.between) return withLink(withLink(withoutLink(p, at.between), { from: at.between.from, to: id }), { from: id, to: at.between.to });
+  if (at.after) return withLink(p, { from: at.after, to: id });
+  if (at.before) return withLink(p, { from: id, to: at.before });
+  if (at.beside) return parallelLinks(p, at.beside, id).reduce(withLink, p);
+  return p;
+}
+
 /**
  * A new step alongside `id`: it needs what `id` needs and unblocks what `id` unblocks, so the two run in parallel.
  * Returns the arrows to add.

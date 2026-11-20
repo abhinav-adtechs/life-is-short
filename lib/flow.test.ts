@@ -3,6 +3,7 @@ import type { Task } from './model';
 import { normalizeGoals, type Goal } from './goals';
 import type { Repeat } from './repeat';
 import {
+  liftStep, placeStep,
   RECENT_DONE, blockedTasks, buildFlow, coalesce, describeEntry, goalNode, holdups, krNode, repeatNode, logFromWrites, normalizeLog, normalizePlan, parallelLinks, toJson,
   toMermaid, withLink, withPos, withWait, withoutLink, withoutPos, withoutStep, wouldLoop, type Plan,
 } from './flow';
@@ -60,6 +61,34 @@ describe('normalizePlan', () => {
     expect(wouldLoop(links, 'c', 'a')).toBe(true);
     expect(wouldLoop(links, 'a', 'c')).toBe(false);
     expect(wouldLoop(links, 'a', 'a')).toBe(true);
+  });
+});
+
+describe('moving a step', () => {
+  // a -> x -> b, and a -> c
+  const p: Plan = { waits: [], links: [{ from: 'a', to: 'x' }, { from: 'x', to: 'b' }, { from: 'a', to: 'c' }], pos: { x: { x: 10, y: 20 } } };
+
+  it('lifts it out, joining what came before it to what came after, so the route stays whole', () => {
+    const q = liftStep(p, 'x');
+    expect(q.links).toEqual([{ from: 'a', to: 'c' }, { from: 'a', to: 'b' }]);
+    expect(q.pos).toBeUndefined();
+    // A waiting step keeps its record, to be put back elsewhere.
+    const w = { waits: [{ id: 'wr', title: 'Reply', done: false, created: 1, doneAt: null }], links: [{ from: 'wr', to: 'b' }] };
+    expect(liftStep(w, 'wr')).toEqual({ waits: w.waits, links: [] });
+  });
+
+  it('puts it between the ends of an arrow, after a step, before one or alongside one', () => {
+    const q = liftStep(p, 'x');
+    expect(placeStep(q, 'x', { between: { from: 'a', to: 'c' } }).links).toEqual([{ from: 'a', to: 'b' }, { from: 'a', to: 'x' }, { from: 'x', to: 'c' }]);
+    expect(placeStep(q, 'x', { after: 'c' }).links).toContainEqual({ from: 'c', to: 'x' });
+    expect(placeStep(q, 'x', { before: 'a' }).links).toContainEqual({ from: 'x', to: 'a' });
+    expect(placeStep(q, 'x', { beside: 'c' }).links).toContainEqual({ from: 'a', to: 'x' });
+    expect(placeStep(q, 'x', {})).toBe(q);
+  });
+
+  it('never closes a loop', () => {
+    // b comes after a; putting a after b is refused.
+    expect(placeStep({ waits: [], links: [{ from: 'a', to: 'b' }] }, 'a', { after: 'b' }).links).toEqual([{ from: 'a', to: 'b' }]);
   });
 });
 
