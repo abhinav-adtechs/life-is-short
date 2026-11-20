@@ -20,8 +20,9 @@ import { dayName, occurrenceOf, type Repeat } from '@/lib/repeat';
 import { WeekLog } from './Repeating';
 import {
   CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ClockIcon, FitIcon, FlagIcon, HistoryIcon, HourglassIcon, InboxIcon, LockIcon, MicIcon, MinusIcon,
-  MoreIcon, OpenIcon, PlayIcon, PlusIcon, RepeatIcon, RouteIcon, SparkIcon, StopIcon, TrophyIcon, UndoIcon, XIcon, MapIcon, LinkIcon, MoveIcon, TargetIcon,
+  MoreIcon, OpenIcon, PlayIcon, PlusIcon, RepeatIcon, RouteIcon, SparkIcon, StopIcon, TrophyIcon, UndoIcon, XIcon, MapIcon, LinkIcon, MoveIcon, TargetIcon, ArchiveIcon,
 } from './icons';
+import { NO_ROOM, useArchiveActs } from './Archive';
 import { askWorkflow } from '@/lib/api';
 import { promptContext } from '@/lib/capture';
 import { joinWords } from '@/lib/speech';
@@ -158,10 +159,12 @@ export function FlowPanel() {
   return <FlowChart key={goal.id} goal={goal} onRoute={wide ? undefined : () => setView('route')} />;
 }
 
-/** A goal on a phone: its ring, then its route, with the map a tap away. */
+/** A goal on a phone: its ring, then its route, with the map a tap away. Done sends it to the archive, with Undo here. */
 function RoutePage({ goal, onMap }: { goal: Goal; onMap: () => void }) {
   const { prefs, now, closeSheet, goals, openSheet } = usePlanner();
   const share = useShare(goal);
+  const acts = useArchiveActs(goal);
+  const [said, setSaid] = useState<{ said: string; undo: () => void } | null>(null);
   const section = prefs.labels.find(l => l.id === goal.section) ?? null;
   const left = goal.by ? daysLeft(goal.by, now) : null;
   const up = ancestorsOf(new Map(goals.map(g => [g.id, g])), goal);
@@ -170,9 +173,24 @@ function RoutePage({ goal, onMap }: { goal: Goal; onMap: () => void }) {
       <div className="ru-pbar">
         <button type="button" className="ib bare touch" aria-label="Close" onClick={closeSheet}><ChevronLeft size={18} /></button>
         <span className="spacer" />
+        {!acts.closed && <button type="button" className="btn text sm" onClick={() => setSaid(acts.done())}><CheckIcon size={14} w={2.2} />Done</button>}
         <button type="button" className="btn sec sm" onClick={onMap}><MapIcon size={14} />Map</button>
         <button type="button" className="ib bare touch" aria-label="Close" onClick={closeSheet}><XIcon size={16} /></button>
       </div>
+      {said && (
+        <p className="gundo" role="status">
+          <span>{said.said}</span>
+          <button type="button" className="link" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+          <button type="button" className="ib bare" aria-label="Dismiss" onClick={() => setSaid(null)}><XIcon size={11} /></button>
+        </p>
+      )}
+      {acts.closed && !said && (
+        <p className="ru-arch">
+          <ArchiveIcon size={14} /><span>In the archive · {acts.when}</span><span className="spacer" />
+          {acts.noRoom ? <span className="muted sm">{NO_ROOM}</span>
+            : <button type="button" className="link" onClick={() => setSaid(acts.bringBack())}>Bring back</button>}
+        </p>
+      )}
       <div className="ru-hero">
         <span className="ru-hring"><Ring value={share} size={76} stroke={7} label={false} /><b className="num">{Math.round(share * 100)}%</b></span>
         <div>
@@ -252,8 +270,19 @@ const plainD = (a: Box, b: Pt) => {
 
 /* ---------- the map ---------- */
 
-function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
-  const { tasks, now, prefs, wide, store, changeGoals, deleteGoal, logGoal, openSheet, closeSheet, goals, goalById, repeats, applyRepeats, liveTasks, voice, slot } = usePlanner();
+/**
+ * A map shown inside a pane instead of full screen (the Goals view): its keys work while it has focus, closing it goes
+ * back to the pane's route, and another goal's map opens in the same pane.
+ */
+export interface MapEmbed { onClose: () => void; onOpen: (goal: string) => void; onFull: () => void }
+
+/** A goal's map, inside the Goals view's pane. */
+export const GoalMap = ({ goal, embed }: { goal: Goal; embed: MapEmbed }) => <FlowChart key={goal.id} goal={goal} embed={embed} />;
+
+function FlowChart({ goal, onRoute, embed }: { goal: Goal; onRoute?: () => void; embed?: MapEmbed }) {
+  const { tasks, now, prefs, wide, store, changeGoals, deleteGoal, logGoal, openSheet, closeSheet: closePanel, goals, goalById, repeats, applyRepeats, liveTasks, voice, slot } = usePlanner();
+  const closeSheet = embed ? embed.onClose : closePanel;
+  const openMap = (id: string) => (embed ? embed.onOpen(id) : openSheet('flow', id));
   const [all, setAll] = useState(false);
   const tree = useMemo(() => buildTree(goal, tasks, now, { all, goals, repeats }), [goal, tasks, now, all, goals, repeats]);
   const flow = tree.flow;
@@ -308,6 +337,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const tint = section ? ({ '--c': section.color } as React.CSSProperties) : undefined;
   const share = useShare(goal);
   const pct = useCountUp(share);
+  const acts = useArchiveActs(goal);
 
   const say = useCallback((msg: React.ReactNode, undo = false) => {
     const id = Date.now() + Math.random();
@@ -1317,9 +1347,11 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
       if (e.defaultPrevented || (a && a !== document.body)) return;
       keyRef.current(e);
     };
+    // In a pane, the map's keys work only while it has focus (its own onKeyDown); the planner keeps the rest.
+    if (embed) return;
     window.addEventListener('keydown', h, true);
     return () => window.removeEventListener('keydown', h, true);
-  }, []);
+  }, [!!embed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- export ---------- */
 
@@ -1345,7 +1377,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     addTask: o => addTask(o, on), addWait: h => addWait(h, undefined, on), removeStep: (s, how) => removeStep(s, how, on), patchTask,
     addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on), deleteGoal: purgeGoal,
     moveTo: (s, id) => { const c = cardOf(on.key(s.id)); if (c) moveTo(c, id); }, goalOptions, canMove: s => !cantMove(s, on.goal, null) || s.kind === 'wait',
-    open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null, slot,
+    open: openMap, goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null, slot,
     go: id => { const k = on.key(id), c = cardOf(k); if (c) { setSel({ kind: 'step', id: k }); reveal(c.box); } },
   });
 
@@ -1403,7 +1435,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     : dropping.on.goal.id !== (carrying?.moving ? cardOf(carrying.moving)?.tree.goal.id : goal.id) || !dropping.on.top ? `Onto “${shortTitle(dropping.on.goal.title, 24)}”` : null) : null;
 
   return (
-    <div className={'mp' + (wide ? '' : ' ph') + (z < 0.8 ? ' far' : '')} style={tint} onKeyDown={onKey}>
+    <div className={'mp' + (wide ? '' : ' ph') + (z < 0.8 ? ' far' : '') + (embed ? ' embed' : '')} style={tint} onKeyDown={onKey}>
       <div ref={vp} className={'mp-vp' + (picking || drawing ? ' connecting' : '') + (dragPos ? ' moving' : '') + (trace ? ' tracing' : '')} tabIndex={0}
         aria-label={`Map of ${goal.title}`} onPointerDown={bgDown}
         style={{ '--g': `${24 * z}px`, '--gx': `${cam.x % (24 * z)}px`, '--gy': `${cam.y % (24 * z)}px` } as React.CSSProperties}
@@ -1424,7 +1456,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
               <div key={'f:' + f.key} className={'mp-frame' + (on1 ? ' sel' : '') + (c.depth ? ' nested' : '') + (trace && !trace.has(f.key) ? ' dim' : '') + (s.state === 'blocked' && !s.done ? ' locked' : '') + (s.done ? ' done' : '') + (!c.depth && dragPos?.id === c.id ? ' lifted' : '')}
                 style={{ transform: `translate(${b.x}px,${b.y}px)`, width: b.w, height: b.h }}>
                 <div className="mp-fh" data-step={c.key} onPointerDown={c.depth ? undefined : e => startMove(e, c)} onClick={e => { e.stopPropagation(); clickStep(c.key); }}
-                  onDoubleClick={e => { e.stopPropagation(); openSheet('flow', (s.goal as Goal).id); }} title="Double-click to open its own map">
+                  onDoubleClick={e => { e.stopPropagation(); openMap((s.goal as Goal).id); }} title="Double-click to open its own map">
                   <Ring value={s.done ? 1 : shareOf(sub)} size={30} stroke={3.2} />
                   <span className="mp-eb">Sub-goal</span>
                   <span className="mp-ft">{s.title}</span>
@@ -1432,7 +1464,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
                   {s.state === 'blocked' && !s.done && <span className="mp-chip lock"><LockIcon size={10} />Locked</span>}
                   <span className="spacer" />
                   <button type="button" className="mp-fb" aria-label={`Close ${s.title} to one card`} title="Close it to one card" onClick={e => { e.stopPropagation(); fold((s.goal as Goal).id); }}><ChevronDown size={13} /></button>
-                  <button type="button" className="mp-fb" aria-label={`Open the map of ${s.title}`} title="Its own map" onClick={e => { e.stopPropagation(); openSheet('flow', (s.goal as Goal).id); }}><OpenIcon size={14} /></button>
+                  <button type="button" className="mp-fb" aria-label={`Open the map of ${s.title}`} title="Its own map" onClick={e => { e.stopPropagation(); openMap((s.goal as Goal).id); }}><OpenIcon size={14} /></button>
                   {s.kind !== 'milestone' && !preview && <span className="mp-port out" role="button" aria-label={`Draw an arrow from ${s.title}`} onPointerDown={e => startDraw(e, c.key)} />}
                 </div>
               </div>
@@ -1490,7 +1522,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
                 now={now} preview={!!preview}
                 onDown={e => startMove(e, c)} onClick={() => clickStep(c.key)} onEnter={() => enter(c.key)} onLeave={leave}
                 onTick={el => toggle(c.step, onOf(c), el)} onDraw={e => startDraw(e, c.key)}
-                onOpen={() => c.step.goal && openSheet('flow', c.step.goal.id)} onUnfold={() => c.step.goal && fold(c.step.goal.id)}
+                onOpen={() => c.step.goal && openMap(c.step.goal.id)} onUnfold={() => c.step.goal && fold(c.step.goal.id)}
                 onAdd={how => { const on = onOf(c); if (how === 'next') addTask({ after: c.id }, on); else if (how === 'par') addTask({ beside: c.id }, on); else addTask({ before: c.id }, on); }} />
             );
           })}
@@ -1608,19 +1640,28 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
       <div className="mp-hud mp-where" role="navigation" aria-label="Where you are">
         <button type="button" className="mp-hb icon" aria-label="Close the map" title="Back (Esc)" onClick={closeSheet}><ChevronLeft size={16} /></button>
         {trail.length > 0 ? trail.map(a => (
-          <span key={a.id} className="mp-crumb"><button type="button" className="link" onClick={() => openSheet('flow', a.id)}>{shortTitle(a.title, 22)}</button><span aria-hidden="true">/</span></span>
-        )) : <span className="mp-crumb wide-only"><button type="button" className="link" onClick={() => openSheet('goals')}>Goals</button><span aria-hidden="true">/</span></span>}
+          <span key={a.id} className="mp-crumb"><button type="button" className="link" onClick={() => openMap(a.id)}>{shortTitle(a.title, 22)}</button><span aria-hidden="true">/</span></span>
+        )) : embed ? null : <span className="mp-crumb wide-only"><button type="button" className="link" onClick={() => openSheet(acts.closed ? 'archive' : 'goals')}>{acts.closed ? 'Archive' : 'Goals'}</button><span aria-hidden="true">/</span></span>}
         <span className="mp-gname"><i aria-hidden="true" />{goal.title}</span>
+        {acts.closed && <span className="mp-arch" title="In the archive"><ArchiveIcon size={12} />{acts.when}</span>}
         <span className="mp-vsep wide-only" />
         <span className="mp-prog wide-only"><span className="mp-bar"><i style={{ width: `${Math.round(pct * 100)}%` }} /></span><span><b className="num">{Math.round(pct * 100)}%</b> there</span>{left && <><span>·</span><span className={left.hot ? 'hot' : undefined}>{left.text}</span></>}</span>
       </div>
 
       <div className="mp-hud mp-tools">
         {onRoute && <button type="button" className="mp-hb icon" aria-label="Back to the route" title="The route" onClick={onRoute}><RouteIcon size={16} /></button>}
+        {acts.closed ? (
+          <button type="button" className="mp-hb" disabled={acts.noRoom} title={acts.noRoom ? NO_ROOM : 'Back among the goals you’re working on'}
+            onClick={() => { const r = acts.bringBack(); if (r) { remember('bring it back', r.undo); say(r.said, true); } }}>Bring back</button>
+        ) : (
+          <button type="button" className={'mp-hb mp-done' + (wide ? '' : ' icon')} aria-label="Done: archive this goal" title="Mark it done: it goes to the archive"
+            onClick={() => { const r = acts.done(); if (r) { remember('mark it done', r.undo); say(r.said, true); } }}><CheckIcon size={15} w={2.2} /><span className="wide-only">Done</span></button>
+        )}
         <button type="button" className={'mp-hb' + (wide ? '' : ' icon')} disabled={!undoLabel} aria-label="Undo" onClick={undo} title={undoLabel ? `Undo: ${undoLabel} (⌘Z)` : 'Nothing to undo'}><UndoIcon size={15} /><span className="wide-only">Undo</span></button>
         {wide && <button type="button" className="mp-hb" aria-pressed={panel === 'history'} onClick={() => { setSel(null); setPanel(p => (p === 'history' ? 'inspect' : 'history')); }}><HistoryIcon size={15} />History</button>}
         <button type="button" className="mp-hb icon" aria-label="More" aria-expanded={menu} onClick={() => setMenu(m => !m)}><MoreIcon size={16} /></button>
-        <button type="button" className="mp-hb icon wide-only" aria-label="Close the map" title="Close (Esc)" onClick={closeSheet}><XIcon size={14} /></button>
+        {embed && <button type="button" className="mp-hb wide-only" title="The whole screen for the map" onClick={embed.onFull}><FitIcon size={14} />Full screen</button>}
+        <button type="button" className="mp-hb icon wide-only" aria-label={embed ? 'Back to the route' : 'Close the map'} title={embed ? 'Back to the route' : 'Close (Esc)'} onClick={closeSheet}><XIcon size={14} /></button>
         {menu && (
           <div className="mp-menu mp-pop" role="menu" onClick={() => setMenu(false)}>
             <button type="button" role="menuitemcheckbox" aria-checked={all} onClick={() => setAll(a => !a)}><CheckIcon size={13} />{all ? 'Hide' : 'Show'} older finished steps{flow.older ? ` (${flow.older})` : ''}</button>

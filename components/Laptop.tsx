@@ -1,7 +1,7 @@
 'use client';
 
+import { useState } from 'react';
 import { hasSupabase } from '@/lib/supabase';
-import { progress } from '@/lib/select';
 import { clockLine } from '@/lib/format';
 import { usePlanner } from './Planner';
 import { Brand } from './Brand';
@@ -12,11 +12,11 @@ import { LaptopCalendar } from './Calendar';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
 import { Ambient } from './Ambient';
-import { AnalyticsIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
+import { AnalyticsIcon, CalendarIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
+import { GoalRail } from './GoalRail';
+import { GoalsView } from './GoalsView';
 import { useGoalWeek } from './Goals';
 import { fmtDur } from '@/lib/format';
-
-const pct = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
 
 /** How much of this week's time went to your goals. Opens Goals. */
 export function OnGoals() {
@@ -36,22 +36,14 @@ export function OnGoals() {
   );
 }
 
-/** How today and the week are going, and how much of it went to your goals. Below 1240px, today and goals. */
-function Metrics() {
-  const { tasks, now, prefs, split } = usePlanner();
-  const m = progress(tasks, now, prefs.weekStart);
-  const wide = split.calW + split.matrixW + 38 >= 1240;
+/** The two views: the calendar with your goals beside it, or your goals in full. */
+function ViewSwitch() {
+  const { mainView, setMainView } = usePlanner();
   return (
-    <div className="metrics" aria-label="Progress">
-      <div className="metric"><span>Today</span><b className="num">{m.today.done} of {m.today.total} done</b><span className="bar"><i style={{ width: pct(m.today.done, m.today.total) }} /></span></div>
-      <OnGoals />
-      {wide && (
-        <>
-          <div className="metric"><span>This week</span><b className="num">{m.week.done} of {m.week.total}</b><span className="bar"><i style={{ width: pct(m.week.done, m.week.total) }} /></span></div>
-          <div className="metric"><span>Backlog</span><b className="num">{m.backlog.open} open</b><span>· {m.backlog.urgent} urgent</span></div>
-        </>
-      )}
-    </div>
+    <nav className="vswitch" aria-label="View">
+      <button type="button" aria-pressed={mainView === 'calendar'} onClick={() => setMainView('calendar')}><CalendarIcon size={14} />Calendar</button>
+      <button type="button" aria-pressed={mainView === 'goals'} onClick={() => setMainView('goals')}><TargetIcon size={14} />Goals</button>
+    </nav>
   );
 }
 
@@ -60,14 +52,13 @@ function Header() {
   return (
     <header className="lp-top">
       <Brand />
-      <span className="spacer" />
-      <Metrics />
+      <ViewSwitch />
       <span className="spacer" />
       <div className="lp-end">
+        <div className="metrics" aria-label="This week"><OnGoals /></div>
         <span className="clock num">{clockLine(now)}</span>
         <span className="vsep" aria-hidden="true" />
         <div className="lp-tools">
-          <button type="button" className="btn ghost sm" aria-pressed={sheet === 'goals'} onClick={() => openSheet('goals')}><TargetIcon />Goals</button>
           <button type="button" className="btn ghost sm" aria-pressed={sheet === 'analytics'} onClick={() => openSheet('analytics')}><AnalyticsIcon />Analytics</button>
           {hasSupabase() && (
             <button type="button" className="btn ghost sm" aria-pressed={sheet === 'share'} onClick={() => openSheet('share')}>
@@ -82,24 +73,32 @@ function Header() {
 }
 
 /**
- * The laptop planner: the task you're on and the goal matrix on the left, the calendar on the right, the chat bar
- * floating over both. The divider between them sets how many days the calendar shows.
+ * The laptop planner, in one of two views. Calendar: the task you're on and your goals (just the goals; the backlog
+ * behind a tray) on the left, the calendar on the right, with today's outcomes across its top once the day is planned.
+ * Goals: every goal, and the one you open as its route or its map. The chat bar floats over both.
  */
 export function Laptop() {
-  const { split, editorId, sheet } = usePlanner();
+  const { split, editorId, sheet, mainView } = usePlanner();
+  const [backlog, setBacklog] = useState(false);
   const panel = !!editorId || !!sheet;
   const cols = `minmax(0,${(1 - split.f).toFixed(4)}fr) 14px minmax(0,${split.f.toFixed(4)}fr)`;
   return (
     <div className={'lp' + (split.dragging ? ' sizing' : '')}>
       <Header />
-      <div className="lp-body" style={{ gridTemplateColumns: cols }} inert={panel}>
-        <div className="lp-left">
-          <NextCard />
-          <MatrixPanel />
+      {mainView === 'goals' ? (
+        <div className="lp-body lp-goals" inert={panel}>
+          <GoalsView />
         </div>
-        <Divider />
-        <LaptopCalendar />
-      </div>
+      ) : (
+        <div className="lp-body" style={{ gridTemplateColumns: cols }} inert={panel}>
+          <div className="lp-left">
+            <NextCard />
+            {backlog ? <MatrixPanel onBack={() => setBacklog(false)} /> : <GoalRail onBacklog={() => setBacklog(true)} />}
+          </div>
+          <Divider />
+          <LaptopCalendar />
+        </div>
+      )}
       <Ambient />
       <ChatDock inert={panel} />
       <Panel />

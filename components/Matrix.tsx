@@ -6,15 +6,16 @@ import type { Rule } from '@/lib/repeat';
 import { newId, PRI } from '@/lib/model';
 import { dueLabel, fmtDur, fmtWhen, shortDate, shortTitle } from '@/lib/format';
 import { describeRepeat, describeRule, occurrenceOf, repeatsDone, tallies } from '@/lib/repeat';
-import { flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
+import { archivedGoals, flatResults, resultDone, rootOf, type Goal } from '@/lib/goals';
 import { holdups } from '@/lib/flow';
 import { isEvent } from '@/lib/select';
 import { fromYmd } from '@/lib/time';
 import { usePlanner, useLists } from './Planner';
 import { daysLeft, fmtHrs, useGoalWeek } from './Goals';
 import { useGoalFlow } from './Flow';
-import { CalendarIcon, CheckIcon, ChevronDown, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
+import { ArchiveIcon, CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ChevronUp, MapIcon, PlusIcon, RepeatIcon, RouteIcon, TargetIcon, XIcon } from './icons';
 import { RouteList, readRouteOpen, writeRouteOpen } from './Route';
+import { useTodayGoals } from './Today';
 
 /*
  * The main page's backlog: a card per goal, most important first, each with how far along it is, its deadline, its
@@ -35,7 +36,7 @@ function useStagger(step: number, cap: number) {
  * Each card's tasks: every open one (on the calendar or not) whose active goal's top goal it is ('' for off-goal), and
  * how many are done. A done task counts for its top goal even after the sub-goal it was on is achieved.
  */
-function useByCard() {
+export function useByCard() {
   const { tasks, isOff, rootGoalOf, goals, repeats } = usePlanner();
   return useMemo(() => {
     const index = new Map(goals.map(g => [g.id, g]));
@@ -151,7 +152,7 @@ function PriPill({ t, kind }: { t: Task; kind: Kind }) {
  * edit. In a goal's card (`card` is its id, '' for off-goal) it says which sub-goal it's on, if any, and has its
  * priority pill.
  */
-function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
+export function TaskRow({ t, kind, delay, card }: { t: Task; kind: Kind; delay: string; card?: string }) {
   const { completing, picked, setPicked, openEditor, drag, labelOf, now, plan, repeatOf, goalOf, activeGoals } = usePlanner();
   const tag = useTag(t, kind);
   const label = labelOf(t);
@@ -332,10 +333,12 @@ const SHOWN = { wide: 5, phone: 5 };
  * results and time this week; what's holding it up; and its tasks in the order to do them, five and then the rest.
  * Drop a task on it to put the task on this goal.
  */
-function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
+function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item, today }: {
   g: Goal | null; rank: number; items: { t: Task; kind: Kind }[]; open: number; done: number; pri: Priority | null; phone?: boolean; focused?: boolean; Item: Row;
+  /** In focus in today's plan. */
+  today?: boolean;
 }) {
-  const { prefs, now, openSheet, setFilter, drag } = usePlanner();
+  const { prefs, now, openSheet, setFilter, drag, closeGoal } = usePlanner();
   const { rolled } = useGoalWeek();
   const flow = useGoalFlow(g ?? OFF);
   const [more, setMore] = useState(false);
@@ -371,6 +374,7 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
           <p className="gc-m">
             {g ? (
               <>
+                {today && <span className="gc-today">Today</span>}
                 {section && <span>{section.name}</span>}
                 {left && g?.by && <span className={left.hot ? 'hot' : undefined}>By {shortDate(fromYmd(g.by).getTime(), now)} · {left.text}</span>}
                 {krs.length > 0 && <span>Key results {krs.filter(resultDone).length} of {krs.length}</span>}
@@ -418,6 +422,10 @@ function GoalCard({ g, rank, items, open, done, pri, phone, focused, Item }: {
         <span className="spacer" />
         {!adding && <button type="button" className="btn text sm" onClick={() => setAdding(true)}><PlusIcon size={12} />Task</button>}
         {g && (
+          <button type="button" className="btn text sm gc-fin" onClick={() => { if (focused) setFilter(null); closeGoal(g.id, 'achieved'); }}
+            title="Mark it done: it goes to the archive, and Undo brings it straight back"><CheckIcon size={13} w={2.2} />Done</button>
+        )}
+        {g && (
           <button type="button" className={'btn text sm gc-route-b' + (route ? ' on' : '')} aria-expanded={route} onClick={toggleRoute} title={route ? 'Back to the list' : 'Its route: up next, what’s ready, what you’re waiting on, and the way to the finish'}>
             <RouteIcon size={13} />Route{route ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
           </button>
@@ -436,6 +444,7 @@ const OFF: Goal = { id: '', title: '', section: null, results: [], by: null, sta
 function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean; Item: Row }) {
   const { topGoals, filter, plan, rootGoalOf, blocked } = usePlanner();
   const byCard = useByCard();
+  const inFocus = useTodayGoals();
   const keep = (t: Task) => pri == null || t.priority === pri;
   const itemsOf = (id: string) => [
     ...plan.added.filter(t => (rootGoalOf(t)?.id ?? '') === id && keep(t)).map(t => ({ t, kind: 'new' as Kind })),
@@ -449,7 +458,7 @@ function GoalCards({ pri, phone, Item }: { pri: Priority | null; phone?: boolean
         const id = c.g?.id ?? '';
         const e = byCard.get(id);
         return <GoalCard key={id || '-'} g={c.g} rank={c.rank} items={itemsOf(id)} open={(e?.open.length ?? 0) + (e?.later ?? 0)} done={e?.done ?? 0}
-          pri={pri} phone={phone} focused={!!filter} Item={Item} />;
+          pri={pri} phone={phone} focused={!!filter} Item={Item} today={!!c.g && inFocus.has(c.g.id)} />;
       })}
     </div>
   );
@@ -468,13 +477,25 @@ function SetGoals({ phone }: { phone?: boolean }) {
   );
 }
 
+/** The way to the archive, once there's something in it: goals you've marked done or dropped. */
+function ArchiveLink() {
+  const { goals, openSheet } = usePlanner();
+  const n = archivedGoals(goals).length;
+  if (!n) return null;
+  return (
+    <button type="button" className="btn ghost sm" onClick={() => openSheet('archive')} title="Goals you’ve marked done or dropped">
+      <ArchiveIcon size={14} />Archive<span className="muted num">{n}</span>
+    </button>
+  );
+}
+
 /* ---------- laptop ---------- */
 
 /**
  * The laptop backlog: a card per goal with the tasks that move it. Drag a task onto another goal's card to move it
  * there, onto a priority chip to change its priority, or onto the calendar to schedule it.
  */
-export function MatrixPanel() {
+export function MatrixPanel({ onBack }: { onBack?: () => void } = {}) {
   const { filter, setFilter, drag, goals, openSheet, store } = usePlanner();
   const { backlog } = useLists();
   const open = useOpenCount();
@@ -485,13 +506,15 @@ export function MatrixPanel() {
   return (
     <section className={'mx panel gcs' + (dropOk ? ' drop-ok' : '')} aria-label="Your goals and what moves each one" data-backlog="">
       <div className="mx-h">
-        <span className="mx-title">Goals</span>
+        {onBack && <button type="button" className="ib bare" aria-label="Back to your goals" title="Back to your goals" onClick={onBack}><ChevronLeft /></button>}
+        <span className="mx-title">{onBack ? 'Backlog' : 'Goals'}</span>
         <span className="muted sm num">{open} open</span>
         <span className="spacer" />
         {focusName && (
           <button type="button" className="fchip" aria-label="Show every goal" onClick={() => setFilter(null)}>{shortTitle(focusName, 34)}<XIcon size={11} /></button>
         )}
-        <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><TargetIcon size={14} />Edit goals</button>
+        {!onBack && <ArchiveLink />}
+        {!onBack && <button type="button" className="btn ghost sm" onClick={() => openSheet('goals')}><TargetIcon size={14} />Edit goals</button>}
       </div>
       <PriChips pri={pri} setPri={setPri} />
       <div className="gc-scroll">

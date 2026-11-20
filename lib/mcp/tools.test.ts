@@ -3,7 +3,8 @@ import type { Task } from '../model';
 import type { TaskRepo } from '../repo/types';
 import { normalizeRepeats, startRepeat, occurrence, REPEATS_KEY } from '../repeat';
 import { SLIPS_KEY } from '../slips';
-import { TaskError, changeGoals, completeTask, createTask, cutByLimits, deleteGoal, deleteTask, getGoal, getTask, listGoals, listTasks, refsFor, reopenTask, updateTask, type Ctx } from './tools';
+import { TaskError, changeGoals, completeTask, createTask, cutByLimits, deleteGoal, deleteTask, getDay, getGoal, getTask, listGoals, listTasks, planDay, refsFor, reopenTask, updateTask, type Ctx } from './tools';
+import { DAYS_KEY, normalizeDays } from '../today';
 import { normalizeGoals } from '../goals';
 import { LOG_KEY, normalizeLog } from '../flow';
 
@@ -897,5 +898,83 @@ describe('repeating tasks', () => {
     const m = seed([open], [r]);
     await updateTask(ctx(m), 'rep:rstand', { title: 'Stand-up', minutes: 30 });
     expect(m.rows.get(open.id)).toMatchObject({ title: 'Stand-up', minutes: 30 });
+  });
+});
+
+describe('planning the day', () => {
+  const SEED = { id: 'gseed', title: 'Close the seed round', section: 'work', results: [{ id: 'k1', text: 'Lead signed', done: true }, { id: 'k2', text: 'Money in', done: false }], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 };
+  const RUN = { id: 'grun', title: 'Run a half marathon', section: 'home', results: [], by: null, status: 'active', created: 1, closedAt: null, updatedAt: 1 };
+  const OLD = { id: 'gold', title: 'Launch v1', section: null, results: [], by: null, status: 'achieved', created: 1, closedAt: 2, updatedAt: 2 };
+  // 10:00 UTC is 05:00 in New York: today there is 2026-11-11.
+  const seed = (settings: Record<string, unknown> = {}) => memRepo([
+    task('deck', { title: 'Rework the deck', goal: 'gseed', start: Date.parse('2026-11-11T15:00:00Z') }),
+    task('send', { title: 'Send the deck', goal: 'gseed' }),
+    task('room', { title: 'Book the room', goal: 'gseed', status: 'done', doneAt: NOW - H }),
+    task('run', { title: 'Easy 8k', goal: 'grun', start: Date.parse('2026-11-11T22:00:00Z') }),
+    task('tmrw', { title: 'Long run', goal: 'grun', start: Date.parse('2026-11-12T14:00:00Z') }),
+    task('fern', { title: 'Call with Fern', goal: 'gseed', externalId: 'gcal:me@example.com:f1', start: Date.parse('2026-11-11T19:00:00Z') }),
+  ], { prefs: LABELS, goals: [SEED, RUN, OLD], ...settings });
+
+  it('says when a day isn’t planned, with what’s on its calendar, meetings too, in time order', async () => {
+    const out = await getDay(ctx(seed()));
+    expect(out).toMatchObject({ day: '2026-11-11', planned: false, planned_at: null, planned_by: null, focus: [], timezone: TZ });
+    expect(out.calendar.map(t => t.id)).toEqual(['deck', 'fern', 'run']);
+    expect((await getDay(ctx(seed()), { day: '2026-11-12' })).calendar.map(t => t.id)).toEqual(['tmrw']);
+  });
+
+  it('plans today by goal title or id, with each outcome’s steps and numbers, and keeps it for the app', async () => {
+    const m = seed();
+    const out = await planDay(ctx(m), { focus: [
+      { goal: 'Close the seed round', outcome: '  Deck out   to both leads ', tasks: ['send'] },
+      { goal: 'grun', outcome: 'Week 6 done' },
+    ] });
+    expect(out).toMatchObject({ day: '2026-11-11', planned: true, planned_by: 'claude', planned_at: '2026-11-11T05:00:00-05:00' });
+    expect(out.focus.map(f => [f.goal, f.outcome])).toEqual([['Close the seed round', 'Deck out to both leads'], ['Run a half marathon', 'Week 6 done']]);
+    expect(out.focus[0].steps.map(t => t.id)).toEqual(['send', 'room', 'deck']);
+    expect(out.focus[0]).toMatchObject({ steps_done: 1, tasks: { done: 1, by_tonight: 3, all: 3 }, key_results: { done: 1, all: 2 } });
+    expect(out.focus[1].steps.map(t => t.id)).toEqual(['run']);
+    expect(normalizeDays(m.store[DAYS_KEY])).toEqual([{ day: '2026-11-11', at: NOW, by: 'claude', focus: [
+      { goal: 'gseed', text: 'Deck out to both leads', tasks: ['send'] }, { goal: 'grun', text: 'Week 6 done', tasks: [] },
+    ] }]);
+    expect((await getDay(ctx(m))).planned).toBe(true);
+  });
+
+  it('replaces the day’s plan, un-plans it with nothing in focus, and leaves other days alone', async () => {
+    const m = seed();
+    await planDay(ctx(m), { day: '2026-11-12', focus: [{ goal: 'grun', outcome: 'Long run done' }] });
+    await planDay(ctx(m), { focus: [{ goal: 'grun', outcome: 'Easy 8k' }] });
+    await planDay(ctx(m), { focus: [{ goal: 'gseed', outcome: 'Deck out' }] });
+    expect((await getDay(ctx(m))).focus.map(f => f.goal_id)).toEqual(['gseed']);
+    const off = await planDay(ctx(m), { focus: [] });
+    expect(off).toMatchObject({ planned: false, focus: [] });
+    expect(normalizeDays(m.store[DAYS_KEY]).map(p => p.day)).toEqual(['2026-11-12']);
+  });
+
+  it('refuses a closed goal, a goal twice, a task that isn’t there or is a meeting, and too many goals', async () => {
+    const c = ctx(seed());
+    const fails = async (focus: Parameters<typeof planDay>[1]['focus'], msg: RegExp) => {
+      const e = await planDay(c, { focus }).catch(x => x);
+      expect(e).toBeInstanceOf(TaskError);
+      expect(e.message).toMatch(msg);
+    };
+    await fails([{ goal: 'Launch v1', outcome: 'x' }], /achieved/);
+    await fails([{ goal: 'gseed', outcome: 'a' }, { goal: 'Close the seed round', outcome: 'b' }], /twice/);
+    await fails([{ goal: 'gseed', outcome: 'x', tasks: ['nope'] }], /no task "nope"/);
+    await fails([{ goal: 'gseed', outcome: 'x', tasks: ['fern'] }], /Google Calendar event/);
+    await fails([{ goal: 'gseed', outcome: '   ' }], /Say what today produces/);
+    await fails([{ goal: 'nope', outcome: 'x' }], /no goal "nope"/);
+    await fails(Array.from({ length: 6 }, () => ({ goal: 'gseed', outcome: 'x' })), /5 goals in focus/);
+    expect(await planDay(c, { day: '2026-02-30', focus: [] }).catch(x => x)).toBeInstanceOf(TaskError);
+  });
+
+  it('on a database from before 0012: today isn’t planned, and planning says which migration to run', async () => {
+    const m = seed();
+    const refuse = async () => { throw new Error('mcp_setting: mcp: setting not available'); };
+    m.repo.getSetting = (async (k: string) => (k === DAYS_KEY ? refuse() : (m.store as Record<string, unknown>)[k] ?? null)) as typeof m.repo.getSetting;
+    m.repo.setSetting = (async (k: string) => { if (k === DAYS_KEY) await refuse(); }) as typeof m.repo.setSetting;
+    expect((await getDay(ctx(m))).planned).toBe(false);
+    const e = await planDay(ctx(m), { focus: [{ goal: 'gseed', outcome: 'Deck out' }] }).catch(x => x);
+    expect(e).toBeInstanceOf(TaskError);
+    expect(e.message).toMatch(/0012_day_plans/);
   });
 });

@@ -2,6 +2,7 @@ import type { Task } from './model';
 import { normalizePlan, planHasAny, type Plan } from './flow';
 import { OFF_GOAL, isEvent } from './select';
 import { endOf } from './time';
+import { shortTitle } from './format';
 
 /**
  * Goals: the few specific outcomes you're working towards right now, like an objective with its key results. Each
@@ -396,14 +397,17 @@ export const patchGoal = (id: string, patch: Partial<Omit<Goal, 'id'>>, now = Da
 
 /**
  * Achieve, drop or bring back a goal. Closing one closes the open goals under it the same way; bringing one back
- * brings back the goals above it too, and a top goal comes back last among the active ones.
+ * brings back the goals above it too, and the goals under it that closed with it (not one done before it), and a top
+ * goal comes back last among the active ones.
  */
 export const setGoalStatus = (id: string, status: GoalStatus, now = Date.now()): GoalsFn => list => {
   const g = list.find(x => x.id === id);
   if (!g || g.status === status) return list;
   const index = new Map(list.map(x => [x.id, x]));
   const touched = new Set([id, ...(status === 'active'
-    ? ancestorsOf(index, g).filter(a => a.status !== 'active').map(a => a.id)
+    ? [...ancestorsOf(index, g).filter(a => a.status !== 'active').map(a => a.id),
+      // Closed with it: the same way, at the same moment.
+      ...(g.status === 'active' ? [] : descendantsOf(list, id).filter(d => d.status === g.status && d.closedAt === g.closedAt).map(d => d.id))]
     : descendantsOf(list, id).filter(d => d.status === 'active').map(d => d.id))]);
   const set = (x: Goal): Goal => ({ ...x, status, closedAt: status === 'active' ? null : now, updatedAt: now });
   const next = list.map(x => (touched.has(x.id) ? set(x) : x));
@@ -415,6 +419,57 @@ export const setGoalStatus = (id: string, status: GoalStatus, now = Date.now()):
   const lastActive = rest.reduce((n, x, i) => (x.status === 'active' && isTop(x) ? i : n), -1);
   return [...rest.slice(0, lastActive + 1), top, ...rest.slice(lastActive + 1)];
 };
+
+/* ---------- the archive: goals you've marked done or dropped ---------- */
+
+/**
+ * The archive: every goal marked done or dropped, the most recently closed first. A sub-goal that closed with the goal
+ * above it, the same way, isn't listed on its own: it's part of that goal's entry, and comes back with it.
+ */
+export function archivedGoals(goals: Goal[]): Goal[] {
+  const byId = new Map(goals.map(g => [g.id, g]));
+  return goals.filter(g => g.status !== 'active' && !(g.parent && byId.get(g.parent)?.status === g.status))
+    .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+}
+
+/** A goal's tasks and its sub-goals', as on its card: how many are done, and how many in all. Meetings don't count. */
+export function treeTasks(goals: Goal[], tasks: Task[], id: string): { done: number; all: number } {
+  const ids = new Set([id, ...descendantsOf(goals, id).map(d => d.id)]);
+  const mine = tasks.filter(t => t.goal && ids.has(t.goal) && !isEvent(t));
+  return { done: mine.filter(t => t.status === 'done').length, all: mine.length };
+}
+
+/** Open tasks on a goal and the open goals under it: the ones that go off-goal when it closes. Meetings don't count. */
+export function openTasksOn(goals: Goal[], tasks: Task[], id: string): number {
+  const ids = new Set([id, ...descendantsOf(goals, id).filter(d => d.status === 'active').map(d => d.id)]);
+  return tasks.filter(t => t.goal && ids.has(t.goal) && t.status === 'open' && !isEvent(t)).length;
+}
+
+/**
+ * What marking a goal done (or dropping it) says, before you can undo it: "Done and archived · Close the seed round,
+ * with its 2 sub-goals. Its 3 open tasks are off-goal now." A sub-goal stays on its goal's map, so it just says done.
+ */
+export function closingLine(goals: Goal[], tasks: Task[], id: string, status: 'achieved' | 'dropped'): string {
+  const g = goals.find(x => x.id === id);
+  if (!g) return '';
+  const subs = descendantsOf(goals, id).filter(d => d.status === 'active').length;
+  const open = openTasksOn(goals, tasks, id);
+  const what = status === 'achieved' ? 'Done' : 'Dropped';
+  return `${what}${g.parent ? '' : ' and archived'} · ${shortTitle(g.title, 34)}`
+    + `${subs ? `, with its ${subs} sub-goal${subs === 1 ? '' : 's'}` : ''}.`
+    + `${open ? ` Its ${open} open task${open === 1 ? ' is' : 's are'} off-goal now.` : ''}`;
+}
+
+/** How long a closed goal was open: "Took 3 weeks". Null for an open goal, or one with no start on record. */
+export function timeTaken(g: Pick<Goal, 'created' | 'closedAt'>): string | null {
+  if (!g.created || g.closedAt == null || g.closedAt < g.created) return null;
+  const days = (g.closedAt - g.created) / 86400e3;
+  const n = (k: number, one: string) => `${k} ${one}${k === 1 ? '' : 's'}`;
+  if (days < 1) return 'Took under a day';
+  if (days < 14) return `Took ${n(Math.round(days), 'day')}`;
+  if (days < 63) return `Took ${n(Math.round(days / 7), 'week')}`;
+  return `Took ${n(Math.round(days / 30.44), 'month')}`;
+}
 
 /** Move an active goal up (-1) or down (+1) among the active goals beside it (same parent). */
 export const moveGoal = (id: string, by: -1 | 1): GoalsFn => list => {

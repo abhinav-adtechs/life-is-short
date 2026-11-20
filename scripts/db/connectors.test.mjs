@@ -183,7 +183,7 @@ describe('what a connection can do', () => {
     expect(await server('select public.mcp_remove($1, $2, $3)', [KEY, sha(token), ['new1', 'nope']])).toBe(1);
     expect((await list(token)).map(r => r.id)).not.toContain('new1');
   });
-  it('reads your labels, goals, their history, repeats and slips; writes goals, history, repeats and slips, never prefs', async () => {
+  it('reads your labels, goals, their history, day plans, repeats and slips; writes all but prefs', async () => {
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'prefs'])).toMatchObject({ labels: [{ id: 'work' }] });
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'goals'])).toBeNull();
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'repeats'])).toBeNull();
@@ -197,6 +197,12 @@ describe('what a connection can do', () => {
     expect(await server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'goal-log', '[{"at":1,"goal":"gship","op":"add"}]'])).toBe('ok');
     expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'goal-log'])).toHaveLength(1);
     expect(await server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'slips', '[]'])).toBe('ok');
+    // 0012: Claude plans the day with the user.
+    expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'day-plans'])).toBeNull();
+    const plans = [{ day: '2026-11-20', at: 1, by: 'claude', focus: [{ goal: 'gship', text: 'Release notes out', tasks: [] }] }];
+    expect(await server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'day-plans', JSON.stringify(plans)])).toBe('ok');
+    expect(await server('select public.mcp_setting($1, $2, $3)', [KEY, sha(token), 'day-plans'])).toEqual(plans);
+    await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), 'day-plans', '{}'])).rejects.toThrow(/expected a list/);
     for (const name of ['prefs', 'google', 'history', 'voice']) {
       await expect(server('select public.mcp_set_setting($1, $2, $3, $4::jsonb)', [KEY, sha(token), name, '[]'])).rejects.toThrow(/not available/);
     }

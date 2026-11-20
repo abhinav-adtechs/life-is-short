@@ -9,6 +9,7 @@ import { OP_FIELDS, applyWorkflow, normalizeOps, opIssues, recordedIds, type Wor
 import { MAX_REPEATS, REPEATS_KEY, applyOps, describeRepeat, followTask, normalizeRepeats, occurrenceId, occurrenceOf, startRepeat, toRule, type Repeat, type RepeatOp, type Rule } from '../repeat';
 import { SLIPS_KEY, mergeSlips, normalizeSlips, slipsFrom, type Change } from '../slips';
 import { dayIn, dayStart, fromWallClock, isoIn, nextDay, parseWhen, validDay } from './when';
+import { DAYS_KEY, MAX_FOCUS, normalizeDays, outcomeView, planOn, setPlan, type DayPlan, type Outcome } from '../today';
 
 /*
  * What the MCP tools do (lib/server/mcp/server.ts), over the same TaskRepo the planner writes through
@@ -851,4 +852,117 @@ export async function changeGoals(c: Ctx, f: { ops: unknown[]; goal?: string }):
     changed: out.lines, skipped: [...skipped, ...out.skipped],
     goals: nextGoals.filter(g => touched.has(g.id)).slice(0, 6).map(describe),
   };
+}
+
+/* ---------- planning the day ---------- */
+
+/** One goal in focus on a day, and how its outcome stands. */
+export interface DayOutcome {
+  goal_id: string;
+  goal: string;
+  /** active, or achieved or dropped since the day was planned. */
+  goal_status: Goal['status'];
+  /** What the day produces for it, in plain words. */
+  outcome: string;
+  /** Today's steps: the tasks named for it, then the goal's other tasks on the calendar that day or ticked off that day. */
+  steps: TaskSummary[];
+  steps_done: number;
+  /** The goal's tasks (its sub-goals' too): done now, done by tonight if every step gets done, and in all. */
+  tasks: { done: number; by_tonight: number; all: number };
+  /** Its key results: done, and in all. */
+  key_results: { done: number; all: number };
+}
+
+export interface DayOutput {
+  day: string;
+  /** Planned: the goals in focus and their outcomes are set, and the app shows them above its calendar. */
+  planned: boolean;
+  planned_at: string | null;
+  planned_by: 'claude' | 'app' | null;
+  focus: DayOutcome[];
+  /** Everything on the calendar that day, meetings too, in time order. */
+  calendar: TaskSummary[];
+  timezone: string;
+}
+
+/** Your day plans. A database from before supabase/migrations/0012 doesn't hand them out: then none are planned. */
+async function daysOf(c: Ctx): Promise<DayPlan[]> {
+  try {
+    return normalizeDays(await c.repo.getSetting(DAYS_KEY));
+  } catch (e) {
+    if (e instanceof Error && /not available/.test(e.message)) return [];
+    throw e;
+  }
+}
+
+function dayOf(c: Ctx, v: string | undefined): string {
+  return v === undefined ? dayIn(clock(c), c.tz) : dayOrThrow(v, 'day');
+}
+
+function describeDay(c: Ctx, day: string, plan: DayPlan | null, data: Awaited<ReturnType<typeof load>>): DayOutput {
+  const { tasks, byLabel, goals, byGoal } = data;
+  const from = dayStart(day, c.tz), to = dayStart(nextDay(day), c.tz);
+  const focus = (plan?.focus ?? []).flatMap(o => {
+    const v = outcomeView(o, goals, tasks, from, to);
+    if (!v) return [];
+    return [{
+      goal_id: v.goal.id, goal: v.goal.title, goal_status: v.goal.status, outcome: o.text,
+      steps: v.steps.map(t => summary(t, byLabel, c.tz, byGoal)), steps_done: v.done,
+      tasks: { done: v.tasks.done, by_tonight: v.tasks.tonight, all: v.tasks.all }, key_results: v.results,
+    }];
+  });
+  return {
+    day, planned: !!plan, planned_at: plan ? isoIn(plan.at, c.tz) : null, planned_by: plan?.by ?? null, focus,
+    calendar: tasks.filter(t => t.start != null && t.start >= from && t.start < to).sort(byStart).map(t => summary(t, byLabel, c.tz, byGoal)),
+    timezone: c.tz,
+  };
+}
+
+/** A day (today by default): whether it's planned, its goals in focus and their outcomes, and what's on its calendar. */
+export async function getDay(c: Ctx, f: { day?: string } = {}): Promise<DayOutput> {
+  const day = dayOf(c, f.day);
+  const [data, days] = await Promise.all([load(c), daysOf(c)]);
+  return describeDay(c, day, planOn(days, day), data);
+}
+
+export interface PlanInput {
+  day?: string;
+  focus: { goal: string; outcome: string; tasks?: string[] }[];
+}
+
+/**
+ * Plan a day (today by default): the goals in focus, most important first, each with the outcome the day produces and
+ * the tasks that make it. It replaces the day's plan; nothing in focus un-plans the day. It schedules nothing.
+ */
+export async function planDay(c: Ctx, f: PlanInput): Promise<DayOutput> {
+  const day = dayOf(c, f.day);
+  if (f.focus.length > MAX_FOCUS) throw new TaskError(`${MAX_FOCUS} goals in focus on one day is the most; pick the ones that matter most today.`, 'invalid');
+  const data = await load(c);
+  const byId = new Map(data.tasks.map(t => [t.id, t]));
+  const focus: Outcome[] = [];
+  for (const x of f.focus) {
+    const g = findGoal(data.goals, x.goal);
+    if (g.status !== 'active') throw new TaskError(`"${g.title}" is ${g.status}. Bring it back with change_goals (edit_goal, status active) before planning a day around it.`, 'invalid');
+    if (focus.some(o => o.goal === g.id)) throw new TaskError(`"${g.title}" is in focus twice. Give it one outcome for the day.`, 'invalid');
+    const text = x.outcome.replace(/\s+/g, ' ').trim();
+    if (!text) throw new TaskError(`Say what today produces for "${g.title}", e.g. "Term sheet out to both leads".`, 'invalid');
+    const ids = [...new Set(x.tasks ?? [])];
+    for (const id of ids) {
+      const t = byId.get(id);
+      if (!t) throw new TaskError(`There's no task "${id}". Use list_tasks to find the ids of today's steps.`, 'not_found');
+      if (isEvent(t)) throw new TaskError(`"${t.title}" is a Google Calendar event: it shows on the calendar anyway. Name tasks only.`, 'invalid');
+    }
+    focus.push({ goal: g.id, text, tasks: ids });
+  }
+  const now = clock(c);
+  const plan: DayPlan = { day, at: now, by: 'claude', focus };
+  try {
+    await c.repo.setSetting(DAYS_KEY, setPlan(plan)(await daysOf(c)));
+  } catch (e) {
+    if (e instanceof Error && /not available/.test(e.message)) {
+      throw new TaskError('This copy of Life is short can’t keep day plans yet: run supabase/migrations/0012_day_plans.sql on its database (and the backup), then try again.', 'invalid');
+    }
+    throw e;
+  }
+  return describeDay(c, day, focus.length ? plan : null, data);
 }

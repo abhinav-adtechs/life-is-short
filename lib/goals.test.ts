@@ -6,6 +6,7 @@ import {
   flatResults, goalNamed, goalProgress, goalRanker, goalSection, goalTree, heightOf, makeGoal, mergeResults, moveGoal, moveResult, normalizeGoals,
   onGoalShare, openResults, outlineOf, parseOutline, patchGoal, patchResult, pickGoal, rankGoal, removeGoal, reparentGoal, resultDone, resultPath,
   resultsLine, rootOf, setGoalStatus, tallyGoals, topGoals, type Goal,
+  archivedGoals, closingLine, openTasksOn, timeTaken, treeTasks,
 } from './goals';
 import { OFF_GOAL, backlogList, focus } from './select';
 import { applyCapture, promptContext } from './capture';
@@ -545,5 +546,80 @@ describe('sections up the tree, and what a new goal or key result can join', () 
     const full = goal('gf', 'Full', { results: Array.from({ length: MAX_RESULTS }, (_, i) => ({ id: `r${i}`, text: `R${i}`, done: false })) });
     expect(cantAddResult(full, null)).toMatch(`${MAX_RESULTS} key results in one place`);
     expect(cantAddResult(full, 'r0')).toBeNull();
+  });
+});
+
+describe('the archive', () => {
+  const DAY = 86400e3;
+  const TOP = goal('gtop', 'Close the seed round', { created: 1000 });
+  const SUB = goal('gsub', 'Close the lawyer’s side', { parent: 'gtop' });
+  const SUB2 = goal('gsub2', 'Board approves', { parent: 'gtop' });
+  const RUN2 = goal('grun2', 'Run a half marathon');
+  const tree = [TOP, SUB, SUB2, RUN2];
+
+  it('lists goals marked done or dropped, newest first, a sub-goal that closed with its goal inside that goal’s entry', () => {
+    let l = setGoalStatus('gtop', 'achieved', 20)(tree);
+    l = setGoalStatus('grun2', 'dropped', 30)(l);
+    // Both sub-goals went with gtop.
+    expect(archivedGoals(l).map(g => g.id)).toEqual(['grun2', 'gtop']);
+    expect(archivedGoals(tree)).toEqual([]);
+    // A sub-goal done under a goal that's still open is in the archive too.
+    expect(archivedGoals(setGoalStatus('gsub', 'achieved', 5)(tree)).map(g => g.id)).toEqual(['gsub']);
+  });
+
+  it('a sub-goal done before its goal was dropped keeps its own entry; bringing the goal back brings back what closed with it', () => {
+    let l = setGoalStatus('gsub', 'achieved', 10)(tree);
+    l = setGoalStatus('gtop', 'dropped', 20)(l);
+    expect(archivedGoals(l).map(g => g.id)).toEqual(['gtop', 'gsub']);
+    l = setGoalStatus('gtop', 'active', 30)(l);
+    // gsub2 was dropped with it and comes back; gsub was done before and stays done.
+    expect(l.find(g => g.id === 'gsub2')?.status).toBe('active');
+    expect(archivedGoals(l).map(g => g.id)).toEqual(['gsub']);
+  });
+
+  it('bringing a goal back brings back the goals under it that closed with it, all the way down', () => {
+    const deep = goal('gdeep2', 'Sign the SPA', { parent: 'gsub' });
+    let l = setGoalStatus('gsub2', 'achieved', 10)([...tree, deep]);
+    l = setGoalStatus('gtop', 'achieved', 20)(l);
+    l = setGoalStatus('gtop', 'active', 30)(l);
+    expect(l.filter(g => g.status === 'active').map(g => g.id).sort()).toEqual(['gdeep2', 'grun2', 'gsub', 'gtop']);
+    expect(l.find(g => g.id === 'gsub')?.status).toBe('active');
+    expect(l.find(g => g.id === 'gdeep2')?.status).toBe('active');
+    expect(l.find(g => g.id === 'gsub2')).toMatchObject({ status: 'achieved', closedAt: 10 });
+  });
+
+  it('counts the open tasks that go off-goal: on the goal and the open goals under it, not meetings or done ones', () => {
+    const ts = [
+      task('a', { goal: 'gtop' }), task('b', { goal: 'gsub' }), task('c', { goal: 'gtop', status: 'done' }),
+      task('d', { goal: 'gtop', externalId: 'gcal:x:1', start: NOW }), task('e', { goal: 'grun2' }), task('f', { goal: 'gsub2' }),
+    ];
+    expect(openTasksOn(tree, ts, 'gtop')).toBe(3);
+    // gsub2 is already done, so its task is off-goal already.
+    expect(openTasksOn(setGoalStatus('gsub2', 'achieved', 5)(tree), ts, 'gtop')).toBe(2);
+  });
+
+  it('says what marking a goal done did, with its sub-goals and open tasks', () => {
+    const ts = [task('a', { goal: 'gtop' }), task('b', { goal: 'gsub' }), task('c', { goal: 'grun2' })];
+    expect(closingLine(tree, ts, 'gtop', 'achieved')).toBe('Done and archived · Close the seed round, with its 2 sub-goals. Its 2 open tasks are off-goal now.');
+    expect(closingLine(tree, ts, 'grun2', 'dropped')).toBe('Dropped and archived · Run a half marathon. Its 1 open task is off-goal now.');
+    expect(closingLine(tree, [], 'gsub', 'achieved')).toBe('Done · Close the lawyer’s side.');
+    expect(closingLine(tree, [], 'nope', 'achieved')).toBe('');
+  });
+
+  it('counts a goal’s tasks with its sub-goals’, done and in all, leaving meetings out', () => {
+    const ts = [task('a', { goal: 'gtop', status: 'done' }), task('b', { goal: 'gsub' }), task('c', { goal: 'gtop', externalId: 'gcal:x:1' }), task('d', { goal: 'grun2' })];
+    expect(treeTasks(tree, ts, 'gtop')).toEqual({ done: 1, all: 2 });
+    expect(treeTasks(tree, ts, 'gsub')).toEqual({ done: 0, all: 1 });
+  });
+
+  it('says how long a goal took', () => {
+    const took = (days: number) => timeTaken({ created: 1000, closedAt: 1000 + days * DAY });
+    expect(took(0.2)).toBe('Took under a day');
+    expect(took(1)).toBe('Took 1 day');
+    expect(took(9)).toBe('Took 9 days');
+    expect(took(21)).toBe('Took 3 weeks');
+    expect(took(120)).toBe('Took 4 months');
+    expect(timeTaken({ created: 1000, closedAt: null })).toBeNull();
+    expect(timeTaken({ created: 0, closedAt: 5 * DAY })).toBeNull();
   });
 });

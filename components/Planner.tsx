@@ -15,7 +15,7 @@ import {
   sourceIndex, sourceOf, startGoogleConnect, storedAccounts, type GoogleAccount, type GoogleCalendar, type GoogleConn, type PullResult, type Source,
 } from '@/lib/google-client';
 import { resolveLabel, type Label } from '@/lib/labels';
-import { activeGoalOf, activeGoals, goalRanker, goalSection, rootOf, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
+import { activeGoalOf, activeGoals, closingLine, goalRanker, goalSection, rootOf, setGoalStatus, topGoals, type Goal, type GoalsFn } from '@/lib/goals';
 import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
 import { applyWorkflow, normalizeOps, recordedIds, type WorkflowRefs } from '@/lib/workflow';
 import { kindOf } from '@/lib/plan';
@@ -32,6 +32,8 @@ import { useTaskStore, type Store } from './store';
 import { useSlips } from './slips';
 import { useRepeats } from './repeats';
 import { useGoals } from './goalStore';
+import { useDayPlans } from './dayStore';
+import { planOn, type DayPlan, type DaysFn } from '@/lib/today';
 import { useGoalLog } from './goalLog';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
@@ -44,7 +46,7 @@ import { Phone } from './Phone';
  * The side panels on a laptop, bottom sheets on a phone. Settings, Share, Analytics and the review live in the URL
  * hash, so Back closes them. The review's section is its span: #review/day, #review/week or #review/month.
  */
-export type SheetKind = 'goals' | 'flow' | 'analytics' | 'review' | 'share' | 'settings';
+export type SheetKind = 'goals' | 'archive' | 'flow' | 'analytics' | 'review' | 'share' | 'settings';
 
 /** A cell of the matrix: one goal ('' for off-goal) at one priority. */
 export interface Cell { goal: string; priority: Priority }
@@ -97,6 +99,13 @@ export interface PlannerApi {
   hours: WorkHours;
   phoneTab: 'matrix' | 'calendar';
   setPhoneTab: (t: 'matrix' | 'calendar') => void;
+  /** The laptop's main view: the calendar with your goals beside it, or your goals in full. Kept in this browser. */
+  mainView: MainView;
+  setMainView: (v: MainView) => void;
+  /** The goal open in the Goals view. */
+  openGoalId: string | null;
+  /** Open a goal in the Goals view (on a phone, its route). */
+  openGoal: (id: string) => void;
   toast: (msg: string, undo?: () => void) => void;
   /** The toast showing, if any; the chat bar's dock draws it. */
   toastState: ToastState | null;
@@ -122,6 +131,10 @@ export interface PlannerApi {
   goalsLoaded: boolean;
   /** Change your goals. Returns what undoes it. */
   changeGoals: (fn: GoalsFn) => () => void;
+  /** Today's plan (lib/today.ts): the goals in focus and their outcomes, once the day is planned; null until then. */
+  todayPlan: DayPlan | null;
+  /** Change your day plans. Returns what undoes it. */
+  changeDays: (fn: DaysFn) => () => void;
   /**
    * Delete a goal and every goal under it, for good, as Claude's delete_goal does (lib/workflow.ts): it comes off its
    * parent's chart, and its open tasks go off-goal, or with `withTasks` are deleted (never Google's) and its repeats
@@ -129,6 +142,11 @@ export interface PlannerApi {
    * or null if nothing changed.
    */
   deleteGoal: (id: string, opts?: { withTasks?: boolean; quiet?: boolean }) => { said: string; undo: () => void } | null;
+  /**
+   * Mark a goal done (or drop it), at once: it goes to the archive with the open goals under it, and its open tasks go
+   * off-goal. Says so with Undo, unless `quiet`. Returns what it said and what undoes it, or null if nothing changed.
+   */
+  closeGoal: (id: string, status: 'achieved' | 'dropped', opts?: { quiet?: boolean }) => { said: string; undo: () => void } | null;
   /** The active goal a task moves, or null for off-goal work. */
   goalOf: (t: Task) => Goal | null;
   /** The top goal above the goal a task moves (the goal itself when it's a top goal), or null for off-goal work. */
@@ -205,7 +223,14 @@ export const usePlanner = () => {
   return v;
 };
 
-const SHEET_HASH = /^#(goals|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
+export type MainView = 'calendar' | 'goals';
+const VIEW_KEY = 'ds.view', GOAL_KEY = 'ds.view.goal';
+function remember(key: string, v: string) { try { localStorage.setItem(key, v); } catch { /* private mode: for this visit */ } }
+function recall(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
+const readView = (): MainView => (typeof window !== 'undefined' && recall(VIEW_KEY) === 'goals' ? 'goals' : 'calendar');
+const readOpenGoal = () => (typeof window !== 'undefined' ? recall(GOAL_KEY) : null);
+
+const SHEET_HASH = /^#(goals|archive|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
 type AccountsFn = (list: GoogleAccount[]) => GoogleAccount[];
 /** The laptop body's padding on both sides and the divider between the panels. */
 const LP_CHROME = 24 + 14;
@@ -217,6 +242,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const slipLog = useSlips(repo);
   const repeats = useRepeats(repo, toast);
   const goals = useGoals(repo, toast);
+  const dayPlans = useDayPlans(repo, toast);
   const goalLog = useGoalLog(repo);
   const { add: logGoal } = goalLog;
   const voice = useVoiceProfile(repo, toast);
@@ -245,6 +271,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [hashSheet, setHashSheet] = useState<{ kind: SheetKind; section: string | null } | null>(null);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
   const [phoneTab, setPhoneTab] = useState<'matrix' | 'calendar'>('matrix');
+  const [mainView, setMainViewState] = useState<MainView>(() => readView());
+  const [openGoalId, setOpenGoalId] = useState<string | null>(() => readOpenGoal());
+  const setMainView = useCallback((v: MainView) => { setMainViewState(v); remember(VIEW_KEY, v); }, []);
   const [filter, setFilter] = useState<Filter | null>(null);
   const lastFocus = useRef<HTMLElement | null>(null);
   const sheetOpenedHere = useRef(false);
@@ -353,6 +382,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     dropHash();
   }, [dropHash]);
 
+  const openGoal = useCallback((id: string) => {
+    if (!wide) { openSheet('flow', id); return; }
+    setOpenGoalId(id);
+    remember(GOAL_KEY, id);
+    setMainView('goals');
+    if (hashSheet) dropHash();
+  }, [wide, openSheet, setMainView, hashSheet, dropHash]);
+
   /** The panel the editor was opened from (a goal's chart, or Goals): it comes back when the editor closes. */
   const returnTo = useRef<{ kind: SheetKind; section: string | null } | null>(null);
   const openEditor = useCallback((id: string) => {
@@ -406,6 +443,18 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     if (!opts.quiet) toast(said, undo);
     return { said, undo };
   }, [goals, store, repeats, logGoal, toast]);
+
+  /* ---------- marking a goal done: it goes to the archive ---------- */
+
+  const closeGoal = useCallback((id: string, status: 'achieved' | 'dropped', opts: { quiet?: boolean } = {}) => {
+    const g = goals.list.find(x => x.id === id);
+    if (!g || g.status !== 'active') return null;
+    const said = closingLine(goals.list, store.all(), id, status);
+    if (status === 'achieved') haptic('success');
+    const undo = goals.change(setGoalStatus(id, status));
+    if (!opts.quiet) toast(said, undo);
+    return { said, undo };
+  }, [goals, store, toast]);
 
   /* ---------- scheduling ---------- */
 
@@ -775,12 +824,14 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const blocked = useMemo(() => blockedTasks(goals.list, store.tasks, now, repeats.list), [goals.list, store.tasks, now, repeats.list]);
   const derived = useMemo(() => lists(store.tasks, now, isOff, rank, blocked), [store.tasks, now, isOff, rank, blocked]);
 
+  const todayPlan = useMemo(() => planOn(dayPlans.list, ymd(now)), [dayPlans.list, now]);
+
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,
     day, setDay, view, split, setSplit, dragSplit: setSplitDrag, filter, setFilter,
-    prefs, setPrefs, hours, phoneTab, setPhoneTab,
+    prefs, setPrefs, hours, phoneTab, setPhoneTab, mainView, setMainView, openGoalId, openGoal,
     toast, toastState, dismissToast, done, slot, schedule, unslot, place, moveToCell, chat, voice, plan,
-    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, deleteGoal, goalOf, rootGoalOf, goalById, setGoal,
+    goals: goals.list, activeGoals: liveGoals, topGoals: tops, goalsLoaded: goals.loaded, changeGoals: goals.change, todayPlan, changeDays: dayPlans.change, deleteGoal, closeGoal, goalOf, rootGoalOf, goalById, setGoal,
     blocked, logGoal, readGoalLog: goalLog.read,
     openEditor, editorId, closeEditor, sheet: hashSheet?.kind ?? null, section: hashSheet?.section ?? null, openSheet, closeSheet, undoable,
     slips: slipLog.slips, refreshSlips: slipLog.refresh,
