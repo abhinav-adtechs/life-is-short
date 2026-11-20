@@ -114,3 +114,9 @@ export const OpenIcon = ({ size = 14 }: P) => (
 export const ClockIcon = ({ size = 12 }: P) => (
   <svg {...svg(size, 1.5)}><circle cx="8" cy="8" r="6" /><path d="M8 4.75V8l2 1.5" /></svg>
 );
+export const LinkIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 014 4l-1 1M9 11.5l-1 1a2.8 2.8 0 01-4-4l1-1" /></svg>
+);
+export const MoveIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><path d="M9.5 2.5h4v4M13.5 2.5L8 8M7 3.5H4A1.5 1.5 0 002.5 5v7A1.5 1.5 0 004 13.5h7a1.5 1.5 0 001.5-1.5V9" /></svg>
+);

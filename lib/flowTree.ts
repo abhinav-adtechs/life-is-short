@@ -68,10 +68,8 @@ export const edgeKey = (root: string, owner: string, l: Link) => (owner === root
 
 /* ---------- which sub-goals are open ---------- */
 
-/** Sub-goals you've closed on the chart, by goal id, kept in this browser (before the map: every other one was open). */
+/** Sub-goals you've closed on a map, by goal id, kept in this browser. Every other one is open. */
 export const COLLAPSED_KEY = 'ds.flow.collapsed';
-/** Sub-goals you've opened in place on a map, by goal id, kept in this browser. Every other one is one card. */
-export const OPENED_KEY = 'ds.flow.opened';
 export const MAX_COLLAPSED = 400;
 
 export function normalizeCollapsed(raw: unknown): string[] {

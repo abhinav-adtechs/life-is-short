@@ -112,14 +112,20 @@ function meta(x: RouteItem, now: number, showOn: boolean, when = true) {
   return bits;
 }
 
-function Row({ x, showOn, rail }: { x: RouteItem; showOn?: boolean; rail?: boolean }) {
+function Row({ x, showOn, rail, draggable }: { x: RouteItem; showOn?: boolean; rail?: boolean; draggable?: boolean }) {
   const { tick, openEditor, now } = useActs();
+  const { drag } = usePlanner();
   const s = x.step;
+  // On the main page, a task on the route drags like any task: onto another goal's card, a priority or the calendar.
+  const canDrag = draggable && s.kind === 'task' && !!s.task && s.task.status === 'open';
+  const lifting = canDrag && drag.view?.kind === 'row' && drag.view.id === s.task?.id;
   return (
-    <li className={'ru-i ' + s.kind + ' ' + s.state + (s.done ? ' done' : '') + (rail ? ' rail' : '')}>
+    <li className={'ru-i ' + s.kind + ' ' + s.state + (s.done ? ' done' : '') + (rail ? ' rail' : '') + (canDrag ? ' drag' : '') + (lifting ? ' lifting' : '')}
+      onPointerDown={canDrag ? e => { if (!(e.target as HTMLElement).closest('.ru-g')) drag.begin(e, 'row', (s.task as NonNullable<Step['task']>).id); } : undefined}
+      title={canDrag ? 'Drag it onto another goal, a priority or the calendar' : undefined}>
       <Glyph s={s} onTick={() => tick(s, x.tree)} label={`${s.done ? 'Not done' : 'Done'}: ${s.title}`} />
       <div className="ru-b">
-        {s.task ? <button type="button" className="ru-t" onClick={() => openEditor((s.task as NonNullable<Step['task']>).id)}>{s.title}</button> : <span className="ru-t">{s.title}</span>}
+        {s.task ? <button type="button" className="ru-t" onClick={() => { if (!drag.ignoreClick()) openEditor((s.task as NonNullable<Step['task']>).id); }}>{s.title}</button> : <span className="ru-t">{s.title}</span>}
         <span className="ru-m">{meta(x, now, !!showOn)}</span>
       </div>
       {s.kind === 'milestone' && s.state === 'reached' && !s.done && <button type="button" className="btn sec sm" onClick={() => tick(s, x.tree)}>Tick it</button>}
@@ -167,12 +173,12 @@ function UpNext({ route }: { route: ReturnType<typeof routeOf> }) {
  * The route for a goal. `nested` is a sub-goal's, opened under it: no Up next card of its own (the goal's is above),
  * and its own sub-goals in it too.
  */
-export function RouteList({ goal, nested, onMap }: { goal: Goal; nested?: boolean; onMap?: (goal: string) => void }) {
+export function RouteList({ goal, nested, onMap, draggable }: { goal: Goal; nested?: boolean; onMap?: (goal: string) => void; draggable?: boolean }) {
   const tree = useGoalTree(goal);
-  return <RouteOf tree={tree} nested={nested} onMap={onMap} />;
+  return <RouteOf tree={tree} nested={nested} onMap={onMap} draggable={draggable} />;
 }
 
-function RouteOf({ tree, nested, onMap }: { tree: FlowTree; nested?: boolean; onMap?: (goal: string) => void }) {
+function RouteOf({ tree, nested, onMap, draggable }: { tree: FlowTree; nested?: boolean; onMap?: (goal: string) => void; draggable?: boolean }) {
   const route = useMemo(() => routeOf(tree), [tree]);
   const [showDone, setShowDone] = useState(false);
   const [openSubs, setOpenSubs] = useState<Set<string>>(() => new Set());
@@ -189,9 +195,9 @@ function RouteOf({ tree, nested, onMap }: { tree: FlowTree; nested?: boolean; on
             : steps ? 'Everything open is done. Add the next step on the map.' : 'No steps yet. Add the first one on the map, or say the plan in the chat bar.'}
         </p>
       )}
-      <Section title={nested ? 'Ready' : 'Also ready'} n={ready.length}><ul className="ru-l">{ready.map(x => <Row key={x.tree.goal.id + x.step.id} x={x} showOn={!nested} />)}</ul></Section>
+      <Section title={nested ? 'Ready' : 'Also ready'} n={ready.length}><ul className="ru-l">{ready.map(x => <Row key={x.tree.goal.id + x.step.id} x={x} showOn={!nested} draggable={draggable} />)}</ul></Section>
       <Section title="Waiting on" n={route.waiting.length}><ul className="ru-l">{route.waiting.map(x => <Row key={x.tree.goal.id + x.step.id} x={x} showOn={!nested} />)}</ul></Section>
-      <Section title={nested ? 'Ahead' : 'The route to the finish'} n={route.ahead.length}><ul className="ru-l ru-rail">{route.ahead.map(x => <Row key={x.step.id} x={x} rail />)}</ul></Section>
+      <Section title={nested ? 'Ahead' : 'The route to the finish'} n={route.ahead.length}><ul className="ru-l ru-rail">{route.ahead.map(x => <Row key={x.step.id} x={x} rail draggable={draggable} />)}</ul></Section>
       <Section title="Sub-goals" n={route.subs.length}>
         <ul className="ru-l">
           {route.subs.map(({ step: s, tree: sub }) => {
@@ -211,7 +217,7 @@ function RouteOf({ tree, nested, onMap }: { tree: FlowTree; nested?: boolean; on
                   </button>
                   <button type="button" className="ib bare" aria-label={`Open the map of ${s.title}`} title="Its map" onClick={() => map(sub.goal.id)}><MapIcon size={14} /></button>
                 </div>
-                {on && <RouteOf tree={sub} nested onMap={onMap} />}
+                {on && <RouteOf tree={sub} nested onMap={onMap} draggable={draggable} />}
               </li>
             );
           })}

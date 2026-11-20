@@ -4,11 +4,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { newId, PRI, type Priority, type Task } from '@/lib/model';
 import { addGoal, addResult, ancestorsOf, descendantsOf, flatResults, makeGoal, newResultId, patchGoal, patchResult, setGoalStatus, type Goal } from '@/lib/goals';
 import {
-  FINISH, buildFlow, describeEntry, goalNode, linkKey, type Flow, newWaitId, parallelLinks, patchWait, planOf, toJson, withLink, withPos, withWait,
-  withoutLink, withoutPos, withoutStep, wouldLoop, WAIT_TITLE_MAX, type Link, type LogEntry, type Plan, type Pos, type Step, type StepKind,
+  FINISH, buildFlow, describeEntry, goalNode, liftStep, linkKey, type Flow, newWaitId, parallelLinks, patchWait, placeStep, planOf, toJson, withLink, withPos, withWait,
+  withoutLink, withoutPos, withoutStep, wouldLoop, WAIT_TITLE_MAX, type Link, type LogEntry, type Place, type Plan, type Pos, type Step, type StepKind,
 } from '@/lib/flow';
 import {
-  OPENED_KEY, GAP_X, GOAL_W, NODE_H, NODE_W, RING, RING_TOP, ROW_H, buildTree, clash, edgeKey, layoutTree, nodeKey, normalizeCollapsed, pathD,
+  COLLAPSED_KEY, GAP_X, GOAL_W, NODE_H, NODE_W, RING, RING_TOP, ROW_H, buildTree, clash, edgeKey, layoutTree, nodeKey, normalizeCollapsed, pathD,
   toMermaidTree, toggleCollapsed, type Box, type Card, type Edge, type FlowTree, type Pt, type TreeLayout,
 } from '@/lib/flowTree';
 import { pickNext } from '@/lib/route';
@@ -20,7 +20,7 @@ import { dayName, occurrenceOf, type Repeat } from '@/lib/repeat';
 import { WeekLog } from './Repeating';
 import {
   CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ClockIcon, FitIcon, FlagIcon, HistoryIcon, HourglassIcon, InboxIcon, LockIcon, MicIcon, MinusIcon,
-  MoreIcon, OpenIcon, PlayIcon, PlusIcon, RepeatIcon, RouteIcon, SparkIcon, StopIcon, TrophyIcon, UndoIcon, XIcon, MapIcon,
+  MoreIcon, OpenIcon, PlayIcon, PlusIcon, RepeatIcon, RouteIcon, SparkIcon, StopIcon, TrophyIcon, UndoIcon, XIcon, MapIcon, LinkIcon, MoveIcon, TargetIcon,
 } from './icons';
 import { askWorkflow } from '@/lib/api';
 import { promptContext } from '@/lib/capture';
@@ -47,20 +47,17 @@ const SNAP = 8;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 const reduced = () => typeof window !== 'undefined' && (document.documentElement.dataset.motion === 'reduce' || (document.documentElement.dataset.motion !== 'full' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches));
 
-/**
- * Sub-goals you've opened in place on a map, kept in this browser: each is one card (a stack, with its own ring) until
- * you open it, on every map it's on, so a map starts compact.
- */
-function useOpened() {
+/** Sub-goals you've closed to one card on a map, kept in this browser. Every other one is open in place, on every map it's on. */
+function useCollapsed() {
   const [list, setList] = useState<string[]>(() => {
-    try { return normalizeCollapsed(JSON.parse(localStorage.getItem(OPENED_KEY) || '[]')); } catch { return []; }
+    try { return normalizeCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); } catch { return []; }
   });
   const toggle = useCallback((id: string) => setList(l => {
     const next = toggleCollapsed(l, id);
-    try { localStorage.setItem(OPENED_KEY, JSON.stringify(next)); } catch { /* private mode: for this visit only */ }
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next)); } catch { /* private mode: for this visit only */ }
     return next;
   }), []);
-  return { opened: useMemo(() => new Set(list), [list]), fold: toggle };
+  return { closed: useMemo(() => new Set(list), [list]), fold: toggle };
 }
 
 /* ---------- words ---------- */
@@ -202,11 +199,11 @@ interface On { goal: Goal; flow: Flow; top: boolean; key: (id: string) => string
 /** Where something carried onto the map would go. */
 type Drop =
   | { type: 'between'; edge: string; on: On; link: Link }
-  | { type: 'after' | 'before' | 'beside' | 'holds' | 'under'; card: string; on: On }
+  | { type: 'after' | 'before' | 'beside' | 'holds' | 'under' | 'into'; card: string; on: On }
   | { type: 'at'; at: Pos; on: On };
 
-/** What's being carried, and where it is on the screen. */
-interface Carry { kind: StepKind; label: string; task?: Task; x: number; y: number; drop: Drop | null }
+/** What's being carried, and where it is on the screen; `moving` is the key of a step on the map being moved. */
+interface Carry { kind: StepKind; label: string; task?: Task; x: number; y: number; drop: Drop | null; moving?: string }
 
 /* ---------- moving between layouts: what moves slides there ---------- */
 
@@ -265,18 +262,23 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
   const [lifting, setLifting] = useState<string | null>(null);
   const pinned = goal.plan?.pos;
-  const { opened, fold } = useOpened();
+  const { closed, fold } = useCollapsed();
   /** What the map would be after a drop, or after a change you asked for: shown before it's made. */
-  const [preview, setPreview] = useState<{ tasks: Task[]; goals: Goal[]; ghost: string | null } | null>(null);
+  const [preview, setPreview] = useState<{ tasks: Task[]; goals: Goal[]; repeats?: Repeat[]; ghost: string | null } | null>(null);
   const view = useMemo(() => {
     if (!preview) return tree;
     const g = preview.goals.find(x => x.id === goal.id) ?? goal;
-    return buildTree(g, preview.tasks, now, { all, goals: preview.goals, repeats });
+    return buildTree(g, preview.tasks, now, { all, goals: preview.goals, repeats: preview.repeats ?? repeats });
   }, [preview, tree, goal, now, all, repeats]);
   const viewPinned = preview ? (preview.goals.find(x => x.id === goal.id)?.plan?.pos ?? pinned) : pinned;
-  const layout = useMemo(() => layoutTree(view, { open: id => opened.has(id), pos: viewPinned, drag: dragPos }), [view, opened, viewPinned, dragPos]);
-  const base = useMemo(() => (preview ? layoutTree(tree, { open: id => opened.has(id), pos: pinned }) : layout), [preview, tree, opened, pinned, layout]);
+  const layout = useMemo(() => layoutTree(view, { open: id => !closed.has(id), pos: viewPinned, drag: dragPos }), [view, closed, viewPinned, dragPos]);
+  const base = useMemo(() => (preview ? layoutTree(tree, { open: id => !closed.has(id), pos: pinned }) : layout), [preview, tree, closed, pinned, layout]);
   const shown = useTween(layout, !!dragPos);
+  /** The layout and positions as they're drawn right now, for hit-testing during a drag. */
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const [sel, setSel] = useState<Sel>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const vp = useRef<HTMLDivElement>(null);
@@ -287,6 +289,8 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const [panel, setPanel] = useState<'inspect' | 'history'>('inspect');
   const [tray, setTray] = useState(false);
   const [menu, setMenu] = useState(false);
+  /** The selected step's "Move to" list. */
+  const [moveMenu, setMoveMenu] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: React.ReactNode; undo?: boolean } | null>(null);
   const [drawing, setDrawing] = useState<{ from: string; x: number; y: number; moved: boolean; to: string | null; bad: string | null } | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
@@ -605,6 +609,121 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     vp.current?.focus({ preventScroll: true });
   };
 
+  /* ---------- moving a step: to another place on its chart, into another goal, or off-goal ---------- */
+
+  const goalIndex = useMemo(() => new Map(goals.map(g => [g.id, g])), [goals]);
+  /** The section a task on a goal takes: its top goal's. */
+  const sectionOf = (g: Goal) => { const up = ancestorsOf(goalIndex, g); return (up[up.length - 1] ?? g).section; };
+  const onGoalPatch = (g: Goal | null): Partial<Task> => (g ? { goal: g.id, ...(sectionOf(g) ? { label: sectionOf(g) } : {}) } : { goal: null });
+
+  /**
+   * The goals, tasks and repeats with a step moved: lifted out of its place (what came before it joined to what came
+   * after, so that route stays whole), then put in a new place, on its own goal's chart or another's; or off-goal.
+   */
+  const relocated = (gs: Goal[], ts: Task[], rs: Repeat[], s: Step, from: Goal, to: Goal | null, at: Place, pos?: Pos) => {
+    const cross = !to || to.id !== from.id;
+    const out = gs.map(g => {
+      if (g.id === from.id) {
+        let p = liftStep(planOf(g), s.id);
+        if (cross) p = withoutStep(p, s.id);
+        else { p = placeStep(p, s.id, at); if (pos) p = withPos(p, s.id, pos); }
+        return { ...g, plan: p, updatedAt: Date.now() };
+      }
+      if (cross && to && g.id === to.id) {
+        let p = planOf(g);
+        if (s.wait) p = withWait(p, s.wait);
+        p = placeStep(p, s.id, at);
+        if (pos) p = withPos(p, s.id, pos);
+        return { ...g, plan: p, updatedAt: Date.now() };
+      }
+      return g;
+    });
+    const patch = onGoalPatch(to), rid = s.repeat?.id, tid = s.task?.id;
+    return {
+      goals: out,
+      tasks: cross && (tid || rid) ? ts.map(t => (t.id === tid || (rid && t.status === 'open' && occurrenceOf(t.id)?.repeat === rid) ? { ...t, ...patch } : t)) : ts,
+      repeats: cross && rid ? rs.map(r => (r.id === rid ? { ...r, goal: to?.id ?? null } : r)) : rs,
+    };
+  };
+
+  /** Why a step can't go to a goal, or null when it can. */
+  const cantMove = (s: Step, from: Goal, to: Goal | null): string | null => {
+    if (to && to.id === from.id) return null;
+    if (s.kind === 'goal' || s.kind === 'milestone') return `A ${s.kind === 'goal' ? 'sub-goal' : 'key result'} moves within its own goal’s map`;
+    if (!to && s.kind === 'wait') return 'What you wait on belongs to a goal';
+    return null;
+  };
+
+  /** Move a step: to a place on its own chart, or to another goal (and a place on its chart), or off-goal with `to` null. */
+  const moveStep = (c: Card, to: Goal | null, at: Place, pos?: Pos) => {
+    const s = c.step, from = c.tree.goal, cross = !to || to.id !== from.id;
+    const why = cantMove(s, from, to);
+    if (why) { say(why); return; }
+    const before0 = planOf(goalIndex.get(from.id) ?? from).links;
+    const back = changeGoals(list => relocated(list, tasks, repeats, s, from, to, at, pos).goals);
+    let before: Map<string, Task | null> | null = null, unrepeat = () => undefined as void;
+    const patch = onGoalPatch(to);
+    if (cross && s.repeat) {
+      const r = repeats.find(x => x.id === s.repeat?.id);
+      if (r) unrepeat = applyRepeats([{ kind: 'set', repeat: { ...r, goal: to?.id ?? null, updatedAt: Date.now() } }]);
+    }
+    if (cross && s.task) before = store.patch(s.task.id, patch);
+    const on = onTree(c.tree);
+    if (cross) {
+      if (s.kind === 'wait') log({ op: 'remove', step: s.id, title: s.title }, on);
+      if (to && s.kind === 'wait') logGoal([{ at: Date.now(), goal: to.id, op: 'wait', step: s.id, title: s.title }]);
+    } else {
+      const now0 = placeStep(liftStep(planOf(from), s.id), s.id, at).links;
+      for (const l of now0) if (!before0.some(x => x.from === l.from && x.to === l.to)) log({ op: 'link', step: l.to, title: titleOf(l.to, on), from: l.from, fromTitle: titleOf(l.from, on) }, on);
+    }
+    remember(cross ? 'move it to another goal' : 'move the step', () => { back(); unrepeat(); if (before) store.restore(before); });
+    setSel(to ? { kind: 'step', id: to.id === goal.id ? s.id : nodeKey(goal.id, to.id, s.id) } : null);
+    const name = shortTitle(s.title, 36);
+    if (!cross) {
+      const ref = at.after ?? at.before ?? at.beside;
+      const other = ref ? shortTitle(titleOf(ref, on) ?? '', 30) : null;
+      say(at.between ? <>Moved <b>{name}</b> in between</> : at.after ? <><b>{name}</b> now comes after <b>{other}</b></> : at.before ? <><b>{name}</b> now comes before <b>{other}</b></> : at.beside ? <><b>{name}</b> now runs alongside <b>{other}</b></> : <>Moved <b>{name}</b></>, true);
+    } else say(to ? <>Moved <b>{name}</b> to <b>{shortTitle(to.title, 34)}</b></> : <><b>{name}</b> is off-goal now</>, true);
+  };
+
+  /** Where a drop puts a step being moved: which goal, and where on its chart. Null when it can't go there, or it's only a move by hand. */
+  const targetOf = (c: Card, d: Drop): { goal: Goal; at: Place; pos?: Pos } | null => {
+    const s = c.step;
+    const card = 'card' in d ? cardOf(d.card) : null;
+    if (card && card.key === c.key) return null;
+    if (d.type === 'into') {
+      const g = card?.step.goal;
+      return g && g.id !== c.tree.goal.id && !cantMove(s, c.tree.goal, g) ? { goal: g, at: {} } : null;
+    }
+    const to = d.on.goal;
+    if (cantMove(s, c.tree.goal, to)) return null;
+    if (d.type === 'at') return to.id === c.tree.goal.id ? null : { goal: to, at: {}, ...(d.on.top ? { pos: { x: snap(d.at.x), y: snap(d.at.y) } } : {}) };
+    if (d.type === 'between') return d.link.from === s.id || d.link.to === s.id ? null : { goal: to, at: { between: d.link } };
+    if (!card) return null;
+    if (d.type === 'after') return { goal: to, at: { after: card.id } };
+    if (d.type === 'before' || d.type === 'holds') return { goal: to, at: { before: card.id } };
+    if (d.type === 'beside') return { goal: to, at: { beside: card.id } };
+    return null;
+  };
+  /** The map as it would be with a step moved there. */
+  const hypoMove = (c: Card, d: Drop) => {
+    const t = targetOf(c, d);
+    if (!t) return null;
+    const out = relocated(goals, tasks, repeats, c.step, c.tree.goal, t.goal, t.at, t.pos);
+    return { ...out, ghost: t.goal.id === goal.id ? c.id : nodeKey(goal.id, t.goal.id, c.id) };
+  };
+  /** Every open goal, each followed by its sub-goals, for "Move to". */
+  const goalOptions = useMemo(() => {
+    const out: { goal: Goal; depth: number }[] = [];
+    const walk = (g: Goal, depth: number) => { out.push({ goal: g, depth }); goals.filter(x => x.parent === g.id && x.status === 'active').forEach(x => walk(x, depth + 1)); };
+    goals.filter(g => !g.parent && g.status === 'active').forEach(g => walk(g, 0));
+    return out;
+  }, [goals]);
+  const moveTo = (c: Card, id: string | null) => {
+    if ((id ?? null) === (c.tree.goal.id ?? null)) return;
+    moveStep(c, id ? goalById(id) : null, {});
+  };
+
   /** Back to the layout for every step you've moved. */
   const tidy = () => {
     const back = plan(withoutPos);
@@ -702,7 +821,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     if (target.closest('[data-step],[data-edge],button,input,textarea,select,.mp-hud,.mp-pop')) return;
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    setSel(null); setPicking(null); setMenu(false); setTray(false);
+    setSel(null); setPicking(null); setMenu(false); setTray(false); setMoveMenu(false);
     const el = vp.current;
     el?.setPointerCapture?.(e.pointerId);
     const start = { ...camRef.current }, x0 = e.clientX, y0 = e.clientY;
@@ -736,14 +855,22 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
 
   /* ---------- moving a step: drag it (on a touch screen, hold it first), with guides to line it up ---------- */
 
+  /**
+   * Drag a step. Over another step, an arrow or a sub-goal it goes there, shown before you let go: what it leaves is
+   * joined back up, and it's put after, before or alongside that step, in between, or into that sub-goal. Over an empty
+   * spot on its own chart it just moves there (steps inside a sub-goal are laid out for you); on another goal's chart,
+   * it goes onto that goal.
+   */
   const startMove = (e: React.PointerEvent, c: Card) => {
     justMoved.current = false;
-    if ((e.button !== 0 && e.pointerType === 'mouse') || picking || c.depth || (e.target as HTMLElement).closest('button,input,textarea,select,.mp-port')) return;
-    const b = c.box, id = c.id;
+    if ((e.button !== 0 && e.pointerType === 'mouse') || picking || (c.depth && c.open) || (e.target as HTMLElement).closest('button,input,textarea,select,.mp-port')) return;
+    const b = c.box, id = c.id, s = c.step;
+    const canPlace = !c.open && s.kind !== 'milestone';
     e.stopPropagation();
     const x0 = e.clientX, y0 = e.clientY, p0 = toWorld(x0, y0);
     const touch = e.pointerType === 'touch';
-    let armed = !touch, moving = false, last: Pos | null = null;
+    let armed = !touch, moving = false, last: Pos | null = null, cur: Drop | null = null, ghost: string | null = null, anchor: Pt | null = null;
+    const chip = (ev: PointerEvent, d: Drop | null) => setCarrying({ kind: s.kind, label: s.title, x: ev.clientX, y: ev.clientY, drop: d, moving: c.key });
     const hold = touch ? window.setTimeout(() => { armed = true; setLifting(c.key); navigator.vibrate?.(8); }, 320) : 0;
     const block = (ev: TouchEvent) => { if (armed) ev.preventDefault(); };
     const others = [...layout.cards.values()].filter(o => !o.depth && o.key !== c.key).map(o => o.box);
@@ -760,7 +887,27 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
       const far = Math.hypot(ev.clientX - x0, ev.clientY - y0) > 5;
       if (!armed) { if (far) end(); return; }
       if (!moving && !far) return;
-      if (!moving) { moving = true; setHover(null); }
+      if (!moving) { moving = true; setHover(null); setHoverEdge(null); }
+      if (canPlace) {
+        const got = dropAt(ev.clientX, ev.clientY, s.kind === 'goal' ? 'task' : s.kind, ghost, c.key);
+        const d = sticky(got, cur, anchor, ev);
+        const t = d ? targetOf(c, d) : null;
+        if (d && t) {
+          // An empty spot on another goal's chart: no preview, so nothing moves under the pointer; the chip says where.
+          if (d.type === 'at') { if (cur && cur.type !== 'at') setPreview(null); ghost = null; }
+          else if (!sameDrop(d, cur)) { const h = hypoMove(c, d); ghost = h?.ghost ?? null; setPreview(h); anchor = { x: ev.clientX, y: ev.clientY }; }
+          cur = d;
+          last = null;
+          setDragPos(null);
+          setGuides({});
+          chip(ev, d);
+          return;
+        }
+        if (cur) { cur = null; ghost = null; setPreview(null); }
+      }
+      // A step inside a sub-goal is laid out for you: nothing to drop it on here.
+      if (c.depth) { chip(ev, null); return; }
+      setCarrying(null);
       const p = toWorld(ev.clientX, ev.clientY);
       let x = Math.max(0, b.x + p.x - p0.x), y = Math.max(0, b.y + p.y - p0.y);
       const near = 7 / camRef.current.z;
@@ -774,12 +921,17 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
       last = { x, y };
       setDragPos({ id, ...last });
     };
-    const cancel = () => { end(); setDragPos(null); };
+    const cancel = () => { end(); setDragPos(null); setCarrying(null); setPreview(null); };
     const up = () => {
       end();
-      if (!moving || !last) return;
+      setCarrying(null);
+      setPreview(null);
+      if (!moving) return;
       justMoved.current = true;
       window.setTimeout(() => { justMoved.current = false; }, 0);
+      const t = cur ? targetOf(c, cur) : null;
+      if (t) { setDragPos(null); moveStep(c, t.goal, t.at, t.pos); return; }
+      if (!last) { setDragPos(null); return; }
       const to = last;
       remember('move the step', plan(p => withPos(p, id, to)));
       setDragPos(null);
@@ -840,6 +992,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
 
   const clickStep = (key: string) => {
     if (justMoved.current) { justMoved.current = false; return; }
+    setMoveMenu(false);
     vp.current?.focus({ preventScroll: true });
     if (confirm && confirm !== key) setConfirm(null);
     if (picking) {
@@ -858,6 +1011,10 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const hypo = (kind: StepKind, d: Drop, t?: Task): { tasks: Task[]; goals: Goal[]; ghost: string } | null => {
     if (kind !== 'task' && kind !== 'wait') return null;
     if (d.type === 'at' || d.type === 'under') return null;
+    if (d.type === 'into') {
+      const sub = cardOf(d.card)?.sub;
+      return sub ? intoHypo(kind, onTree(sub), t) : null;
+    }
     const on = d.on, id = kind === 'wait' ? GHOST_WAIT : t ? (occurrenceOf(t.id) && repeats.some(r => r.id === occurrenceOf(t.id)?.repeat) ? `rep:${occurrenceOf(t.id)?.repeat}` : t.id) : GHOST;
     const card = d.type === 'between' ? null : cardOf(d.card);
     const sid = card?.id;
@@ -873,31 +1030,54 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     return { tasks: ts, goals: gs, ghost: on.key(id) };
   };
 
-  /** What a point on the screen would drop onto; 'keep' over the ghost and its arrows, so the preview holds still. */
-  const dropAt = (cx: number, cy: number, kind: StepKind, ghost: string | null = null): Drop | 'keep' | null => {
+  /** The map with something new put into a sub-goal, on its own. */
+  const intoHypo = (kind: StepKind, on: On, t?: Task) => {
+    const id = kind === 'wait' ? GHOST_WAIT : t ? t.id : GHOST;
+    const gs = kind === 'wait' ? goals.map(g => (g.id === on.goal.id ? { ...g, plan: withWait(planOf(g), { id, title: 'Someone or something', done: false, created: now, doneAt: null }) } : g)) : goals;
+    const ts = kind === 'task' ? (t ? tasks.map(x => (x.id === t.id ? { ...x, goal: on.goal.id } : x)) : [...tasks, { ...newTask(on, 'New step'), id: GHOST }]) : tasks;
+    return { tasks: ts, goals: gs, ghost: on.key(id) };
+  };
+
+  /**
+   * What a point on the screen would drop onto: an arrow right under it, else the nearest step as it's drawn now (a
+   * preview may have moved things), else an empty spot. 'keep' near the ghost and its arrows, so the preview holds still.
+   */
+  const dropAt = (cx: number, cy: number, kind: StepKind, ghost: string | null = null, exclude: string | null = null): Drop | 'keep' | null => {
     const el = document.elementFromPoint(cx, cy) as HTMLElement | null;
     if (!el || !vp.current?.contains(el) || el.closest('.mp-hud,.mp-pop')) return null;
-    if (ghost) {
-      const k = el.closest<HTMLElement>('[data-step]')?.dataset.step, ek = el.closest<SVGElement>('[data-edge]')?.dataset.edge, id = ghost.split('/').pop() as string;
-      if (k === ghost || (ek && (ek.split('/').pop() as string).split('>').includes(id))) return 'keep';
-    }
     const p = toWorld(cx, cy);
     const ed = el.closest<SVGElement>('[data-edge]')?.dataset.edge;
-    const edge = ed ? base.edges.find(x => x.key === ed) : null;
-    if (edge) {
-      if (edge.kind === 'finish') {
+    if (ed) {
+      const gid = ghost?.split('/').pop() as string | undefined;
+      if (gid && (ed.split('/').pop() as string).split('>').includes(gid)) return 'keep';
+      const edge = base.edges.find(x => x.key === ed && x.from !== exclude && x.to !== exclude);
+      if (edge?.kind === 'finish') {
         const c = base.cards.get(edge.from);
         if (c && c.step.kind !== 'milestone') return { type: 'after', card: c.key, on: onTree(c.tree) };
-      } else if (edge.link && !edge.link.auto && (kind === 'task' || kind === 'wait')) return { type: 'between', edge: edge.key, on: onTree(edge.tree), link: edge.link };
+      } else if (edge?.link && !edge.link.auto && (kind === 'task' || kind === 'wait')) return { type: 'between', edge: edge.key, on: onTree(edge.tree), link: edge.link };
     }
-    const key = el.closest<HTMLElement>('[data-step]')?.dataset.step;
-    const c = key && key !== preview?.ghost ? base.cards.get(key) : null;
-    if (c) {
-      const on = onTree(c.tree), s = c.step, b = c.box;
+    // The nearest step, as drawn: an open sub-goal by its header only, so the steps inside it come first.
+    const drawn = layoutRef.current, boxes = shownRef.current.cards;
+    let best: string | null = null, bd = 30 / camRef.current.z, bb: Box | null = null;
+    for (const [key, box] of boxes) {
+      if (key === exclude && key !== ghost) continue;
+      const c = drawn.cards.get(key);
+      if (!c) continue;
+      const b = c.open ? { ...box, h: 56 } : box;
+      const dx = Math.max(b.x - p.x, 0, p.x - (b.x + b.w)), dy = Math.max(b.y - p.y, 0, p.y - (b.y + b.h));
+      const d = Math.hypot(dx, dy);
+      if (d < bd || (d === 0 && bd === 0 && !c.open)) { bd = d; best = key; bb = b; }
+    }
+    if (best && best === ghost) return 'keep';
+    const c = best ? base.cards.get(best) ?? drawn.cards.get(best) ?? null : null;
+    if (c && bb) {
+      const on = onTree(c.tree), s = c.step;
+      const fx = Math.min(1, Math.max(0, (p.x - bb.x) / bb.w)), fy = Math.min(1, Math.max(0, (p.y - bb.y) / bb.h));
+      // Into a sub-goal: onto its frame's header, or the middle of its card.
+      if (s.kind === 'goal' && (kind === 'task' || kind === 'wait') && (c.open || (fx >= 0.28 && fx <= 0.72 && fy <= 0.72))) return { type: 'into', card: c.key, on };
       if (kind === 'wait') return s.kind === 'wait' ? { type: 'beside', card: c.key, on } : { type: 'holds', card: c.key, on };
       if (s.kind === 'milestone') return kind === 'milestone' && (s.depth ?? 0) < 2 ? { type: 'under', card: c.key, on } : kind === 'goal' ? { type: 'under', card: c.key, on } : { type: 'before', card: c.key, on };
       if (kind === 'goal' || kind === 'milestone') return { type: 'at', at: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 }, on: onAt(p) };
-      const fx = (p.x - b.x) / b.w, fy = (p.y - b.y) / (c.open ? 56 : b.h);
       if (fy > 0.72 && !c.open) return { type: 'beside', card: c.key, on };
       if (fx < 0.28) return { type: 'before', card: c.key, on };
       return { type: 'after', card: c.key, on };
@@ -906,21 +1086,33 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   };
   const sameDrop = (a: Drop | null, b: Drop | null) => !!a && !!b && a.type === b.type && a.on.goal.id === b.on.goal.id
     && ('card' in a ? a.card === (b as { card?: string }).card : true) && ('edge' in a ? a.edge === (b as { edge?: string }).edge : true);
+  /**
+   * The drop target, held steady: a preview moves things, so near where a target was picked, an empty spot or another
+   * part of the same step keeps it. Reaching a different step or arrow changes it at once.
+   */
+  const sticky = (got: Drop | 'keep' | null, cur: Drop | null, anchor: Pt | null, ev: PointerEvent): Drop | null => {
+    if (got === 'keep') return cur;
+    if (!cur || cur.type === 'at' || !anchor || Math.hypot(ev.clientX - anchor.x, ev.clientY - anchor.y) > 56) return got;
+    if (!got || got.type === 'at') return cur;
+    const sameCard = 'card' in got && 'card' in cur && got.card === cur.card;
+    return sameCard ? cur : got;
+  };
 
   /** Carry something from beside the map onto it. A click (no drag) adds it next to the selected step instead. */
   const carry = (e: React.PointerEvent, what: { kind: StepKind; label: string; task?: Task }, click: () => void) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     const x0 = e.clientX, y0 = e.clientY;
-    let moving = false, cur: Drop | null = null, ghost: string | null = null;
+    let moving = false, cur: Drop | null = null, ghost: string | null = null, anchor: Pt | null = null;
     const move = (ev: PointerEvent) => {
       if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
       if (!moving) { moving = true; setTray(false); setHover(null); setHoverEdge(null); }
       const got = dropAt(ev.clientX, ev.clientY, what.kind, ghost);
-      const d = got === 'keep' ? cur : got;
-      if (got !== 'keep' && !sameDrop(d, cur)) {
+      const d = sticky(got, cur, anchor, ev);
+      if (!sameDrop(d, cur)) {
         const h = d ? hypo(what.kind, d, what.task) : null;
         ghost = h?.ghost ?? null;
         setPreview(h);
+        if (d && d.type !== 'at') anchor = { x: ev.clientX, y: ev.clientY };
       }
       cur = d;
       setCarrying({ ...what, x: ev.clientX, y: ev.clientY, drop: d });
@@ -934,8 +1126,9 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
       if (!moving) { if (drop) click(); return; }
       justMoved.current = true;
       window.setTimeout(() => { justMoved.current = false; }, 0);
+      // What the preview showed; on an empty spot, where it was let go.
       const got = drop ? dropAt(ev.clientX, ev.clientY, what.kind, ghost) : null;
-      const d = got === 'keep' ? cur : got;
+      const d = !drop ? null : cur && cur.type !== 'at' ? cur : got === 'keep' ? cur : got;
       if (d) place(what, d);
     };
     const up = (ev: PointerEvent) => finish(ev, true);
@@ -947,6 +1140,15 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
 
   /** Make the drop. */
   const place = (what: { kind: StepKind; task?: Task }, d: Drop) => {
+    if (d.type === 'into') {
+      const sub = cardOf(d.card)?.sub;
+      if (!sub) return;
+      const on = onTree(sub);
+      if (what.task) adopt(what.task, {}, on);
+      else if (what.kind === 'task') addTask({}, on);
+      else if (what.kind === 'wait') addWait(undefined, undefined, on);
+      return;
+    }
     const on = d.on, c = 'card' in d ? cardOf(d.card) : null, s = c?.step;
     const at = d.type === 'at' ? d.at : undefined;
     if (what.task) {
@@ -1070,7 +1272,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     if (e.key === 'Escape') {
       if (asked?.apply || preview) { e.preventDefault(); discard(); return; }
       if (asked) { e.preventDefault(); setAsked(null); return; }
-      if (menu || tray) { e.preventDefault(); setMenu(false); setTray(false); return; }
+      if (menu || tray || moveMenu) { e.preventDefault(); setMenu(false); setTray(false); setMoveMenu(false); return; }
       if (confirm) { e.preventDefault(); setConfirm(null); vp.current?.focus({ preventScroll: true }); return; }
       if (picking || drawing) { e.preventDefault(); setPicking(null); setDrawing(null); return; }
       if (typing) { e.preventDefault(); (typing as HTMLElement).blur(); vp.current?.focus({ preventScroll: true }); return; }
@@ -1142,6 +1344,7 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
     rename: (s, t) => rename(s, t, on), toggle: s => toggle(s, on), link: l => link(l, on), unlink: l => unlink(l, on),
     addTask: o => addTask(o, on), addWait: h => addWait(h, undefined, on), removeStep: (s, how) => removeStep(s, how, on), patchTask,
     addSubGoal: kr => addSubGoal(kr, undefined, on), addKr: u => addKr(u, undefined, on), deleteGoal: purgeGoal,
+    moveTo: (s, id) => { const c = cardOf(on.key(s.id)); if (c) moveTo(c, id); }, goalOptions, canMove: s => !cantMove(s, on.goal, null) || s.kind === 'wait',
     open: id => openSheet('flow', id), goalById, repeatOf: id => repeats.find(r => r.id === id) ?? null, slot,
     go: id => { const k = on.key(id), c = cardOf(k); if (c) { setSel({ kind: 'step', id: k }); reveal(c.box); } },
   });
@@ -1196,7 +1399,8 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
   const dropLabel = dropping ? (dropping.type === 'between' ? 'Put it in between'
     : dropping.type === 'after' ? 'Then this' : dropping.type === 'before' ? (cardOf(dropCard)?.step.kind === 'milestone' ? 'Leads here' : 'Before it')
     : dropping.type === 'beside' ? 'Alongside' : dropping.type === 'holds' ? 'Holds it up' : dropping.type === 'under' ? (carrying?.kind === 'goal' ? 'For this key result' : 'Under it')
-    : dropping.on.top ? null : `On “${shortTitle(dropping.on.goal.title, 24)}”`) : null;
+    : dropping.type === 'into' ? `Into “${shortTitle(cardOf(dropping.card)?.step.title ?? '', 26)}”`
+    : dropping.on.goal.id !== (carrying?.moving ? cardOf(carrying.moving)?.tree.goal.id : goal.id) || !dropping.on.top ? `Onto “${shortTitle(dropping.on.goal.title, 24)}”` : null) : null;
 
   return (
     <div className={'mp' + (wide ? '' : ' ph') + (z < 0.8 ? ' far' : '')} style={tint} onKeyDown={onKey}>
@@ -1487,6 +1691,31 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
         </div>
       )}
 
+      {selCard && !selCard.open && selStep && selStep.kind !== 'milestone' && !dragPos && !preview && !carrying && !drawing && !picking && !confirm && (() => {
+        const b = shown.cards.get(selCard.key) ?? selCard.box;
+        const movable = !cantMove(selStep, selCard.tree.goal, null) || selStep.kind === 'wait';
+        return (
+          <div className="mp-ctx mp-pop" style={{ left: cam.x + (b.x + b.w / 2) * z, top: cam.y + b.y * z - (selCard.key === nextKey ? 18 : 8) }}
+            onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+            <button type="button" onClick={() => { setPicking(selCard.key); setMoveMenu(false); }} title="Then click the step that comes after it"><LinkIcon size={13} />Link to…</button>
+            {movable && (
+              <button type="button" aria-expanded={moveMenu} onClick={() => setMoveMenu(m => !m)} title="Put it on another goal or sub-goal, or off-goal"><MoveIcon size={13} />Move to…<ChevronDown size={11} /></button>
+            )}
+            {moveMenu && movable && (
+              <div className="mp-goals" role="menu">
+                {goalOptions.map(({ goal: g, depth }) => (
+                  <button key={g.id} type="button" role="menuitemradio" aria-checked={g.id === selCard.tree.goal.id} style={{ paddingLeft: 10 + depth * 14 }}
+                    onClick={() => { setMoveMenu(false); moveTo(selCard, g.id); }}>
+                    <TargetIcon size={12} /><span className="ell">{g.title}</span>{g.id === selCard.tree.goal.id && <CheckIcon size={12} />}
+                  </button>
+                ))}
+                {selStep.kind !== 'wait' && <button type="button" role="menuitemradio" aria-checked={false} onClick={() => { setMoveMenu(false); moveTo(selCard, null); }}><span className="mp-off" />Off-goal</button>}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {picking && <p className="mp-note" role="status">Click the step that comes after “{shortTitle(cardOf(picking)?.step.title ?? '', 40)}” · <kbd>Esc</kbd> to stop</p>}
 
       <aside className={'mp-side mp-hud' + (panelOpen ? ' on' : '')} aria-label={panel === 'history' ? 'History' : 'Step'} aria-hidden={!panelOpen}>
@@ -1514,8 +1743,8 @@ function FlowChart({ goal, onRoute }: { goal: Goal; onRoute?: () => void }) {
 
       {carrying && (
         <div className="mp-carry" style={{ transform: `translate(${carrying.x}px,${carrying.y}px)` }} aria-hidden="true">
-          {carrying.drop && carrying.drop.type !== 'at'
-            ? <span className="mp-chipghost"><i className={carrying.kind} />{shortTitle(carrying.label, 40)}</span>
+          {carrying.moving || (carrying.drop && carrying.drop.type !== 'at')
+            ? <span className="mp-chipghost"><i className={carrying.kind} />{shortTitle(carrying.label, 40)}{dropLabel && carrying.drop?.type === 'at' && <em>{dropLabel}</em>}</span>
             : <div className={`mp-n ${carrying.kind === 'goal' ? 'sub' : carrying.kind} ready mp-held`} style={{ width: NODE_W, height: NODE_H, transform: `translate(-50%,-50%) scale(${z})` }}>
               <span className="mp-ck" />{carrying.kind === 'milestone' && <span className="mp-bg" />}
               <span className="mp-body"><span className="mp-t">{carrying.label}</span></span>
@@ -1544,7 +1773,7 @@ function Node({ c, b, next, sel, cls, now, preview, onDown, onClick, onEnter, on
   return (
     <div className={`mp-n ${kind} ${s.state}${s.done ? ' done' : ''}${next ? ' next' : ''}${sel ? ' sel' : ''}${s.critical && !s.done ? ' crit' : ''}${c.depth ? ' nested' : ''}${sched ? ' sched' : ''}${cls}`}
       data-step={c.key} style={{ transform: `translate(${b.x}px,${b.y}px)`, width: b.w, height: b.h }}
-      onPointerDown={c.depth ? undefined : onDown} onClick={e => { e.stopPropagation(); onClick(); }} onPointerEnter={onEnter} onPointerLeave={onLeave}
+      onPointerDown={onDown} onClick={e => { e.stopPropagation(); onClick(); }} onPointerEnter={onEnter} onPointerLeave={onLeave}
       onDoubleClick={s.goal ? e => { e.stopPropagation(); onOpen(); } : undefined}
       title={s.goal ? 'Double-click to open its own map' : c.depth ? `On “${c.tree.goal.title}”` : undefined}>
       {next && <span className="mp-tag"><PlayIcon />Up next</span>}
@@ -1645,6 +1874,10 @@ interface Acts {
   addKr: (under: string | null) => void;
   /** Delete a sub-goal for good, with what's under it. */
   deleteGoal: (s: Step) => void;
+  /** Put a step on another goal, or off-goal (null); the goals it can go to; and whether it can go to another at all. */
+  moveTo: (s: Step, goal: string | null) => void;
+  goalOptions: { goal: Goal; depth: number }[];
+  canMove: (s: Step) => boolean;
   /** Open a goal's own map. */
   open: (goal: string) => void;
   /** Select another step on the map. */
@@ -1737,6 +1970,16 @@ function Inspector({ s, flow, focus, onFocused, goal, within, empty, next, act, 
             ? <button type="button" className="btn sec" onClick={() => act.slot(t.id)}><CalendarIcon size={14} />Next free slot</button>
             : <span className="mp-when"><CalendarIcon size={13} />{fmtWhen(t.start, now)}</span>)}
         </div>
+
+        {act.canMove(s) && (
+          <div className="mp-fld">
+            <span className="mp-lbl">Goal</span>
+            <select className="mp-sel" value={goal.id} aria-label="The goal it moves" onChange={e => act.moveTo(s, e.target.value || null)}>
+              {act.goalOptions.map(({ goal: g, depth }) => <option key={g.id} value={g.id}>{'\u2003'.repeat(depth)}{g.title}</option>)}
+              {s.kind !== 'wait' && <option value="">Off-goal</option>}
+            </select>
+          </div>
+        )}
 
         {t && !t.externalId && (
           <>
