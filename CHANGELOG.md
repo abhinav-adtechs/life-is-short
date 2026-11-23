@@ -6,6 +6,12 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Added
 
+- **Today**, a view of today on its own: a third view on a laptop (**Today · Calendar · Goals**) and a tab on a phone (`components/TodayView.tsx`). No backlog, no other days, no other goals, and each task shown once.
+  - **The head:** the date, how many of today's tasks are done (everything on the page, with a slot or without, missed and still to come), how much of your day is still free (to its end), and the day as a strip from its start to its end: what's to come in its colour, what's on now in full, what's been and gone in grey, a missed slot outlined, and now as a line.
+  - **On the left, only the goals today moves.** Planned, **today's outcomes** in the plan's order, each with its outcome, today's steps as a segmented bar, where it'll be by tonight (*tasks 2 → 4 of 6 by tonight*) and its deadline when it's close. Not planned, the top goals with work on the calendar or ticked off today, with **Plan with Claude** and **Copy the ask** above them (`movingToday` in `lib/today.ts`). Under them, what's today's with **no slot yet** (overdue, due today, in today's plan, or a calendar's all-day event) with **Slot it today**, the next free slot in the rest of your day.
+  - **On the right, the timeline:** everything with a time today in order down one line (your tasks, your calendar's events and the repeats still to come), what you ticked off without a time at the moment you did it, and the free time still to come between them (`dayLine` in `lib/timeline.ts`). Each thing says how long it runs, the goal it moves, how urgent it is, whether it's blocked, when it's due, how it repeats, and whether it's done, missed, on now or next (*in 1 h 20 min*). **Now** is on the line, the biggest thing on the page: what's on, as a card with how long is left and **Done**; or, when nothing's on, how long you're free and the one thing to do (the Next task), with **Done** and **Start now**. A missed task says when it goes back to the backlog, and once it has, its slot stays on the line all day saying what became of it (back in the backlog, moved, done since, deleted), with **Slot it later today**. The line opens on now and ends with the end of your day. The accent is for now and a missed slot only.
+  - On a phone the Today tab is one column (the goals, then the timeline, then what has no slot), and the Next card and the header's count step aside since now and the count are on the page.
+
 - **A showcase video** (`docs/media/showcase.mp4`, 1 min 40 s, 1080p) and a 25-second highlight at the top of the README: the planner, a dump, the map, the review, themes, the phone, Claude over MCP, security and running your own. Recorded from made-up demo data by `scripts/showcase/` (a podcast launch, a half marathon, an app's v2), so it can be re-recorded whenever the planner changes.
 - The README opens with **everything in one place**: the video, every capability at a glance, the 13 MCP tools, and starting in two minutes.
 - **Today isn't planned**, said plainly: a bar across the top of the calendar where the outcomes go, with **Plan with Claude** (opens Claude with the ask filled in) and **Copy the ask**, and a pill on the goal rail. On a phone the calendar tab opens on it.
@@ -37,6 +43,9 @@ All notable changes to Life is short are recorded here. The format follows [Keep
 
 ### Changed
 
+- **Schedule** (on the Next card, or **Pick a time** in a task's editor) goes to the Calendar view when you're in Goals or Today, so there's a calendar to click a time on. Before, nothing happened until you switched yourself.
+- The phone remembers its tab (Today, Goals or Calendar) in this browser, and its tab bar takes three tabs.
+- The laptop header leaves out the week's time on goals in the Today view.
 - The README's images (`hero-light`, `hero-dark`, `phone`, `themes`, `settings`, `dump.gif`) are re-shot from today's planner, goals first. Its examples, the goal editor's placeholders and the tests' sample goals and sections are made-up ones.
 - The laptop header is quieter: the view switch, time on goals this week, the clock, Analytics, Share and Settings. Today's, this week's and the backlog's counts left the header.
 - Bringing a goal back brings back the sub-goals that closed with it (the same way, at the same moment), not one you'd finished before it. Before, they stayed closed.
