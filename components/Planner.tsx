@@ -99,7 +99,6 @@ export interface PlannerApi {
   /** Your day, for slotting. */
   hours: WorkHours;
   phoneTab: PhoneTab;
-  /** Switch the phone's tab; it's remembered in this browser. */
   setPhoneTab: (t: PhoneTab) => void;
   /** The laptop's main view: the calendar with your goals beside it, or your goals in full. Kept in this browser. */
   mainView: MainView;
@@ -225,15 +224,16 @@ export const usePlanner = () => {
   return v;
 };
 
-/** The laptop's views: today on its own, the calendar with your goals beside it, or your goals in full. */
+/**
+ * The laptop's views: today on its own, the calendar with your goals beside it, or your goals in full. The planner
+ * always opens on Today, on a laptop and a phone alike: the day is what you open it for.
+ */
 export type MainView = 'today' | 'calendar' | 'goals';
-/** The phone's tabs under the Next task: today on its own, the goal matrix, or the calendar. */
+/** The phone's tabs: today on its own, the goal matrix (under the Next task), or the calendar. */
 export type PhoneTab = 'today' | 'matrix' | 'calendar';
-const VIEW_KEY = 'ds.view', GOAL_KEY = 'ds.view.goal', TAB_KEY = 'ds.tab';
+const GOAL_KEY = 'ds.view.goal';
 function remember(key: string, v: string) { try { localStorage.setItem(key, v); } catch { /* private mode: for this visit */ } }
 function recall(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
-const readView = (): MainView => { const v = typeof window !== 'undefined' ? recall(VIEW_KEY) : null; return v === 'goals' || v === 'today' ? v : 'calendar'; };
-const readTab = (): PhoneTab => { const v = typeof window !== 'undefined' ? recall(TAB_KEY) : null; return v === 'today' || v === 'calendar' ? v : 'matrix'; };
 const readOpenGoal = () => (typeof window !== 'undefined' ? recall(GOAL_KEY) : null);
 
 const SHEET_HASH = /^#(goals|archive|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
@@ -276,11 +276,9 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [editorId, setEditorId] = useState<string | null>(null);
   const [hashSheet, setHashSheet] = useState<{ kind: SheetKind; section: string | null } | null>(null);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
-  const [phoneTab, setPhoneTabState] = useState<PhoneTab>(() => readTab());
-  const setPhoneTab = useCallback((t: PhoneTab) => { setPhoneTabState(t); remember(TAB_KEY, t); }, []);
-  const [mainView, setMainViewState] = useState<MainView>(() => readView());
+  const [phoneTab, setPhoneTab] = useState<PhoneTab>('today');
+  const [mainView, setMainView] = useState<MainView>('today');
   const [openGoalId, setOpenGoalId] = useState<string | null>(() => readOpenGoal());
-  const setMainView = useCallback((v: MainView) => { setMainViewState(v); remember(VIEW_KEY, v); }, []);
   const [filter, setFilter] = useState<Filter | null>(null);
   const lastFocus = useRef<HTMLElement | null>(null);
   const sheetOpenedHere = useRef(false);
@@ -478,7 +476,7 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     setEditorId(null);
     setPickedState(id);
     // Picking a time happens on the calendar: go to it from a view without one.
-    if (!wide) { setPhoneTabState('calendar'); setDay(startOfDay(Date.now())); }
+    if (!wide) { setPhoneTab('calendar'); setDay(startOfDay(Date.now())); }
     else if (mainView !== 'calendar') setMainView('calendar');
   }, [wide, mainView, setMainView]);
 

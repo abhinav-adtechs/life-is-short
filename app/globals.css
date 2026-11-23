@@ -2177,3 +2177,28 @@ button.td-tt:hover{text-decoration:underline;text-decoration-color:var(--hair2);
 .td.ph .td-any{padding:0}
 /* A ring on the line is small to look at and 44px to tap. */
 .td.ph .td-node.ck::after{content:"";position:absolute;inset:-8px}
+
+/* Done: one tap on a task's ring (or D for the one on now). The ring fills in the goal's colour and bursts, the row
+   lights up, the day's count jumps and the goal's bar fills. Reduced motion keeps the fill and drops the rest. */
+.td-r .td-node.ck .ring,.td-a .td-node.ck .ring{width:20px;height:20px}
+.td-r.is-point .td-node.ck .ring{width:12px;height:12px}
+@media (hover:hover){.td-node.ck:not(.on):hover .ring{border-color:var(--c,var(--ink));color:var(--c,var(--muted));background:color-mix(in oklch,var(--c,var(--ink)) 10%,var(--raised))}}
+.td-node.ck.is-ticking .ring{background:var(--c,var(--accent));border-color:var(--c,var(--accent));color:#fff;animation:tdPop 420ms var(--ease)}
+.td-halo,.td-spark{position:absolute;left:50%;top:50%;pointer-events:none}
+.td-halo{width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid var(--c,var(--accent));border-radius:50%;opacity:0;animation:tdHalo 650ms var(--ease)}
+.td-spark{width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;color:var(--c,var(--accent));box-shadow:0 -15px,13px -8px,13px 8px,0 15px,-13px 8px,-13px -8px;opacity:0;animation:tdSpark 650ms cubic-bezier(.2,.7,.3,1)}
+.td-r>*,.td-a>*{position:relative;z-index:1}
+.td-a{position:relative}
+.td-r.is-just::after,.td-a.is-just::after{content:"";position:absolute;inset:0 -10px;z-index:0;border-radius:var(--r-md);background:color-mix(in oklch,var(--c,var(--accent)) 16%,transparent);pointer-events:none;opacity:0;animation:tdFlash 1.6s var(--ease)}
+.td-a.is-just::after{inset:0 -12px}
+.td-bump{display:inline-block;animation:tdBump 560ms var(--ease)}
+.td-g .tb-seg i.is-just{animation:tdSeg 700ms var(--ease)}
+.td-kick.is-all{color:var(--accent-ink)}
+.td-all{display:inline-grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:var(--accent);color:var(--on-accent)}
+.td-done .kbd{margin-left:2px;padding:0 5px;line-height:15px;border-color:color-mix(in oklch,var(--raised) 35%,transparent);color:color-mix(in oklch,var(--raised) 78%,transparent)}
+@keyframes tdPop{0%{transform:scale(.7)}55%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes tdHalo{0%{transform:scale(.9);opacity:.9}100%{transform:scale(2.4);opacity:0}}
+@keyframes tdSpark{0%{transform:scale(.4) rotate(0);opacity:0}25%{opacity:1}100%{transform:scale(1.35) rotate(20deg);opacity:0}}
+@keyframes tdFlash{0%{opacity:0}18%{opacity:1}100%{opacity:0}}
+@keyframes tdBump{0%{transform:scale(1)}35%{transform:scale(1.45)}100%{transform:scale(1)}}
+@keyframes tdSeg{0%{transform:scaleY(1)}35%{transform:scaleY(2.4)}100%{transform:scaleY(1)}}

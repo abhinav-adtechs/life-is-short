@@ -13,6 +13,9 @@ async function shoot(name, { w, h, dsf, theme, act }) {
   const page = await ctx.newPage();
   await page.clock.setFixedTime(NOW);
   await page.goto('http://localhost:3000/app');
+  // The planner opens on Today; these images are of the Calendar view, and the phone's Goals tab under the Next task.
+  await page.locator('.td').first().waitFor();
+  await (w < 600 ? page.getByRole('tab', { name: /Goals/ }) : page.getByRole('button', { name: 'Calendar', exact: true })).first().click();
   await page.locator('section.next').first().waitFor();
   await page.waitForTimeout(1800);
   if (act) await act(page);

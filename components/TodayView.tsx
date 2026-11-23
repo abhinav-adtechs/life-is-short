@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Task } from '@/lib/model';
 import { dayLine, type Anytime, type DayLine, type Entry, type Row } from '@/lib/timeline';
 import { movingToday, type OutcomeView } from '@/lib/today';
 import { rootOf } from '@/lib/goals';
@@ -20,6 +21,9 @@ import { CheckIcon, PlusIcon, RepeatIcon, SparkIcon, TargetIcon } from './icons'
  * slot yet. On the right, the day as a timeline: everything with a time today in order, now on the line (what's on, or
  * when nothing is, the one thing to do), the free time still to come, and the slots you missed. Each task shows once.
  * No backlog, no other days, no other goals.
+ *
+ * Done is one tap on a task's ring (or D for the one on now), and it should feel like something: the ring bursts in the
+ * goal's colour, the row lights up, the day's count jumps and the goal's bar fills.
  */
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -40,6 +44,29 @@ function useToday() {
     [visible, upcoming, now, from, to, prefs.dayStart, prefs.dayEnd, planSteps, slips]);
   const moving = useMemo(() => movingToday(todayPlan, goals, topGoals, tasks, from, to), [todayPlan, goals, topGoals, tasks, from, to]);
   return { line, moving, from };
+}
+
+/**
+ * Tasks ticked off in the last moment or two, while this view is open, so what changed can light up: their row, the
+ * day's count, their goal's bar. Not on the way in: what was done before the view opened (or loaded) stays still.
+ */
+function useJustDone(tasks: Task[], loaded: boolean): Set<string> {
+  const seen = useRef<Set<string> | null>(null);
+  const timers = useRef<number[]>([]);
+  const [just, setJust] = useState<Set<string>>(() => new Set());
+  const done = tasks.filter(t => t.status === 'done').map(t => t.id);
+  const key = done.join(',');
+  useEffect(() => {
+    if (!loaded) return;
+    const now = new Set(done);
+    const fresh = seen.current ? done.filter(id => !seen.current?.has(id)) : [];
+    seen.current = now;
+    if (!fresh.length) return;
+    setJust(s => new Set([...s, ...fresh]));
+    timers.current.push(window.setTimeout(() => setJust(s => { const n = new Set(s); fresh.forEach(id => n.delete(id)); return n; }), 1800));
+  }, [key, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  return just;
 }
 
 /** Put a task in the next free slot today, or say there isn't one and go to the calendar to pick a time. */
@@ -82,24 +109,30 @@ function DayStrip({ line, from }: { line: DayLine; from: number }) {
   );
 }
 
-function DayHead({ line, from }: { line: DayLine; from: number }) {
+function DayHead({ line, from, cheer }: { line: DayLine; from: number; cheer: boolean }) {
   const { now, prefs, todayPlan } = usePlanner();
   const { done, total } = line.tally;
   const end = from + prefs.dayEnd * HOUR;
+  const all = total > 0 && done === total;
   return (
     <header className="td-head">
       <div className="td-date">
-        <p className="td-kick">
-          <span className="nowdot" aria-hidden="true" />Today
-          <span className="muted">{todayPlan ? ` · planned${todayPlan.by === 'claude' ? ' with Claude' : ''}${todayPlan.at ? ` at ${fmtTime(todayPlan.at)}` : ''}` : ' · not planned yet'}</span>
-        </p>
+        {all ? (
+          <p className="td-kick is-all" role="status"><span className="td-all" aria-hidden="true"><CheckIcon size={10} w={2.8} /></span>Everything’s done for today</p>
+        ) : (
+          <p className="td-kick">
+            <span className="nowdot" aria-hidden="true" />Today
+            <span className="muted">{todayPlan ? ` · planned${todayPlan.by === 'claude' ? ' with Claude' : ''}${todayPlan.at ? ` at ${fmtTime(todayPlan.at)}` : ''}` : ' · not planned yet'}</span>
+          </p>
+        )}
         <h1>{longDate(now)}</h1>
       </div>
       <dl className="td-stats">
         {total > 0 && (
           <div>
             <dt>Done</dt>
-            <dd className="num"><b>{done}</b> of {total}<span className="bar" aria-hidden="true"><i style={{ width: `${Math.round((done / total) * 100)}%` }} /></span></dd>
+            {/* Keyed on the count, so it jumps each time something's ticked off. */}
+            <dd className="num"><b key={done} className={cheer ? 'td-bump' : undefined}>{done}</b> of {total}<span className="bar" aria-hidden="true"><i style={{ width: `${Math.round((done / total) * 100)}%` }} /></span></dd>
           </div>
         )}
         <div>
@@ -115,7 +148,7 @@ function DayHead({ line, from }: { line: DayLine; from: number }) {
 
 /* ---------- the left: the goals today moves, then what has no slot yet ---------- */
 
-function GoalCard({ v }: { v: OutcomeView }) {
+function GoalCard({ v, just }: { v: OutcomeView; just: Set<string> }) {
   const { prefs, now, goals, openGoal } = usePlanner();
   const index = useMemo(() => new Map(goals.map(g => [g.id, g])), [goals]);
   const top = rootOf(index, v.goal);
@@ -139,7 +172,7 @@ function GoalCard({ v }: { v: OutcomeView }) {
       {outcome && <p className="td-out">{outcome}</p>}
       {v.steps.length > 0 && (
         <span className="tb-seg" role="img" aria-label={`${v.done} of ${v.steps.length} of today’s steps done: ${v.steps.map(s => `${s.title}, ${when(s)}`).join('; ')}`}>
-          {v.steps.map(s => <i key={s.id} className={s.status === 'done' ? 'on' : s === next ? 'up' : undefined} title={`${s.title} · ${when(s)}`} />)}
+          {v.steps.map(s => <i key={s.id} className={(s.status === 'done' ? 'on' : s === next ? 'up' : '') + (just.has(s.id) ? ' is-just' : '') || undefined} title={`${s.title} · ${when(s)}`} />)}
         </span>
       )}
       {(t.all > 0 || left?.hot) && (
@@ -171,7 +204,7 @@ function PlanNote() {
   );
 }
 
-function GoalsToday({ views }: { views: OutcomeView[] }) {
+function GoalsToday({ views, just }: { views: OutcomeView[]; just: Set<string> }) {
   const { todayPlan, goalsLoaded, topGoals, setMainView, openSheet, wide } = usePlanner();
   const setGoals = () => (wide ? setMainView('goals') : openSheet('goals'));
   return (
@@ -179,7 +212,7 @@ function GoalsToday({ views }: { views: OutcomeView[] }) {
       <div className="td-sh"><h2 id="td-goals-h">{todayPlan ? 'Today’s outcomes' : 'Goals with work today'}</h2></div>
       {goalsLoaded && !todayPlan && topGoals.length > 0 && <PlanNote />}
       {views.length > 0 ? (
-        <div className="td-gl">{views.map(v => <GoalCard key={v.goal.id} v={v} />)}</div>
+        <div className="td-gl">{views.map(v => <GoalCard key={v.goal.id} v={v} just={just} />)}</div>
       ) : goalsLoaded && (
         topGoals.length ? (
           <p className="td-empty">No goal has work on today’s calendar yet.</p>
@@ -203,8 +236,8 @@ function whyText(a: Anytime, now: number): { text: string; hot: boolean } {
 }
 
 /** Today's with no slot yet: overdue, due today, or in today's plan. Tick it off, or slot it into today's free time. */
-function NoSlot({ list }: { list: Anytime[] }) {
-  const { goalOf, labelOf, done, completing, openEditor, now, blocked } = usePlanner();
+function NoSlot({ list, just }: { list: Anytime[]; just: Set<string> }) {
+  const { goalOf, labelOf, completing, openEditor, now, blocked } = usePlanner();
   const slotToday = useSlotToday();
   return (
     <section className="td-any" aria-labelledby="td-any-h">
@@ -217,12 +250,8 @@ function NoSlot({ list }: { list: Anytime[] }) {
           const why = whyText(a, now);
           const on = completing.has(t.id);
           return (
-            <li key={t.id} className="td-a">
-              {event ? <span className="td-node k-event" style={tint(label?.color)} aria-hidden="true" /> : (
-                <button type="button" className={'td-node ck' + (on ? ' on' : '')} aria-label={`Done: ${t.title}`} onClick={() => { if (!on) done(t.id, true); }}>
-                  <span className="ring"><CheckIcon size={9} w={2.6} /></span>
-                </button>
-              )}
+            <li key={t.id} className={'td-a' + (on || just.has(t.id) ? ' is-just' : '')} style={tint(label?.color)}>
+              {event ? <span className="td-node k-event" aria-hidden="true" /> : <Tick t={t} />}
               <div className="td-c">
                 <button type="button" className="td-tt" onClick={() => openEditor(t.id)}><span className={'strike' + (on ? ' on' : '')}>{t.title}</span></button>
                 <p className="td-m">
@@ -272,16 +301,24 @@ function Meta({ e, extra }: { e: Entry; extra?: React.ReactNode }) {
 
 /** The ring on the line: tick a task off there. An event, a repeat to come and a slot that's been left can't be. */
 function Node({ e }: { e: Entry }) {
-  const { done, completing } = usePlanner();
   const t = e.task;
   if (e.kind === 'event') return <span className="td-node k-event" aria-hidden="true" />;
   if (e.kind === 'repeat') return <span className="td-node" aria-hidden="true"><span className="ring ghost" /></span>;
   if (e.slip) return <span className="td-node is-left" aria-hidden="true"><span className="ring" /></span>;
-  const on = t.status === 'done' || completing.has(t.id);
+  return <Tick t={t} now={e.state === 'now'} />;
+}
+
+/** The ring that ticks a task off: one tap. While it goes, it fills in the goal's colour and bursts. */
+function Tick({ t, now }: { t: Task; now?: boolean }) {
+  const { done, completing } = usePlanner();
+  const ticking = completing.has(t.id);
+  const on = t.status === 'done' || ticking;
   return (
-    <button type="button" className={'td-node ck' + (on ? ' on' : '')} aria-label={`${t.status === 'done' ? 'Not done' : 'Done'}: ${t.title}`}
-      onClick={() => { if (!completing.has(t.id)) done(t.id, t.status !== 'done'); }}>
-      <span className={'ring' + (e.state === 'now' ? ' now' : '')}><CheckIcon size={9} w={2.6} /></span>
+    <button type="button" className={'td-node ck' + (on ? ' on' : '') + (ticking ? ' is-ticking' : '')}
+      aria-label={`${t.status === 'done' ? 'Not done' : 'Done'}: ${t.title}`} title={t.status === 'done' ? 'Not done after all' : 'Done'}
+      onClick={() => { if (!ticking) done(t.id, t.status !== 'done'); }}>
+      <span className={'ring' + (now ? ' now' : '')}><CheckIcon size={11} w={2.6} /></span>
+      {ticking && <><i className="td-halo" aria-hidden="true" /><i className="td-spark" aria-hidden="true" /></>}
     </button>
   );
 }
@@ -303,13 +340,13 @@ const When = ({ at }: { at: number }) => <span className="td-when num"><b>{fmtTi
 
 /** What's on right now: a card on the line with how long is left, and Done. */
 function NowCard({ e }: { e: Entry }) {
-  const { now, done, completing, colorOf } = usePlanner();
+  const { now, colorOf, completing } = usePlanner();
   const t = e.task;
   const left = Math.max(1, Math.round((e.end - now) / MIN));
   const gone = Math.max(0, Math.min(100, ((now - e.at) / (e.end - e.at)) * 100));
   const event = e.kind === 'event';
   return (
-    <li className={`td-r is-now k-${e.kind}`} data-now="" style={tint(colorOf(t))}>
+    <li className={`td-r is-now k-${e.kind}${completing.has(t.id) ? ' is-just' : ''}`} data-now="" style={tint(colorOf(t))}>
       <When at={e.at} />
       <Node e={e} />
       <div className="td-c">
@@ -319,7 +356,7 @@ function NowCard({ e }: { e: Entry }) {
           <span className="td-slot" aria-hidden="true"><i style={{ width: `${gone.toFixed(1)}%` }} /></span>
           <div className="td-cm">
             <Meta e={e} />
-            {!event && <button type="button" className="btn pri sm" disabled={completing.has(t.id)} onClick={() => done(t.id, true)}><CheckIcon />Done</button>}
+            {!event && <DoneButton t={t} />}
           </div>
         </div>
       </div>
@@ -327,9 +364,19 @@ function NowCard({ e }: { e: Entry }) {
   );
 }
 
+/** The big Done for what's on now, with its key on a laptop. */
+function DoneButton({ t }: { t: Task }) {
+  const { done, completing, wide } = usePlanner();
+  return (
+    <button type="button" className="btn pri sm td-done" disabled={completing.has(t.id)} onClick={() => done(t.id, true)} aria-keyshortcuts={wide ? 'D' : undefined}>
+      <CheckIcon />Done{wide && <span className="kbd" aria-hidden="true">D</span>}
+    </button>
+  );
+}
+
 /** Now, when nothing's on: free until the next thing, with the one thing to do (the Next task: the top of your backlog). */
 function NowFree({ r }: { r: Extract<Row, { type: 'now' }> }) {
-  const { now, done, place, completing, goalOf, labelOf, openEditor, blocked } = usePlanner();
+  const { now, place, completing, goalOf, labelOf, openEditor, blocked } = usePlanner();
   const { focus: f } = useLists();
   const t = !f.live ? f.now : null;
   const until = r.until == null ? 'Free for the rest of the day' : `Free until ${fmtTime(r.until)} · ${span((r.until - now) / MIN)}`;
@@ -355,7 +402,7 @@ function NowFree({ r }: { r: Extract<Row, { type: 'now' }> }) {
                 {t.due && (d => <span className={d.hot ? 'hot' : undefined}>{d.text}</span>)(dueLabel(t.due, now))}
               </p>
               <span className="td-acts">
-                <button type="button" className="btn pri sm" disabled={completing.has(t.id)} onClick={() => done(t.id, true)}><CheckIcon />Done</button>
+                <DoneButton t={t} />
                 <button type="button" className="btn sec sm" onClick={() => place(t.id, from)} title={`On the calendar from ${fmtTime(from)}`}>Start now</button>
               </span>
             </div>
@@ -375,8 +422,8 @@ function slipText(e: Entry, live: boolean, now: number): string {
   return t.start != null ? `Moved to ${fmtWhen(t.start, now).replace(/^Today, /, '')}` : 'Back in the backlog';
 }
 
-function EntryRow({ e }: { e: Entry }) {
-  const { now, colorOf, store } = usePlanner();
+function EntryRow({ e, just }: { e: Entry; just: Set<string> }) {
+  const { now, colorOf, store, completing } = usePlanner();
   const slotToday = useSlotToday();
   if (e.state === 'now') return <NowCard e={e} />;
   const live = !!store.get(e.task.id);
@@ -386,7 +433,7 @@ function EntryRow({ e }: { e: Entry }) {
     : e.state === 'next' ? <span className="td-in">in {span((e.at - now) / MIN)}</span>
     : e.state === 'missed' ? <span className="loz hot">Missed</span> : null;
   return (
-    <li className={`td-r is-${e.state} k-${e.kind}${e.point ? ' is-point' : ''}${e.slip ? ' is-left' : ''}`} style={tint(colorOf(e.task))}>
+    <li className={`td-r is-${e.state} k-${e.kind}${e.point ? ' is-point' : ''}${e.slip ? ' is-left' : ''}${!e.slip && (completing.has(e.task.id) || just.has(e.task.id)) ? ' is-just' : ''}`} style={tint(colorOf(e.task))}>
       <When at={e.at} />
       <Node e={e} />
       <div className="td-c">
@@ -414,7 +461,7 @@ function Free({ from, to }: { from: number; to: number }) {
   );
 }
 
-function Timeline({ line, from, phone }: { line: DayLine; from: number; phone?: boolean }) {
+function Timeline({ line, from, phone, just }: { line: DayLine; from: number; phone?: boolean; just: Set<string> }) {
   const { prefs, store } = usePlanner();
   const scroller = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
@@ -434,7 +481,7 @@ function Timeline({ line, from, phone }: { line: DayLine; from: number; phone?: 
     box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 72;
   });
 
-  const row = (r: Row) => r.type === 'entry' ? <EntryRow key={r.entry.key} e={r.entry} />
+  const row = (r: Row) => r.type === 'entry' ? <EntryRow key={r.entry.key} e={r.entry} just={just} />
     : r.type === 'free' ? <Free key={`free:${r.from}`} from={r.from} to={r.to} />
     : <NowFree key="now" r={r} />;
   return (
@@ -461,16 +508,38 @@ function Timeline({ line, from, phone }: { line: DayLine; from: number; phone?: 
  * what has no slot.
  */
 export function TodayView({ phone }: { phone?: boolean }) {
+  const { tasks, store, done, completing, editorId, sheet } = usePlanner();
+  const { focus: f } = useLists();
   const { line, moving, from } = useToday();
-  const noSlot = line.anytime.length > 0 && <NoSlot list={line.anytime} />;
+  const just = useJustDone(tasks, store.loaded);
+  // What D ticks off: the task on now, or when nothing's on, the one thing to do. Not a meeting.
+  const on = line.rows.find(r => r.type === 'entry' && r.entry.state === 'now');
+  const target = on ? (on.type === 'entry' && on.entry.kind === 'task' ? on.entry.task : null)
+    : line.rows.some(r => r.type === 'now') && !f.live ? f.now : null;
+  const pressD = useRef<() => void>(() => {});
+  pressD.current = () => { if (target && target.status === 'open' && !completing.has(target.id)) done(target.id, true); };
+  useEffect(() => {
+    if (phone || editorId || sheet) return;
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key.toLowerCase() !== 'd' || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat) return;
+      const el = ev.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      ev.preventDefault();
+      pressD.current();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [phone, editorId, sheet]);
+
+  const noSlot = line.anytime.length > 0 && <NoSlot list={line.anytime} just={just} />;
   return (
     <div className={'td' + (phone ? ' ph' : '')}>
-      <DayHead line={line} from={from} />
+      <DayHead line={line} from={from} cheer={just.size > 0} />
       <div className="td-left">
-        <GoalsToday views={moving} />
+        <GoalsToday views={moving} just={just} />
         {!phone && noSlot}
       </div>
-      <Timeline line={line} from={from} phone={phone} />
+      <Timeline line={line} from={from} phone={phone} just={just} />
       {phone && noSlot}
     </div>
   );
