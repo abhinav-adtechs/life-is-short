@@ -11,6 +11,7 @@ import { Brand } from './Brand';
 import { NextCard } from './Next';
 import { PhoneMatrix, useOpenCount } from './Matrix';
 import { PhoneCalendar } from './Calendar';
+import { TodayView } from './TodayView';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
 import { Ambient } from './Ambient';
@@ -66,7 +67,8 @@ function SchedulingCard() {
 }
 
 /**
- * The phone planner: the task you're on, then the goal matrix or the calendar a tab away. The chat bar sits under your
+ * The phone planner: the task you're on, then today on its own, the goal matrix or the calendar a tab away (Today
+ * shows the task to do now on its line, in place of the card). The chat bar sits under your
  * thumb and rises into a sheet; Goals, Analytics, Share and Settings are in the ••• menu.
  */
 export function Phone() {
@@ -87,12 +89,14 @@ export function Phone() {
         <button type="button" className="ib bare touch" aria-label="More" aria-expanded={menu} onClick={() => setMenu(o => !o)}><MoreIcon /></button>
       </header>
       <div className="ph-scroll" inert={covered}>
-        {picked ? <SchedulingCard /> : <NextCard phone />}
-        <div className="tabs" role="tablist" aria-label="Goals or calendar">
+        {/* Today has the task to do now on its own line, so the Next card steps aside for it. */}
+        {picked ? <SchedulingCard /> : phoneTab !== 'today' && <NextCard phone />}
+        <div className="tabs" role="tablist" aria-label="Today, goals or calendar">
+          <button type="button" role="tab" aria-selected={phoneTab === 'today'} onClick={() => setPhoneTab('today')}>Today</button>
           <button type="button" role="tab" aria-selected={phoneTab === 'matrix'} onClick={() => setPhoneTab('matrix')}>Goals <span className="muted num">{open}</span></button>
           <button type="button" role="tab" aria-selected={phoneTab === 'calendar'} onClick={() => setPhoneTab('calendar')}>Calendar</button>
         </div>
-        {phoneTab === 'matrix' ? <PhoneMatrix /> : <PhoneCalendar />}
+        {phoneTab === 'today' ? <TodayView phone /> : phoneTab === 'matrix' ? <PhoneMatrix /> : <PhoneCalendar />}
       </div>
       <Ambient />
       <ChatDock phone inert={!!editorId || !!sheet || menu} />

@@ -97,8 +97,9 @@ export interface PlannerApi {
   setPrefs: (patch: Partial<Prefs>) => void;
   /** Your day, for slotting. */
   hours: WorkHours;
-  phoneTab: 'matrix' | 'calendar';
-  setPhoneTab: (t: 'matrix' | 'calendar') => void;
+  phoneTab: PhoneTab;
+  /** Switch the phone's tab; it's remembered in this browser. */
+  setPhoneTab: (t: PhoneTab) => void;
   /** The laptop's main view: the calendar with your goals beside it, or your goals in full. Kept in this browser. */
   mainView: MainView;
   setMainView: (v: MainView) => void;
@@ -223,11 +224,15 @@ export const usePlanner = () => {
   return v;
 };
 
-export type MainView = 'calendar' | 'goals';
-const VIEW_KEY = 'ds.view', GOAL_KEY = 'ds.view.goal';
+/** The laptop's views: today on its own, the calendar with your goals beside it, or your goals in full. */
+export type MainView = 'today' | 'calendar' | 'goals';
+/** The phone's tabs under the Next task: today on its own, the goal matrix, or the calendar. */
+export type PhoneTab = 'today' | 'matrix' | 'calendar';
+const VIEW_KEY = 'ds.view', GOAL_KEY = 'ds.view.goal', TAB_KEY = 'ds.tab';
 function remember(key: string, v: string) { try { localStorage.setItem(key, v); } catch { /* private mode: for this visit */ } }
 function recall(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
-const readView = (): MainView => (typeof window !== 'undefined' && recall(VIEW_KEY) === 'goals' ? 'goals' : 'calendar');
+const readView = (): MainView => { const v = typeof window !== 'undefined' ? recall(VIEW_KEY) : null; return v === 'goals' || v === 'today' ? v : 'calendar'; };
+const readTab = (): PhoneTab => { const v = typeof window !== 'undefined' ? recall(TAB_KEY) : null; return v === 'today' || v === 'calendar' ? v : 'matrix'; };
 const readOpenGoal = () => (typeof window !== 'undefined' ? recall(GOAL_KEY) : null);
 
 const SHEET_HASH = /^#(goals|archive|flow|settings|share|analytics|review)(?:\/([a-z0-9-]+))?$/;
@@ -270,7 +275,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const [editorId, setEditorId] = useState<string | null>(null);
   const [hashSheet, setHashSheet] = useState<{ kind: SheetKind; section: string | null } | null>(null);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
-  const [phoneTab, setPhoneTab] = useState<'matrix' | 'calendar'>('matrix');
+  const [phoneTab, setPhoneTabState] = useState<PhoneTab>(() => readTab());
+  const setPhoneTab = useCallback((t: PhoneTab) => { setPhoneTabState(t); remember(TAB_KEY, t); }, []);
   const [mainView, setMainViewState] = useState<MainView>(() => readView());
   const [openGoalId, setOpenGoalId] = useState<string | null>(() => readOpenGoal());
   const setMainView = useCallback((v: MainView) => { setMainViewState(v); remember(VIEW_KEY, v); }, []);
@@ -470,8 +476,10 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const schedule = useCallback((id: string) => {
     setEditorId(null);
     setPickedState(id);
-    if (!wide) { setPhoneTab('calendar'); setDay(startOfDay(Date.now())); }
-  }, [wide]);
+    // Picking a time happens on the calendar: go to it from a view without one.
+    if (!wide) { setPhoneTabState('calendar'); setDay(startOfDay(Date.now())); }
+    else if (mainView !== 'calendar') setMainView('calendar');
+  }, [wide, mainView, setMainView]);
 
   const unslot = useCallback((id: string) => {
     undoable('Moved to the backlog', store.patch(id, { start: null }));
