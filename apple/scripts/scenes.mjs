@@ -3,6 +3,7 @@
 // blur filters iOS can't draw, so the widgets get pictures. Each is about the widget's own size in pixels: WidgetKit
 // refuses images much bigger than the widget.
 // Run from the repo root: node apple/scripts/scenes.mjs  (needs Playwright: npm i -g playwright && npx playwright install chromium)
+// Name sizes to draw only those: node apple/scripts/scenes.mjs activity
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -30,7 +31,12 @@ const SIZES = {
   medium: { w: 364, h: 170, across: {}, horizon: 0.66 },
   // The ticket covers the land, so the sky shows at the art's own scale; the balloons come in closer.
   large: { w: 364, h: 382, across: { meadow: 0.62, amber: 0.58, night: 0.64, balloon: 0.7 }, horizon: { ...HORIZON, balloon: 0.48 } },
+  // The Lock Screen's Now (the Live Activity): 371 wide on most iPhones and 160 tall at most, which iOS won't let a
+  // picture exceed. The clock sits over the land on the left, the ticket over the right.
+  activity: { w: 371, h: 160, across: {}, horizon: 0.64 },
 };
+const only = process.argv.slice(2);
+for (const name of only) if (!SIZES[name]) throw new Error(`No size called ${name}: ${Object.keys(SIZES).join(', ')}`);
 
 function frame(scene, { w, h, across, horizon }) {
   const ax = across[scene] ?? 0.5;
@@ -55,6 +61,7 @@ for (const scale of [2, 3]) {
   const page = await browser.newPage({ deviceScaleFactor: scale, viewport: { width: 400, height: 400 } });
   for (const scene of Object.keys(LAYERS)) {
     for (const [size, spec] of Object.entries(SIZES)) {
+      if (only.length && !only.includes(size)) continue;
       const dir = path.join(out, `window-${scene}-${size}.imageset`);
       mkdirSync(dir, { recursive: true });
       const html = path.join(work, 'frame.html');

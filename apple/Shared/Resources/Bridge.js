@@ -1,8 +1,8 @@
 // Injected by the iPhone, iPad and Mac apps (WebController.swift) into the main frame, before the page's own scripts.
 // It gives the page `window.lisNative`, which lib/native.ts wraps for the planner, and stands in for what an app's web
 // view lacks: dictation backed by the app's speech recogniser, the share sheet and the page colour for the window.
-// The app calls this function with its config: platform, version, build, whether native speech is on, and the state of
-// its bundled page when that's what's showing.
+// The app calls this function with its config: platform, version, build, whether native speech is on, whether it offers
+// the Lock Screen's Now, and the state of its bundled page when that's what's showing.
 (function (config) {
   'use strict';
   const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lis;
@@ -38,6 +38,8 @@
     build: config.build,
     /** The app is linked to this site (webcredentials), so passkeys work here. */
     passkeys: config.passkeys === true,
+    /** The app offers the Lock Screen's Now (a Live Activity): an iPhone, or an iPad that allows it. */
+    liveActivity: config.liveActivity === true,
     /** The app's own setup and offline page reads its state here. */
     page: config.page || null,
     post,

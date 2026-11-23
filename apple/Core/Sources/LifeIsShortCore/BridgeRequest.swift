@@ -13,6 +13,22 @@ public enum Haptic: String, CaseIterable {
     case success, warning, error, light, medium, selection
 }
 
+/// Settings for the Lock Screen's Now, from the planner: each nil leaves that one as it is.
+public struct LiveActivityChange: Equatable, Sendable {
+    public var on: Bool?
+    public var hideTitles: Bool?
+    public var style: LiveNowStyle?
+
+    public init(on: Bool? = nil, hideTitles: Bool? = nil, style: LiveNowStyle? = nil) {
+        self.on = on
+        self.hideTitles = hideTitles
+        self.style = style
+    }
+
+    /// Nothing to change: the planner is asking how things stand.
+    public var isQuery: Bool { on == nil && hideTitles == nil && style == nil }
+}
+
 /// A message from the page (Bridge.js posts them through window.webkit.messageHandlers.lis), checked and typed.
 /// Anything malformed, oversized or unknown is nil, and the app answers it with an error.
 public enum BridgeRequest: Equatable {
@@ -38,6 +54,8 @@ public enum BridgeRequest: Equatable {
     case log(String)
     /// Today's picture for the widgets (WidgetSnapshot), or nil to empty them: signed out.
     case widget(WidgetSnapshot?)
+    /// The Lock Screen's Now (the Live Activity), from the planner's settings: what to change, or nothing to just ask.
+    case liveActivity(LiveActivityChange)
 
     /// Who may send it. The planner can't change the server, and the bundled pages can't reach speech or sharing.
     public var allowed: Set<PageKind> {
@@ -95,6 +113,15 @@ public enum BridgeRequest: Equatable {
             guard let body = message["snapshot"], !(body is NSNull) else { return .widget(nil) }
             guard let snapshot = WidgetSnapshot.parse(body) else { return nil }
             return .widget(snapshot)
+        case "liveActivity":
+            var change = LiveActivityChange()
+            if let raw = message["on"] { guard let on = raw as? Bool else { return nil }; change.on = on }
+            if let raw = message["hideTitles"] { guard let hide = raw as? Bool else { return nil }; change.hideTitles = hide }
+            if let raw = message["style"] {
+                guard let name = raw as? String, let style = LiveNowStyle(rawValue: name) else { return nil }
+                change.style = style
+            }
+            return .liveActivity(change)
         default:
             return nil
         }

@@ -13,9 +13,10 @@ enum WidgetStyle: String, CaseIterable, Sendable {
     case theme
 }
 
-/// The widget sizes the window's pictures are framed for (apple/scripts/scenes.mjs).
+/// The widget sizes the window's pictures are framed for (apple/scripts/scenes.mjs), and the Lock Screen's Now (the
+/// Live Activity), which iOS won't let a picture be taller than.
 enum SceneSize: String {
-    case small, medium, large
+    case small, medium, large, activity
 }
 
 extension WidgetScene {

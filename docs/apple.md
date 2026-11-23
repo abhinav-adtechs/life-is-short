@@ -33,6 +33,8 @@ what a browser can't:
 - **Widgets on the Home Screen and the lock screen** (iPhone and iPad): the one thing to do now, how long you have for
   it and what comes next, on a ticket over the view out of the train window for the time of day, or in your theme.
   [Widgets](#widgets).
+- **Now on the Lock Screen and in the Dynamic Island**: the same answer, pinned as a Live Activity, its slot counting
+  down, with Refresh on it. Switched on in Settings → On this iPhone. [Live Activity](#live-activity).
 - **A real Mac app.** A menu bar with every command and its shortcut (`⌘K` speak, and again to send; `⇧⌘K`
   dump; `⌘,` settings; `⌘R` reload), a title bar in the planner's colours, and a window that remembers its size and stays signed in when you close
   it.
@@ -125,10 +127,12 @@ tasks.
 | `speech.*` | Start, stop or abort native dictation (behind `SpeechRecognition`) |
 | `external.open` | Open a link in the browser |
 | `widget` | Today's picture for the widgets ([Widgets](#widgets)); with no snapshot, empty them (signed out) |
+| `liveActivity` | The Lock Screen's Now settings (`on`, `hideTitles`, `style`), any to change; answered with how it stands ([Live Activity](#live-activity)) |
 | `server.set`, `page.retry` | Only from the app's own setup and offline page |
 
-`lisNative` also says what the app can do: `platform`, `version`, `build`, and `passkeys` when the app is linked to
-the site it's showing ([Passkeys in the apps](#passkeys-in-the-apps)).
+`lisNative` also says what the app can do: `platform`, `version`, `build`, `passkeys` when the app is linked to
+the site it's showing ([Passkeys in the apps](#passkeys-in-the-apps)), and `liveActivity` when it offers the Lock
+Screen's Now (an iPhone, or an iPad that allows Live Activities).
 
 **App → page**: commands from Siri, quick actions, `lifeisshort://` links and the Mac menu: `dump` (with optional
 text), `listen`, `open` (`settings`, `analytics`, `review`, `share`), `task` (open a task tapped on a widget). They
@@ -187,6 +191,62 @@ than the widget. The type is Geist and Geist Mono, as in the planner (SIL Open F
 empty, tinted and on the lock screen (`iOS/WidgetGallery.swift`). The pictures are in the run's **smoke-test**
 artifact as `widgets-*.png`.
 
+## Live Activity
+
+**Now on the Lock Screen and in the Dynamic Island** (iPhone; an iPad shows it on its Lock Screen). The same answer as
+the Now widget, pinned: the task on the calendar this minute and its slot counting down, or the top of the backlog and
+how long you're free, and what comes next. Tap it and the app opens on that task. Off until you switch it on in
+**Settings → On this iPhone**, which also picks its look (**the window** or **your theme**, as on the widget) and can
+**hide task names** (it keeps the goal colours and times, and leaves the names out of what it carries at all).
+
+| Where | What's on it |
+|---|---|
+| Lock Screen, Notification Centre, StandBy | The window: the clock on the glass (time left, or when free time ends) and the task on a ticket, what's next below the tear. Your theme: the planner's Now card, small. Refresh on both. |
+| Dynamic Island, compact | The slot as a ring draining round its goal's colour (the lamp in free time, a white ring in a meeting, a tick when it's all clear), and the minutes left. |
+| Dynamic Island, minimal | The ring alone, beside another app's activity. |
+| Dynamic Island, expanded | What it is and how long, the big clock, and the task with its goal, today's steps for that goal, what's next and Refresh. |
+| Apple Watch, CarPlay, the Mac's menu bar | The compact views, by iOS's own choice. |
+
+**How it stays right without push.** The app is signed without the Push Notifications capability (a free Apple ID
+can't have it), so nothing on a server can change the activity: only the app can, while it runs. So:
+
+1. **The planner hands it every change.** The `widget` message (`lib/widget.ts`) reaches the activity too
+   (`iOS/WidgetBridge.swift` → `NowActivityController`), as does the app coming to the front and leaving it, and the
+   clock (midnight, a new time zone). While the planner is open it turns on time.
+2. **Two steps in every update.** Each update carries what's Now and what Now becomes at the next moment that changes
+   it (`LiveNowState.then`, worked out by the widgets' own rules in `LiveNow.swift`, tested). That moment is the
+   activity's stale date: there iOS redraws it with the second step, a minute or two late, with nothing running.
+   Countdowns and bars run by themselves within a step.
+3. **Past that, it says so.** Out of date, the lamp goes out, the clock counts up from when things changed, the ticket
+   reads **Probably now** and **Refresh** grows big. "As of 10:48" says when the planner last spoke.
+4. **Refresh on it** brings it up to date without opening the app: it's a `LiveActivityIntent`, which iOS runs in the
+   app's process in the background (`Widgets/Live/NowActivity.swift`). It reads the day the planner last handed over
+   from the App Group.
+5. **Show Now** does the same from anywhere: Shortcuts, Siri ("Show now in Life is short"), the Action button, or on
+   iOS 18 a control in Control Center or the Lock Screen's corners. It also puts the activity back after a swipe-away.
+
+A task added on the laptop reaches it the next time the app runs, as with the widgets.
+
+**Its limits, and what it does about them.**
+
+- **Eight hours.** iOS ends a Live Activity after 8 hours (it stays on the Lock Screen up to 4 more). Opening the
+  planner swaps in a fresh one once the running one is 3 hours old and wouldn't last the day; Refresh does when it has
+  less than an hour left. It runs only in your day's hours (Settings → Calendar), and leaves a last word, "That's the
+  day", for half an hour after they end.
+- **Started only from the app on screen, or an intent.** iOS allows nothing else, so it starts when the planner opens
+  with a fresh day, from Refresh or from Show Now; anything else only updates it.
+- **4 KB.** Everything it carries fits in about 1.6 KB at the most, with titles cut by bytes (`LiveNow.fit`, tested).
+- **Swiped away** stays away for the rest of that day, unless you ask for it with Show Now or switch it on again.
+- **Signed out, or another server**: it ends at once, with the widgets.
+- **A reinstall** (every 7 days on a free Apple ID): the first launch of a new build ends the old activity and starts
+  afresh once the planner speaks.
+
+**Keep it fresh with no taps:** in Shortcuts → Automation, add a **Time of Day** automation (say 8:55, 12:55 and 16:55)
+that runs **Show Now on the Lock Screen**, set to run immediately. It brings it up to date, and back if it ran out.
+
+**Seeing it without a phone.** CI's smoke test draws every state, in both looks, on the Lock Screen and in the Dynamic
+Island (`widgets-live.png` and `widgets-island.png`, `iOS/WidgetGallery.swift`).
+
 ## Plan
 
 **Phase 1: the apps (this change)**
@@ -208,6 +268,9 @@ artifact as `widgets-*.png`.
 
 - [x] **Widgets** on the Home Screen and the lock screen, on iPhone and iPad: the Next task and how long you have for
   it ([Widgets](#widgets)). Still to come: the Mac desktop, and Done from the widget without opening the app.
+- [x] **Now on the Lock Screen and in the Dynamic Island**, a Live Activity, with Refresh and Show Now
+  ([Live Activity](#live-activity)). Still to come: a refresh in the background when iOS allows one, a scheduled start
+  each morning (iOS 26), and, with the paid program, push from the server at every slot.
 - **A nudge when a slot starts**: local notifications for the next day's scheduled tasks, set from the planner, so
   there's no push server.
 - [x] **Face ID** in place of the PIN and the code: done as **passkeys**, on the website and in the apps
@@ -293,6 +356,8 @@ In `Config/Local.xcconfig`, set `DEVELOPMENT_TEAM` to your Team ID and `LIS_SERV
 - The widgets come with the iOS app. Run it, open the planner once, then add **Now** from the Home Screen's widget
   gallery. Xcode signs the App Group with your team on its own. **Release to TestFlight** below puts them on your phone
   without Xcode.
+- The Lock Screen's Now comes with it too, and works with a free Apple ID: it needs no capability beyond the App Group.
+  Switch it on in the planner's Settings → On this iPhone.
 - Core logic tests: `swift test --package-path apple/Core`.
 - `project.yml` is the source of truth. The `.xcodeproj` is generated and ignored, so after pulling, run
   `./bootstrap.sh` again.
@@ -344,6 +409,11 @@ TestFlight for yourself and up to 100 people on your team needs none of this. Fo
   capability": register the App Group and the widgets' identifier, and tick App Groups on both (step 3).
 - **A widget says "Open Life is short"**: it hasn't heard from the planner yet. Open the app once, signed in. A build
   that isn't signed with the App Group (CI's Simulator builds) never hands anything over.
+- **Now isn't on the Lock Screen**: check Settings → On this iPhone in the planner, then the iPhone's Settings → Life is
+  short → Live Activities. It starts once the planner opens with today, within your day's hours, and stays away for the
+  rest of a day you swiped it away (Show Now brings it back).
+- **The Lock Screen's Now is blank after a reinstall**: restart the iPhone. iOS sometimes loses track of a new build's
+  views until it restarts.
 - **The mic does nothing**: Settings → Privacy & Security → Microphone and Speech Recognition → Life is short.
 - **Google says "disallowed_useragent"**: the app is out of date (Connect Google must open the system sheet). Update
   from TestFlight.
