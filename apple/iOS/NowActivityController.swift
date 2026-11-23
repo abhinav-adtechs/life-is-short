@@ -53,6 +53,14 @@ final class NowActivityController {
         }
     }
 
+    /// This install: the build number, and when the app's binary was made. Builds from Xcode all say build 1, and an
+    /// activity left by the install before is drawn blank on the Lock Screen while the Dynamic Island still shows it.
+    private static let install: String = {
+        let made = Bundle.main.executableURL
+            .flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        return "\(AppEnvironment.build)-\(Int(made?.timeIntervalSince1970 ?? 0))"
+    }()
+
     /// The planner's Settings offers it here: on an iPhone, and on an iPad that allows Live Activities.
     static var isSupported: Bool {
         UIDevice.current.userInterfaceIdiom == .phone || ActivityAuthorizationInfo().areActivitiesEnabled
@@ -175,7 +183,7 @@ final class NowActivityController {
         let all = live()
         var keep = all.first { $0.id == Saved.id }
         for activity in all where activity.id != keep?.id { await end(activity, last: nil, dismissAt: nil) }
-        if let k = keep, k.attributes.v != NowActivityAttributes.version || Saved.build != AppEnvironment.build {
+        if let k = keep, k.attributes.v != NowActivityAttributes.version || Saved.build != Self.install {
             await end(k, last: nil, dismissAt: nil)
             keep = nil
         }
@@ -219,7 +227,7 @@ final class NowActivityController {
             let activity = try Activity.request(attributes: NowActivityAttributes(), content: content(state), pushType: nil)
             Saved.id = activity.id
             Saved.started = Date()
-            Saved.build = AppEnvironment.build
+            Saved.build = Self.install
             watch(activity)
             return true
         } catch {
