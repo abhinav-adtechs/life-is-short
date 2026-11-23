@@ -142,8 +142,8 @@ enum Paper {
     static let muted = Color(rgb: 0x476F5A)
     static let line = Color(rgb: 0x14382F, opacity: 0.22)
     static let track = Color(rgb: 0x14382F, opacity: 0.13)
-    /// The ticket's stamp red, for what's urgent.
-    static let red = Color(rgb: 0xD9452F)
+    /// The ticket's stamp red, for what's urgent: a shade deeper than the home page's, so small type reads on paper.
+    static let red = Color(rgb: 0xB83A27)
 }
 
 // MARK: - The ticket

@@ -165,6 +165,16 @@ struct NowWidgetView: View {
             ZStack {
                 model.scene.image(sceneSize, bundle: model.bundle).resizable().scaledToFill()
                 LinearGradient(colors: model.scene.shade, startPoint: .top, endPoint: .center)
+                if model.moment.now == nil && sceneSize != .large {
+                    // Nothing to do: the words sit low on the view, over the fields.
+                    LinearGradient(colors: [.black.opacity(0), .black.opacity(0.35)], startPoint: UnitPoint(x: 0.5, y: 0.42), endPoint: .bottom)
+                } else if sceneSize == .medium {
+                    // Behind the clock beside the ticket.
+                    EllipticalGradient(colors: [.black.opacity(0.32), .black.opacity(0)], center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
+                        .frame(width: 286, height: 140)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .offset(x: -143, y: 70)
+                }
                 // Under a dark Home Screen, a touch of dusk over the view.
                 if scheme == .dark { Color.black.opacity(0.14) }
             }
@@ -211,6 +221,7 @@ private struct SkyLabel: View {
 private struct SkyNote: View {
     let m: WidgetMoment
     var big: CGFloat = 17
+    var small: CGFloat = 12.5
     var long = false
 
     var body: some View {
@@ -218,10 +229,10 @@ private struct SkyNote: View {
             Text(m.snapshot == nil ? "Open Life is short" : "Nothing waiting.")
                 .font(.geist(big, .semibold)).tracking(-big * 0.02)
             Text(m.snapshot == nil ? "Your next task shows up here." : long ? "Dump the next thing into the app when it comes." : "Enjoy the view.")
-                .font(.geist(big * 0.72, .medium)).opacity(0.88)
+                .font(.geist(small, .medium)).opacity(0.9)
         }
         .foregroundStyle(onSky)
-        .shadow(color: skyShadow, radius: 8, y: 1)
+        .shadow(color: Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.45), radius: 8, y: 1)
         .lineLimit(2)
     }
 }
@@ -319,7 +330,7 @@ struct WindowMedium: View {
             VStack(alignment: .leading, spacing: 0) {
                 SkyLabel(m: m, trailing: NowWords.day(m.date))
                 Spacer()
-                SkyNote(m: m, big: 20, long: true)
+                SkyNote(m: m, big: 20, small: 13, long: true)
             }
             .padding(pad)
         }
@@ -443,7 +454,7 @@ struct WindowLarge: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 SkyLabel(m: m, trailing: NowWords.day(m.date))
-                SkyNote(m: m, big: 24, long: true).padding(.top, 12)
+                SkyNote(m: m, big: 24, small: 15, long: true).padding(.top, 12)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
