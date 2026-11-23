@@ -46,6 +46,11 @@ final class NowActivityController {
             get { d.string(forKey: "LISLiveEnded") }
             set { d.set(newValue, forKey: "LISLiveEnded") }
         }
+        /// The activity put up with Show Now: it stays outside the day's hours.
+        static var pinned: String? {
+            get { d.string(forKey: "LISLivePinned") }
+            set { d.set(newValue, forKey: "LISLivePinned") }
+        }
         /// The day (YYYY-MM-DD) the person swiped it away: it stays away for the rest of that day.
         static var dismissed: String? {
             get { d.string(forKey: "LISLiveDismissed") }
@@ -123,7 +128,11 @@ final class NowActivityController {
         }
         if let hide = change.hideTitles { Saved.hidden = hide }
         if let style = change.style { Saved.style = style }
-        if !change.isQuery { await sync(.setting) }
+        if change.show {
+            await sync(.show)
+        } else if !change.isQuery {
+            await sync(.setting)
+        }
         return [
             "supported": Self.isSupported,
             "enabled": ActivityAuthorizationInfo().areActivitiesEnabled,
@@ -158,7 +167,8 @@ final class NowActivityController {
             trigger: trigger, date: date, on: Saved.on, allowed: ActivityAuthorizationInfo().areActivitiesEnabled,
             active: UIApplication.shared.applicationState == .active, reading: reading(),
             running: current.map { LiveNowPolicy.Running(started: Saved.started ?? date, state: $0.content.state) },
-            dismissed: Saved.dismissed, style: Saved.style, hidden: Saved.hidden, calendar: calendar)
+            dismissed: Saved.dismissed, style: Saved.style, hidden: Saved.hidden,
+            pinned: current != nil && current?.id == Saved.pinned, calendar: calendar)
         let action = LiveNowPolicy.decide(input)
         switch action {
         case .nothing:
@@ -171,6 +181,12 @@ final class NowActivityController {
             if await start(state), let current { await end(current, last: nil, dismissAt: nil) }
         case .end(let last, let dismissAt):
             for activity in live() { await end(activity, last: last, dismissAt: dismissAt) }
+        }
+        switch action {
+        case .start, .rotate:
+            Saved.pinned = trigger == .show ? Saved.id : nil
+        default:
+            break
         }
         if action != .nothing { say("\(trigger.rawValue) → \(String(describing: action).prefix(60))") }
         scheduleTick()

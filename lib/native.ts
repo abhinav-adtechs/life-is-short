@@ -109,7 +109,10 @@ export interface LiveActivityStatus {
   showing: boolean;
 }
 
-export type LiveActivityChange = Partial<Pick<LiveActivityStatus, 'on' | 'hideTitles' | 'style'>>;
+export type LiveActivityChange = Partial<Pick<LiveActivityStatus, 'on' | 'hideTitles' | 'style'>> & {
+  /** Show Now: put it on the Lock Screen now, fresh, whatever the hour. Switches the setting on. */
+  show?: boolean;
+};
 
 /** The app offers the Lock Screen's Now here. */
 export function hasLiveActivity(): boolean {

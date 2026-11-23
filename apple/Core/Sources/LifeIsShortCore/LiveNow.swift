@@ -374,7 +374,8 @@ public enum LiveNowPolicy {
         case setting
         /// Refresh on the activity.
         case refresh
-        /// Show Now: a Shortcut, Siri or the control. Overrides a swipe-away.
+        /// Show Now: a Shortcut, Siri, the control or the planner's button. Overrides a swipe-away and the day's hours,
+        /// and always puts up a fresh one.
         case show
     }
 
@@ -413,10 +414,13 @@ public enum LiveNowPolicy {
         public var dismissed: String?
         public var style: LiveNowStyle
         public var hidden: Bool
+        /// The running one was put up with Show Now: it stays outside the day's hours until iOS ends it.
+        public var pinned: Bool
         public var calendar: Calendar
 
         public init(trigger: Trigger, date: Date, on: Bool, allowed: Bool, active: Bool, reading: Reading, running: Running?,
-                    dismissed: String? = nil, style: LiveNowStyle = .window, hidden: Bool = false, calendar: Calendar = .current) {
+                    dismissed: String? = nil, style: LiveNowStyle = .window, hidden: Bool = false, pinned: Bool = false,
+                    calendar: Calendar = .current) {
             self.trigger = trigger
             self.date = date
             self.on = on
@@ -427,6 +431,7 @@ public enum LiveNowPolicy {
             self.dismissed = dismissed
             self.style = style
             self.hidden = hidden
+            self.pinned = pinned
             self.calendar = calendar
         }
     }
@@ -452,7 +457,9 @@ public enum LiveNowPolicy {
 
         let start = LiveNow.dayStart(of: i.date, hours: snapshot.hours, calendar: i.calendar)
         let end = LiveNow.dayEnd(of: i.date, hours: snapshot.hours, calendar: i.calendar)
-        guard i.date >= start, i.date < end else {
+        let explicit = i.trigger == .show
+        let byHand = explicit || (i.pinned && i.running != nil)
+        guard byHand || (i.date >= start && i.date < end) else {
             guard let running = i.running else { return .nothing }
             // Past the day's hours: a last word, gone half an hour after the day ends. Before them: gone.
             guard i.date >= end else { return .end(last: nil, dismissAt: nil) }
@@ -462,7 +469,6 @@ public enum LiveNowPolicy {
         }
         guard let state = LiveNow.state(at: i.date, snapshot: snapshot, style: i.style, hidden: i.hidden, calendar: i.calendar) else { return .nothing }
         let today = WidgetTimeline.dayString(i.date, calendar: i.calendar)
-        let explicit = i.trigger == .show
         let fresh = i.active && (i.trigger == .snapshot || i.trigger == .setting)
 
         guard let running = i.running else {
@@ -476,9 +482,12 @@ public enum LiveNowPolicy {
 
         let age = i.date.timeIntervalSince(running.started)
         let rotate: Bool
-        if fresh {
+        if explicit {
+            // Asked for: a fresh one, its eight hours from now, and never one iOS left drawn blank.
+            rotate = true
+        } else if fresh {
             rotate = age >= rotateInApp && running.started.addingTimeInterval(life) < end
-        } else if i.trigger == .refresh || explicit {
+        } else if i.trigger == .refresh {
             rotate = age >= life - rotateOnRefresh
         } else {
             rotate = false
