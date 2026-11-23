@@ -294,6 +294,12 @@ final class WebController: NSObject {
         case .log(let line):
             if AppEnvironment.isDebug || AppEnvironment.smokeTest { SmokeTest.say("LIS-PAGE \(line)") }
             reply(true, nil)
+        case .widget(let snapshot):
+            #if os(iOS)
+            WidgetBridge.update(snapshot)
+            #endif
+            smoke?.widgetHeard(snapshot)
+            reply(true, nil)
         }
     }
 
@@ -319,6 +325,10 @@ final class WebController: NSObject {
             guard let self else { return }
             if let problem { return reply(["ok": false, "message": problem] as [String: Any], nil) }
             AppEnvironment.choose(server: url)
+            #if os(iOS)
+            // Another planner: the widgets forget this one's day until it says something.
+            if url != self.server { WidgetBridge.update(nil) }
+            #endif
             self.server = url
             self.policy = NavigationPolicy(server: url, localPages: Self.pages)
             reply(["ok": true], nil)

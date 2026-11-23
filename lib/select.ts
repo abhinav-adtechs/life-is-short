@@ -60,13 +60,20 @@ export interface Focus {
  * that nothing on its goal's chart is holding up.
  * Next = the next scheduled task today, else the next backlog task.
  */
+/**
+ * The backlog in the order Now picks from it: backlog order, except that a task held up by a step before it on its
+ * goal's chart waits behind the ones you can start (unless that's all there is).
+ */
+export function focusOrder(tasks: Task[], rank: Rank = flat, blocked?: (t: Task) => boolean): Task[] {
+  const all = backlogList(tasks, rank);
+  const free = blocked ? all.filter(t => !blocked(t)) : all;
+  return free.length ? [...free, ...all.filter(t => !free.includes(t))] : all;
+}
+
 export function focus(tasks: Task[], now: number, rank: Rank = flat, blocked?: (t: Task) => boolean): Focus {
   const sched = tasks.filter(t => t.status === 'open' && t.start != null).sort((a, b) => (a.start as number) - (b.start as number));
   const live = sched.find(t => (t.start as number) <= now && endOf(t) > now) || null;
-  // A task held up by a step before it on its goal's chart waits behind the ones you can start (unless that's all there is).
-  const all = backlogList(tasks, rank);
-  const free = blocked ? all.filter(t => !blocked(t)) : all;
-  const bl = free.length ? [...free, ...all.filter(t => !free.includes(t))] : all;
+  const bl = focusOrder(tasks, rank, blocked);
   const cur = live || bl[0] || null;
   const dayEnd = addDays(startOfDay(now), 1).getTime();
   const next = sched.find(t => (t.start as number) > now && (t.start as number) < dayEnd && t.id !== cur?.id)

@@ -1,4 +1,5 @@
 import Foundation
+import LifeIsShortCore
 import WebKit
 #if os(iOS)
 import UIKit
@@ -10,6 +11,7 @@ import AppKit
 /// `-LISSmokeTest YES -LISServerURL http://localhost:3000 -LISSmokeShot <name>.png`. It passes when the planner loads,
 /// says `ready` through the bridge and answers a `ping` command (the round trip both ways); it saves a snapshot in the
 /// app's own caches folder, which the Mac's sandbox allows, and quits. Every line it prints starts with LIS-SMOKE.
+/// On an iPhone it also draws every widget (iOS/WidgetGallery.swift) and says what the planner told the widgets.
 @MainActor
 final class SmokeTest {
     private weak var controller: WebController?
@@ -30,6 +32,13 @@ final class SmokeTest {
         controller?.handle(.ping)
     }
 
+    /// The planner handed the widgets today's picture (or emptied them).
+    func widgetHeard(_ snapshot: WidgetSnapshot?) {
+        guard let snapshot else { return Self.say("LIS-SMOKE widget-data cleared") }
+        let today = "\(snapshot.today.done) of \(snapshot.today.total) done today"
+        Self.say("LIS-SMOKE widget-data \(snapshot.items.count) items, \(today), \(snapshot.outcomes == nil ? "not planned" : "planned")")
+    }
+
     func pong() {
         guard !finished, let webView = controller?.webView else { return }
         finished = true
@@ -38,6 +47,11 @@ final class SmokeTest {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            #if os(iOS)
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                for shot in WidgetGallery.render(into: caches) { Self.say("LIS-SMOKE widget-shot \(shot.path)") }
+            }
+            #endif
             let file = caches.appendingPathComponent(AppEnvironment.smokeShot ?? "smoke.png")
             webView.takeSnapshot(with: nil) { image, error in
                 do {

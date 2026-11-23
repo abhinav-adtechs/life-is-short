@@ -1,7 +1,8 @@
 #!/bin/bash
 # CI's smoke test (.github/workflows/apple.yml). Runs each built app against the planner on $SMOKE_SERVER (npm start
 # with no Supabase, so it runs on the browser's own storage). An app passes when its SmokeTest (Shared/SmokeTest.swift)
-# says so: the planner loaded, said `ready` through the bridge and answered a `ping`. Logs and snapshots go to <out dir>.
+# says so: the planner loaded, said `ready` through the bridge and answered a `ping`. Logs and snapshots go to <out dir>,
+# with the iPhone's pictures of every widget (widgets-*.png).
 #
 # Usage: apple/scripts/smoke.sh <derived data> <out dir> mac|iphone|ipad ...
 set -uo pipefail
@@ -32,6 +33,10 @@ verdict() {
   grep -E "LIS-(SMOKE|PAGE)" "$log" | tr -d '\r' | sed 's/^/  /'
   shot=$(tr -d '\r' <"$log" | sed -n 's/^.*LIS-SMOKE shot //p' | tail -1)
   if [ -n "$shot" ] && [ -f "$shot" ]; then cp "$shot" "$OUT/$name.png"; fi
+  # The iPhone draws every widget too (iOS/WidgetGallery.swift).
+  tr -d '\r' <"$log" | sed -n 's/^.*LIS-SMOKE widget-shot //p' | while IFS= read -r picture; do
+    if [ -f "$picture" ]; then cp "$picture" "$OUT/$(basename "$picture")"; fi
+  done
   if grep -q "LIS-SMOKE pass" "$log"; then
     echo "✓ $name"
   else

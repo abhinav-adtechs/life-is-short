@@ -44,7 +44,7 @@
 | 🔁 **Things that come back** | *"Every Monday and Thursday"*, *"4 times a week"*, *"20 times, then stop"*: one at a time, on its day. [More ↓](#things-that-come-back) |
 | 📊 **See how it went** | A score out of 100 for a day, week or month: done and missed, time on each goal, rhythm, flow and load. [More ↓](#see-how-it-went) |
 | 📆 **One calendar** | Calendar events and Google Tasks from up to five Google accounts, read-only, slotted around. [More ↓](#your-whole-life-one-calendar) |
-| 📱 **Every screen** | Live sync between phone and laptop, and **iPhone, iPad and Mac apps** with on-device dictation, Siri and Shortcuts. [More ↓](#on-every-screen-you-own) |
+| 📱 **Every screen** | Live sync between phone and laptop, and **iPhone, iPad and Mac apps** with on-device dictation, Siri, Shortcuts and **widgets**. [More ↓](#on-every-screen-you-own) |
 | 👀 **Share a view** | A view-only window for someone else, signed in with an emailed code. They suggest; you approve. [More ↓](#share-a-view-keep-the-keys) |
 | 🤖 **Claude, over MCP** | A built-in **MCP server** at `/mcp` with OAuth 2.1: **13 tools** to read and change goals, tasks and the day. [More ↓](#claude-and-mcp-at-a-glance) |
 | 🔐 **Locked down** | PIN + authenticator code, Face ID or a passkey; row-level security; a strict CSP; a nightly, breach-checked backup. [More ↓](#locked-down-by-default) |
@@ -406,6 +406,8 @@ Connect **up to five Google accounts**, personal and work alike. Their **Google 
 Add a task on your phone in the queue for coffee and it's **on your laptop within seconds**. Live sync keeps every open screen up to date, and the phone and the laptop each get a layout built for them.
 
 **Apps for iPhone, iPad and Mac** wrap the same planner in a native window: dictation on the device, Siri and Shortcuts ("Dump a thought in Life is short"), Home Screen quick actions, and a Mac menu bar with every shortcut. They update whenever the planner does, and ship through TestFlight. See [`docs/apple.md`](docs/apple.md).
+
+**Widgets** put the one thing to do now on your Home Screen and lock screen, with how long you have for it and what comes next. Pick **the window**, the view out of the train for the time of day (amber at dawn and dusk, the meadow by day, balloons at the weekend, night after eight) with your task on a ticket, or **your theme**. The large one adds today's outcomes and the rest of your day like a departures board. They keep up with your day on their own between visits to the app. [Widgets ↓](docs/apple.md#widgets)
 
 [![Apple apps](https://img.shields.io/github/actions/workflow/status/abhinav-adtechs/life-is-short/apple.yml?branch=main&style=flat-square&label=Apple%20apps&logo=apple&logoColor=white)](https://github.com/abhinav-adtechs/life-is-short/actions/workflows/apple.yml)
 

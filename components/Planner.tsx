@@ -5,9 +5,9 @@ import type { Priority, Task } from '@/lib/model';
 import { PRI } from '@/lib/model';
 import type { TaskRepo } from '@/lib/repo/types';
 import { findSlot } from '@/lib/place';
-import { backToBacklog, backlogList, doneList, focus, isEvent, type Rank } from '@/lib/select';
+import { backToBacklog, backlogList, doneList, focus, focusOrder, isEvent, progress, type Rank } from '@/lib/select';
 import { fmtDur, fmtTime, fmtWhen, shortTitle } from '@/lib/format';
-import { atMinutes, ceil15, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
+import { addDays, atMinutes, ceil15, fromYmd, minsOf, startOfDay, ymd } from '@/lib/time';
 import { VIEW_FOR_DAYS, viewDays, type CalView } from '@/lib/calview';
 import { calendarOf, mergeExternal } from '@/lib/google';
 import {
@@ -20,9 +20,10 @@ import { blockedTasks, logFromWrites, type LogEntry } from '@/lib/flow';
 import { applyWorkflow, normalizeOps, recordedIds, type WorkflowRefs } from '@/lib/workflow';
 import { kindOf } from '@/lib/plan';
 import { daysFor, fullMatrix, type Days } from '@/lib/layout';
-import { resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
+import { accentColor, resolveTheme, workHours, type Prefs, type ThemeId } from '@/lib/prefs';
 import { pendingCount } from '@/lib/share-client';
-import { haptic, nativeReady, onNativeCommand } from '@/lib/native';
+import { haptic, native, nativeReady, onNativeCommand, sendWidget } from '@/lib/native';
+import { WIDGET_HEARTBEAT, WIDGET_SETTLE, widgetKey, widgetLook, widgetSnapshot, type WidgetOutcome } from '@/lib/widget';
 import type { WorkHours } from '@/lib/place';
 import type { Change as Write, Slip } from '@/lib/slips';
 import { dueNow, followTask, liveRepeats, markMade, nextWhen, occurrenceOf, upcoming, upcomingOn, type Repeat, type RepeatOp } from '@/lib/repeat';
@@ -33,7 +34,7 @@ import { useSlips } from './slips';
 import { useRepeats } from './repeats';
 import { useGoals } from './goalStore';
 import { useDayPlans } from './dayStore';
-import { planOn, type DayPlan, type DaysFn } from '@/lib/today';
+import { outcomeView, planOn, type DayPlan, type DaysFn } from '@/lib/today';
 import { useGoalLog } from './goalLog';
 import { useVoiceProfile, type VoiceApi } from './voiceProfile';
 import { useDrag } from './drag';
@@ -603,8 +604,8 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
 
   /* ---------- keys: ⌘K speaks (again to send), ⇧⌘K types; Esc closes the editor or panel, then the pick, then the mic, then the chat ---------- */
 
-  const keys = useRef({ editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet });
-  keys.current = { editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet };
+  const keys = useRef({ editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet, openEditor, store });
+  keys.current = { editorId, hashSheet, picked, chat, closeEditor, closeSheet, openSheet, openEditor, store };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const k = keys.current;
@@ -635,6 +636,12 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
     const off = onNativeCommand(c => {
       const k = keys.current;
       if (c.name === 'open') { k.openSheet(c.sheet); return; }
+      // A task tapped on a widget: open it, if it's still here.
+      if (c.name === 'task') {
+        if (k.hashSheet) k.closeSheet();
+        if (k.store.get(c.id)) k.openEditor(c.id);
+        return;
+      }
       if (k.editorId) k.closeEditor();
       if (k.hashSheet) k.closeSheet();
       // Speak again (⌘K in the apps' menus) stops and sends, like the mic button.
@@ -833,6 +840,49 @@ export default function Planner({ repo, email }: { repo: TaskRepo; email: string
   const derived = useMemo(() => lists(store.tasks, now, isOff, rank, blocked), [store.tasks, now, isOff, rank, blocked]);
 
   const todayPlan = useMemo(() => planOn(dayPlans.list, ymd(now)), [dayPlans.list, now]);
+
+  /* ---------- the iPhone and iPad widgets: today's picture for the app to hand them (lib/widget.ts) ---------- */
+
+  const widgetSent = useRef({ key: '', at: 0 });
+  const widgetJob = useRef<(() => void) | null>(null);
+  const inApp = mounted && native() != null;
+  useEffect(() => {
+    if (!inApp || !store.loaded || !goals.loaded) return;
+    const job = () => {
+      widgetJob.current = null;
+      const t = Date.now();
+      const live = store.tasks.filter(x => !isOff(x));
+      const mine = live.filter(x => !isEvent(x));
+      const day0 = startOfDay(t).getTime(), day1 = addDays(day0, 1).getTime();
+      const outcomes: WidgetOutcome[] | null = todayPlan ? todayPlan.focus.flatMap(o => {
+        const v = outcomeView(o, goals.list, store.tasks, day0, day1);
+        if (!v) return [];
+        const section = rootOf(goalIndex, v.goal).section;
+        return [{ goal: v.goal.title, color: prefs.labels.find(l => l.id === section)?.color, text: o.text, done: v.done, steps: v.steps.length }];
+      }) : null;
+      const look = widgetLook(prefs.theme);
+      const snapshot = widgetSnapshot({
+        tasks: live, backlog: focusOrder(mine, rank, blocked.size ? x => blocked.has(x.id) : undefined), blocked, now: t,
+        goalOf, colorOf: x => labelOf(x)?.color, today: progress(live, t).today, outcomes, theme: prefs.theme,
+        accent: { light: accentColor(prefs.accent, look.light), dark: accentColor(prefs.accent, look.dark), picked: prefs.accent != null },
+        hours: { start: prefs.dayStart, end: prefs.dayEnd },
+      });
+      const key = widgetKey(snapshot);
+      if (key === widgetSent.current.key && t - widgetSent.current.at < WIDGET_HEARTBEAT) return;
+      widgetSent.current = { key, at: t };
+      sendWidget(snapshot);
+    };
+    widgetJob.current = job;
+    const timer = window.setTimeout(job, WIDGET_SETTLE);
+    return () => clearTimeout(timer);
+  }, [inApp, store.loaded, store.tasks, goals.loaded, goals.list, goalIndex, todayPlan, prefs, isOff, rank, blocked, goalOf, labelOf, now]);
+  // Leaving the app: what just changed reaches the widgets now, not after the app is back.
+  useEffect(() => {
+    if (!inApp) return;
+    const away = () => { if (document.hidden) widgetJob.current?.(); };
+    document.addEventListener('visibilitychange', away);
+    return () => document.removeEventListener('visibilitychange', away);
+  }, [inApp]);
 
   const api: PlannerApi = {
     lists: derived, store, tasks: store.tasks, now, wide, repo, email, theme, completing, picked, setPicked, drag,

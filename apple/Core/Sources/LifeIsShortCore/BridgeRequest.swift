@@ -36,6 +36,8 @@ public enum BridgeRequest: Equatable {
     case retry
     /// A console error from the page. Printed only in the CI smoke test and debug builds.
     case log(String)
+    /// Today's picture for the widgets (WidgetSnapshot), or nil to empty them: signed out.
+    case widget(WidgetSnapshot?)
 
     /// Who may send it. The planner can't change the server, and the bundled pages can't reach speech or sharing.
     public var allowed: Set<PageKind> {
@@ -88,6 +90,11 @@ public enum BridgeRequest: Equatable {
         case "log":
             guard let line = message["message"] as? String else { return nil }
             return .log(String(line.prefix(2000)))
+        case "widget":
+            // The bridge leaves out a null, so no snapshot at all means "empty the widgets".
+            guard let body = message["snapshot"], !(body is NSNull) else { return .widget(nil) }
+            guard let snapshot = WidgetSnapshot.parse(body) else { return nil }
+            return .widget(snapshot)
         default:
             return nil
         }
