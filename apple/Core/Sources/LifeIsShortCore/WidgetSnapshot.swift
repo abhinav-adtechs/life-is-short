@@ -17,7 +17,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         case tide, day, night
     }
 
-    public struct Look: Codable, Equatable, Sendable {
+    public struct Look: Codable, Hashable, Sendable {
         public var light: Theme
         public var dark: Theme
         /// #RRGGBB.
@@ -100,7 +100,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         }
     }
 
-    public struct Count: Codable, Equatable, Sendable {
+    public struct Count: Codable, Hashable, Sendable {
         public var done: Int
         public var total: Int
 
@@ -238,6 +238,13 @@ public struct WidgetStore {
     public func load() -> WidgetSnapshot? {
         guard let data = try? Data(contentsOf: file) else { return nil }
         return WidgetSnapshot.decode(data)
+    }
+
+    /// As `load`, but telling "nothing kept" (nil: signed out, or never heard) from "can't read it now", which throws:
+    /// a phone that restarted and hasn't been unlocked yet keeps the file locked.
+    public func read() throws -> WidgetSnapshot? {
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        return WidgetSnapshot.decode(try Data(contentsOf: file))
     }
 
     /// Keeps it, or with nil forgets it. True when that changed what's kept, so the widgets need to hear about it.

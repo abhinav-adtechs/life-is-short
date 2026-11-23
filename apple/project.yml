@@ -45,6 +45,8 @@ targets:
       # The widgets' views, so the app can draw them for CI (iOS/WidgetGallery.swift); their pictures and type stay in
       # the widget extension, which the app carries.
       - path: Widgets/Design
+      # The Lock Screen's Now (a Live Activity): its type and its Refresh and Show Now intents, which iOS runs in the app.
+      - path: Widgets/Live
     dependencies:
       - package: LifeIsShortCore
         product: LifeIsShortCore
@@ -65,13 +67,16 @@ targets:
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
     scheme: {}
-  # The Home Screen and lock screen widgets (Widgets/, docs/apple.md → Widgets), inside the iPhone and iPad app.
+  # The Home Screen and lock screen widgets and the Lock Screen's Now, a Live Activity (Widgets/, docs/apple.md →
+  # Widgets and Live Activity), inside the iPhone and iPad app.
   LifeIsShort-Widgets:
     type: app-extension
     platform: iOS
     deploymentTarget: "17.0"
     sources:
       - path: Widgets/Design
+      # The Live Activity's type, to draw it, and its intents, for its buttons to name.
+      - path: Widgets/Live
       - path: Widgets/Extension
         excludes: ["Info.plist", "*.entitlements"]
       - path: Widgets/Extension/Info.plist

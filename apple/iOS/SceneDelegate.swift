@@ -27,10 +27,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillEnterForeground(_ scene: UIScene) {
         planner?.setActive(true)
+        NowActivityController.shared.foreground()
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         planner?.setActive(false)
+        NowActivityController.shared.leaving()
     }
 
     @discardableResult

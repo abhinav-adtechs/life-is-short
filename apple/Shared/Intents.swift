@@ -60,5 +60,14 @@ struct LifeIsShortShortcuts: AppShortcutsProvider {
             shortTitle: "Review",
             systemImageName: "chart.bar"
         )
+        #if os(iOS)
+        // The Lock Screen's Now (Widgets/Live): a Shortcuts automation at set times keeps it fresh without opening the app.
+        AppShortcut(
+            intent: ShowNowIntent(),
+            phrases: ["Show now in \(.applicationName)", "What’s next in \(.applicationName)", "Pin now from \(.applicationName)"],
+            shortTitle: "Show Now",
+            systemImageName: "pin"
+        )
+        #endif
     }
 }

@@ -25,6 +25,8 @@ interface LisNative {
   build: string;
   /** The app is linked to this site (webcredentials), so passkeys work inside it. */
   passkeys?: boolean;
+  /** The app offers the Lock Screen's Now, a Live Activity (an iPhone, or an iPad that allows it). */
+  liveActivity?: boolean;
   post(type: string, body?: Record<string, unknown>): Promise<unknown>;
   onCommand(fn: (command: unknown) => void): () => void;
   ready(): Promise<unknown>;
@@ -89,6 +91,57 @@ export function sendWidget(snapshot: WidgetSnapshot | null) {
   const app = native();
   if (!app || app.platform === 'macos') return;
   app.post('widget', { snapshot }).catch(() => undefined);
+}
+
+/* ---------- the Lock Screen's Now (a Live Activity, docs/apple.md → Live Activity) ---------- */
+
+export type LiveActivityStyle = 'window' | 'theme';
+
+/** How the Lock Screen's Now stands on this device. The app keeps these settings, not your account. */
+export interface LiveActivityStatus {
+  /** iOS allows Live Activities for the app (Settings → Life is short → Live Activities). */
+  enabled: boolean;
+  /** Settings → Now on the Lock Screen. */
+  on: boolean;
+  hideTitles: boolean;
+  style: LiveActivityStyle;
+  /** One is on the Lock Screen right now. */
+  showing: boolean;
+}
+
+export type LiveActivityChange = Partial<Pick<LiveActivityStatus, 'on' | 'hideTitles' | 'style'>>;
+
+/** The app offers the Lock Screen's Now here. */
+export function hasLiveActivity(): boolean {
+  return native()?.liveActivity === true;
+}
+
+/** The app's answer, checked. */
+export function readLiveActivity(raw: unknown): LiveActivityStatus | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (r.supported !== true || typeof r.on !== 'boolean') return null;
+  return {
+    enabled: r.enabled === true,
+    on: r.on,
+    hideTitles: r.hideTitles === true,
+    style: r.style === 'theme' ? 'theme' : 'window',
+    showing: r.showing === true,
+  };
+}
+
+/**
+ * The Lock Screen's Now: change its settings (or nothing, to ask), then how it stands. The app starts, updates and ends
+ * the activity itself. Null in a browser, on the Mac, or if the app says no.
+ */
+export async function liveActivity(change: LiveActivityChange = {}): Promise<LiveActivityStatus | null> {
+  const app = native();
+  if (!app?.liveActivity) return null;
+  try {
+    return readLiveActivity(await app.post('liveActivity', change));
+  } catch {
+    return null;
+  }
 }
 
 /** A tap of feedback on iPhone (and a Force Touch trackpad); nothing in a browser. */

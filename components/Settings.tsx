@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { normalizeImport } from '@/lib/importer';
 import { hasSupabase } from '@/lib/supabase';
+import { hasLiveActivity, native } from '@/lib/native';
 import { ACCENTS, DEFAULT_PREFS, FONTS, HOUR_HEIGHTS, TEXT_SIZES, THEMES, accentColor, fontHref, type Prefs } from '@/lib/prefs';
 import { isHex } from '@/lib/color';
 import { fmtHour } from '@/lib/format';
@@ -16,9 +17,11 @@ import { RepeatsSection } from './Repeating';
 import { VoiceSection } from './VoiceSection';
 import { AccountSection } from './AccountSection';
 import { ClaudeSection } from './ClaudeSection';
+import { DeviceSection } from './DeviceSection';
 
 const SECTIONS = [
   { id: 'appearance', name: 'Appearance' },
+  { id: 'device', name: 'On this iPhone', needsApp: true },
   { id: 'calendar', name: 'Calendar' },
   { id: 'labels', name: 'Sections' },
   { id: 'repeats', name: 'Repeats' },
@@ -35,7 +38,10 @@ const APPEARANCE_KEYS = ['theme', 'accent', 'ambient', 'font', 'textSize', 'dens
 export function Settings() {
   const { section } = usePlanner();
   const root = useRef<HTMLDivElement>(null);
-  const sections = SECTIONS.filter(s => !s.needsSupabase || hasSupabase());
+  const app = hasLiveActivity();
+  const sections = SECTIONS
+    .filter(s => (!s.needsSupabase || hasSupabase()) && (!s.needsApp || app))
+    .map(s => (s.id === 'device' && native()?.platform === 'ipados' ? { ...s, name: 'On this iPad' } : s));
 
   // #settings/google (back from connecting Google, say) opens at that section.
   useEffect(() => {
@@ -53,6 +59,7 @@ export function Settings() {
         {sections.map(s => <button key={s.id} type="button" className="btn ghost sm" onClick={() => go(s.id)}>{s.name}</button>)}
       </nav>
       <Appearance />
+      {app && <DeviceSection />}
       <CalendarPrefs />
       <LabelsSection />
       <RepeatsSection />

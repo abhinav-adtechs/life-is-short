@@ -109,8 +109,10 @@ final class WidgetTests: XCTestCase {
         XCTAssertTrue(try store.save(s), "the same day, but the planner's been open since")
         s.items.removeFirst()
         XCTAssertTrue(try store.save(s))
+        XCTAssertEqual(try store.read(), s)
         XCTAssertTrue(try store.save(nil))
         XCTAssertNil(store.load())
+        XCTAssertNil(try store.read(), "nothing kept isn't an error")
         XCTAssertFalse(try store.save(nil))
     }
 

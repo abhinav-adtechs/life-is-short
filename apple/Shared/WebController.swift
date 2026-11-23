@@ -151,6 +151,7 @@ final class WebController: NSObject {
             "build": AppEnvironment.build,
             "speech": SpeechBridge.isSupported(),
             "passkeys": AppEnvironment.passkeys,
+            "liveActivity": liveActivitySupported,
             "debug": AppEnvironment.isDebug || AppEnvironment.smokeTest,
         ]
         if let page { config["page"] = page }
@@ -300,7 +301,22 @@ final class WebController: NSObject {
             #endif
             smoke?.widgetHeard(snapshot)
             reply(true, nil)
+        case .liveActivity(let change):
+            #if os(iOS)
+            Task { @MainActor in reply(await NowActivityController.shared.apply(change), nil) }
+            #else
+            reply(["supported": false] as [String: Any], nil)
+            #endif
         }
+    }
+
+    /// The Lock Screen's Now (iOS/NowActivityController.swift): an iPhone's, and an iPad's that allows it.
+    private var liveActivitySupported: Bool {
+        #if os(iOS)
+        return NowActivityController.isSupported
+        #else
+        return false
+        #endif
     }
 
     /// The planner on the configured server, or the app's own page. Nothing else gets an answer.

@@ -4,6 +4,8 @@ import UIKit
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        true
+        // The Lock Screen's Now: iOS may launch the app in the background just to run its Refresh.
+        NowActivityController.shared.launch()
+        return true
     }
 }

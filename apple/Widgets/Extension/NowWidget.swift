@@ -6,7 +6,7 @@ import WidgetKit
 // The widgets: Now on the Home Screen (small, medium, large; the window or your theme) and on the lock screen. The
 // app keeps today's picture in the App Group whenever the planner changes it (iOS/WidgetBridge.swift); each widget's
 // timeline has an entry at every moment that changes what it shows (WidgetTimeline), so it stays right until the app
-// is next open.
+// is next open. Also here: the Lock Screen's Now, a Live Activity (NowActivityWidget.swift), and Show Now as a control.
 
 @main
 struct LifeIsShortWidgets: WidgetBundle {
@@ -17,6 +17,11 @@ struct LifeIsShortWidgets: WidgetBundle {
     var body: some Widget {
         NowWidget()
         NowLockWidget()
+        // The Lock Screen's Now, a Live Activity the app starts (NowActivityWidget.swift).
+        NowActivityWidget()
+        if #available(iOS 18.0, *) {
+            NowControl()
+        }
     }
 }
 

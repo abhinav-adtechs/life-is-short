@@ -4,7 +4,8 @@ import UIKit
 import WidgetKit
 
 /// Pictures of every widget, drawn by the app for CI's smoke test (Shared/SmokeTest.swift; apple/scripts/smoke.sh keeps
-/// them with the run): the window at each time of day, the three themes, the empty, plain and lock screen ones. The
+/// them with the run): the window at each time of day, the three themes, the empty, plain and lock screen ones, and the
+/// Lock Screen's Now (the Live Activity) in each of its states, on the Lock Screen and in the Dynamic Island. The
 /// views are the widget's own (Widgets/Design); the pictures and type come from the widget extension inside the app.
 @MainActor
 enum WidgetGallery {
@@ -33,6 +34,8 @@ enum WidgetGallery {
             ("widgets-theme", AnyView(themeSheet(bundle))),
             ("widgets-states", AnyView(statesSheet(bundle))),
             ("widgets-lock", AnyView(lockSheet(bundle))),
+            ("widgets-live", AnyView(liveLockSheet(bundle))),
+            ("widgets-island", AnyView(liveIslandSheet(bundle))),
         ]
         var written: [URL] = []
         for (name, sheet) in sheets {
@@ -123,6 +126,59 @@ enum WidgetGallery {
         }
     }
 
+    /// The Lock Screen's Now on the sample day, in each of its states (docs/apple.md → Live Activity).
+    private static func liveStates(_ style: LiveNowStyle, _ b: Bundle) -> [(String, NowActivityModel)] {
+        let calendar = Calendar.current
+        let snapshot = WidgetSamples.snapshot(on: day, calendar: calendar)
+        func at(_ hour: Int, _ minute: Int = 0) -> Date {
+            calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) ?? day
+        }
+        func state(_ date: Date, hidden: Bool = false, _ s: WidgetSnapshot? = nil) -> LiveNowState? {
+            LiveNow.state(at: date, snapshot: s ?? snapshot, style: style, hidden: hidden, calendar: calendar)
+        }
+        let empty = WidgetSnapshot(at: at(12), day: snapshot.day, items: [], today: .init(done: 7, total: 7), outcomes: nil)
+        let all: [(String, LiveNowState?, Bool, Date?)] = [
+            ("a · on a slot", state(at(10, 48)), false, nil),
+            ("b · free until the next slot", state(at(12, 40)), false, nil),
+            ("c · in a meeting", state(at(16, 41)), false, nil),
+            ("d · the rest of the day", state(at(19, 30)), false, nil),
+            ("e · all clear", state(at(13), empty), false, nil),
+            ("f · out of date: past its turn, not refreshed", state(at(10, 48)), true, at(11, 42)),
+            ("g · the day’s end", state(at(20)).map { LiveNow.over(state: $0, at: at(21, 5), calendar: calendar) }, false, nil),
+            ("h · task names hidden", state(at(10, 48), hidden: true), false, nil),
+        ]
+        return all.compactMap { name, state, stale, date in
+            state.map { (name, NowActivityModel(state: $0, isStale: stale, live: false, bundle: b, date: date)) }
+        }
+    }
+
+    private static func liveLockSheet(_ b: Bundle) -> some View {
+        let window = liveStates(.window, b), theme = liveStates(.theme, b)
+        return Sheet(title: "Now on the Lock Screen (Live Activity)") {
+            ForEach(0..<min(window.count, theme.count), id: \.self) { i in
+                Row(title: window[i].0) {
+                    LiveCell(model: window[i].1, caption: "the window")
+                    LiveCell(model: theme[i].1, caption: "your theme, Tide")
+                    LiveCell(model: theme[i].1, caption: "your theme, Night train", dark: true)
+                }
+            }
+        }
+    }
+
+    private static func liveIslandSheet(_ b: Bundle) -> some View {
+        let window = liveStates(.window, b), theme = liveStates(.theme, b)
+        return Sheet(title: "Now in the Dynamic Island") {
+            ForEach(0..<min(window.count, theme.count), id: \.self) { i in
+                Row(title: theme[i].0) {
+                    IslandCell(model: theme[i].1, kind: .compact, caption: "compact")
+                    IslandCell(model: theme[i].1, kind: .minimal, caption: "minimal")
+                    IslandCell(model: window[i].1, kind: .expanded, caption: "expanded, the window")
+                    IslandCell(model: theme[i].1, kind: .expanded, caption: "expanded, your theme")
+                }
+            }
+        }
+    }
+
     private static func lockSheet(_ b: Bundle) -> some View {
         Sheet(title: "Lock screen") {
             ForEach([(10, 50), (11, 40), (22, 0)], id: \.0) { hour, minute in
@@ -160,6 +216,66 @@ private struct Row<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.75))
             HStack(alignment: .top, spacing: 20) { content }
+        }
+    }
+}
+
+/// The Lock Screen's Now as the Lock Screen draws it.
+private struct LiveCell: View {
+    let model: NowActivityModel
+    var caption: String
+    var dark = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(caption).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+            NowActivityLockView(model: model)
+                .frame(width: 371)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .environment(\.colorScheme, dark ? .dark : .light)
+        }
+    }
+}
+
+/// The Lock Screen's Now in the Dynamic Island, drawn on its black.
+private struct IslandCell: View {
+    enum Kind { case compact, minimal, expanded }
+
+    let model: NowActivityModel
+    let kind: Kind
+    var caption: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(caption).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+            island.environment(\.colorScheme, .dark)
+        }
+    }
+
+    @ViewBuilder private var island: some View {
+        switch kind {
+        case .compact:
+            HStack(spacing: 0) {
+                IslandGlyph(m: model, size: 22).padding(.leading, 8)
+                Spacer(minLength: 0)
+                IslandTrailing(m: model).frame(maxWidth: 52, alignment: .trailing).padding(.trailing, 10)
+            }
+            .frame(width: 231, height: 37)
+            .background(Capsule().fill(.black))
+        case .minimal:
+            IslandGlyph(m: model, size: 24).frame(width: 37, height: 37).background(Circle().fill(.black))
+        case .expanded:
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    IslandExpandedLeading(m: model)
+                    Spacer(minLength: 8)
+                    IslandExpandedTrailing(m: model)
+                }
+                IslandExpandedBottom(m: model)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(width: 371)
+            .background(RoundedRectangle(cornerRadius: 44, style: .continuous).fill(.black))
         }
     }
 }

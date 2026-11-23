@@ -35,6 +35,8 @@
 	<false/>
 	<key>LISAppGroup</key>
 	<string>group.$(LIS_BUNDLE_ID)</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>LISPasskeys</key>
 	<string>$(LIS_PASSKEYS)</string>
 	<key>LISServerURL</key>

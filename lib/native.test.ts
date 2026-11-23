@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { APP_STATE, appReturnUrl, googleState, onNativeCommand, readCommand, sendWidget } from './native';
+import { APP_STATE, appReturnUrl, googleState, hasLiveActivity, liveActivity, onNativeCommand, readCommand, readLiveActivity, sendWidget } from './native';
 
 describe('readCommand', () => {
   it('takes the commands the app sends', () => {
@@ -130,6 +130,44 @@ describe('Bridge.js', () => {
     expect(mac.posted.map(m => m.type)).not.toContain('widget');
     vi.stubGlobal('window', {});
     expect(() => sendWidget(null)).not.toThrow();
+  });
+
+  it('offers the Lock Screen’s Now only when the app says so', () => {
+    expect(loadBridge({}).win.lisNative.liveActivity).toBe(false);
+    expect(loadBridge({ liveActivity: 'yes' }).win.lisNative.liveActivity).toBe(false);
+    expect(loadBridge({ liveActivity: true }).win.lisNative.liveActivity).toBe(true);
+  });
+
+  it('reads and changes the Lock Screen’s Now settings through the app', async () => {
+    let on = false;
+    const app = loadBridge({ liveActivity: true }, m => {
+      if (m.type !== 'liveActivity') return true;
+      if (typeof m.on === 'boolean') on = m.on;
+      return { supported: true, enabled: true, on, hideTitles: false, style: 'window', showing: on };
+    });
+    vi.stubGlobal('window', app.win);
+    expect(hasLiveActivity()).toBe(true);
+    expect(await liveActivity()).toEqual({ enabled: true, on: false, hideTitles: false, style: 'window', showing: false });
+    expect(app.posted).toContainEqual({ type: 'liveActivity' });
+    expect((await liveActivity({ on: true, style: undefined }))?.on).toBe(true);
+    expect(app.posted).toContainEqual({ type: 'liveActivity', on: true });
+
+    const old = loadBridge({});
+    vi.stubGlobal('window', old.win);
+    expect(hasLiveActivity()).toBe(false);
+    expect(await liveActivity({ on: true })).toBeNull();
+    expect(old.posted.map(m => m.type)).not.toContain('liveActivity');
+
+    const refusing = loadBridge({ liveActivity: true }, m => (m.type === 'liveActivity' ? Promise.reject(new Error('no')) : true));
+    vi.stubGlobal('window', refusing.win);
+    expect(await liveActivity({ on: true })).toBeNull();
+  });
+
+  it('checks what the app says about it', () => {
+    expect(readLiveActivity(null)).toBeNull();
+    expect(readLiveActivity({ supported: false })).toBeNull();
+    expect(readLiveActivity({ supported: true, on: 'yes' })).toBeNull();
+    expect(readLiveActivity({ supported: true, on: true, style: 'neon' })).toEqual({ enabled: false, on: true, hideTitles: false, style: 'window', showing: false });
   });
 
   it('reports the page colour and stops pinch zoom on iPhone and iPad', () => {
