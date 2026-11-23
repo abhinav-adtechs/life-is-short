@@ -2104,7 +2104,6 @@ span.ru-t{cursor:default}
 .td-node.ck.on .ring{background:var(--ink);border-color:var(--ink)}
 .td-node.ck .ring.now{border-width:2px}
 .td-node.k-event::after{content:"";width:10px;height:10px;border-radius:2px;background:var(--c,var(--muted));box-shadow:0 0 0 3px var(--raised)}
-.td-node.is-left .ring{border-color:var(--accent)!important;border-style:dashed}
 .td-c{min-width:0;padding-top:4px}
 .td-tt{display:block;max-width:100%;padding:0;border:0;background:none;font:inherit;font-size:var(--t-15);line-height:21px;font-weight:550;color:var(--ink);text-align:left;text-wrap:pretty;cursor:pointer}
 span.td-tt{cursor:default}
@@ -2120,12 +2119,12 @@ button.td-tt:hover{text-decoration:underline;text-decoration-color:var(--hair2);
 .td-miss .td-act{margin-top:0}
 
 /* How each thing stands. */
-.td-r.is-done .td-tt,.td-r.is-over .td-tt,.td-r.k-repeat .td-tt,.td-r.is-left .td-tt{color:var(--muted);font-weight:500}
+.td-r.is-done .td-tt,.td-r.is-over .td-tt,.td-r.k-repeat .td-tt{color:var(--muted);font-weight:500}
 .td-r.is-done .strike{background-size:100% 1.5px}
 .td-r.is-done .td-tt{--strike-c:var(--muted)}
-.td-r.is-done .td-when b,.td-r.is-over .td-when b,.td-r.k-repeat .td-when b,.td-r.is-left .td-when b{font-weight:500;color:var(--muted)}
+.td-r.is-done .td-when b,.td-r.is-over .td-when b,.td-r.k-repeat .td-when b{font-weight:500;color:var(--muted)}
 .td-r.is-over .td-node.k-event::after{opacity:.5}
-.td-r.is-missed:not(.is-left) .ring{border-color:var(--accent)}
+.td-r.is-missed .td-node.ck:not(.on) .ring{border-color:var(--accent);border-width:2px}
 .td-r.is-point .td-node .ring{width:12px;height:12px}
 
 /* Free time to come: the line goes dashed through it. */

@@ -106,33 +106,41 @@ describe('dayLine', () => {
     expect(line.free).toBe(720 - 60);
   });
 
-  it('keeps a slot missed today on the line once its task has gone back to the backlog, moved or been deleted', () => {
-    const back = task('Book 3 guests', { goal: 'gpod' });
-    const later = task('Call the bank', { start: at(20, 15) });
+  it('puts what you missed today and is back in the backlog on the line once, at its last missed slot, to tick off or slot again', () => {
+    const lawyers = task('Pay the lawyers', { goal: 'gexit' });
+    const terms = task('Review heads of terms', { goal: 'gexit' });
+    const later = task('Review the proposal', { start: at(20, 16, 15), minutes: 60 });
+    const wednesday = task('Verify the undertaking', { start: at(25, 11, 15) });
+    const doneSince = task('Confirm the quote', { status: 'done', doneAt: at(20, 13) });
     const restored = task('Fix the crash', { start: at(20, 9) });
     const slip = (t: Pick<Task, 'id' | 'title'>, start: number, extra: Partial<Slip> = {}): Slip => ({
-      id: t.id, start, minutes: 30, title: t.title, label: null, priority: 2, at: start + 90 * 60000, how: 'moved', ...extra,
+      id: t.id, start, minutes: 15, title: t.title, label: null, priority: 2, at: start + 90 * 60000, how: 'moved', ...extra,
     });
     const slips = [
-      slip(back, at(20, 12)),
-      slip(later, at(20, 10)),
-      slip({ id: 'gone', title: 'Old errand' }, at(20, 9, 30), { how: 'dropped' }),
-      // Undone: the task is back on the slot, so the task is the entry.
+      // Missed twice today, back in the backlog both times: once, at 2:45.
+      slip(lawyers, at(20, 11, 15)), slip(lawyers, at(20, 14, 45)),
+      slip(terms, at(20, 14), { minutes: 30 }),
+      // Moved to later today: it's on the line at its new time. Moved to another day: not today's any more.
+      slip(later, at(20, 12, 15)), slip(wednesday, at(20, 11, 30)),
+      // Ticked off since (it's on the line where you did it), deleted, or replaced by the next of its repeat.
+      slip(doneSince, at(20, 12)), slip({ id: 'gone', title: 'Old errand' }, at(20, 9, 30), { how: 'dropped' }),
+      // Undone: the task is back on the slot, so the task itself is the entry.
       slip(restored, at(20, 9)),
       // Another day's, and one that was due on the day rather than at a time.
-      slip(back, at(19, 12)),
-      slip({ id: 'due', title: 'Due thing' }, at(20, 0), { due: true }),
+      slip(terms, at(19, 12)), slip({ id: terms.id, title: 'x' }, at(20, 0), { due: true }),
     ];
-    const line = dayLine({ tasks: [back, later, restored], slips, now: at(20, 13, 40), from: FROM, to: TO, hours: HOURS });
+    const line = dayLine({ tasks: [lawyers, terms, later, wednesday, doneSince, restored], slips, now: at(20, 15, 40), from: FROM, to: TO, hours: HOURS });
     expect(shape(line.rows)).toEqual([
-      'Fix the crash:missed', 'Old errand:missed', 'Call the bank:missed', 'Book 3 guests:missed', 'now until 15:00', 'Call the bank:next', 'free 15:30–21:00',
+      'Fix the crash:missed', 'Confirm the quote:done·point', 'Review heads of terms:missed', 'Pay the lawyers:missed',
+      'now until 16:15', 'Review the proposal:next', 'free 17:15–21:00',
     ]);
-    const kept = line.rows.flatMap(r => (r.type === 'entry' && r.entry.slip ? [r.entry] : []));
-    expect(kept.map(e => [e.task.title, e.slip, e.key])).toEqual([
-      ['Old errand', 'dropped', 'slip:gone@' + at(20, 9, 30)], ['Call the bank', 'moved', `slip:${later.id}@${at(20, 10)}`], ['Book 3 guests', 'moved', `slip:${back.id}@${at(20, 12)}`],
+    const missed = line.rows.flatMap(r => (r.type === 'entry' && r.entry.slipped ? [r.entry] : []));
+    expect(missed.map(e => [e.task, e.slipped, e.key, e.end - e.at])).toEqual([
+      [terms, 1, `slip:${terms.id}`, 30 * 60000], [lawyers, 2, `slip:${lawyers.id}`, 15 * 60000],
     ]);
-    // A missed slot doesn't take up time.
-    expect(line.booked).toBe(30);
+    // A missed slot doesn't take up time, and the backlog's missed tasks aren't also listed as having no slot.
+    expect(line.booked).toBe(60);
+    expect(line.anytime).toEqual([]);
   });
 
   it('counts each of today’s tasks once, done or not: on the line, missed, to come and with no time, but not events', () => {
@@ -143,7 +151,8 @@ describe('dayLine', () => {
     const line = dayLine({
       tasks: [doneEarly, slipped, open, due, event('Standup', at(20, 10)), task('Mum’s birthday', { due: '2026-11-20', externalId: 'gcal:home:b' })],
       upcoming: [task('Training run', { start: at(20, 18, 30) })],
-      slips: [{ id: slipped.id, start: at(20, 12), minutes: 30, title: 'Guests', label: null, priority: 2, at: at(20, 13), how: 'moved' }],
+      slips: [{ id: slipped.id, start: at(20, 12), minutes: 30, title: 'Guests', label: null, priority: 2, at: at(20, 13), how: 'moved' },
+        { id: open.id, start: at(20, 11), minutes: 30, title: 'Record', label: null, priority: 2, at: at(20, 12), how: 'moved' }],
       now: at(20, 14), from: FROM, to: TO, hours: HOURS,
     });
     expect(line.tally).toEqual({ done: 2, total: 5 });

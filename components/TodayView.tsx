@@ -7,7 +7,7 @@ import { movingToday, type OutcomeView } from '@/lib/today';
 import { rootOf } from '@/lib/goals';
 import { backAt, isEvent } from '@/lib/select';
 import { describeRule } from '@/lib/repeat';
-import { dueLabel, fmtDur, fmtHour, fmtTime, fmtWhen, longDate, shortDate, shortTitle } from '@/lib/format';
+import { dueLabel, fmtDur, fmtHour, fmtTime, longDate, shortDate, shortTitle } from '@/lib/format';
 import { MIN, addDays, atMinutes, fromYmd, startOfDay } from '@/lib/time';
 import { usePlanner, useLists, suggestOn } from './Planner';
 import { PLAN_ASK, PLAN_URL } from './Today';
@@ -19,7 +19,8 @@ import { CheckIcon, PlusIcon, RepeatIcon, SparkIcon, TargetIcon } from './icons'
  * is still free, with the day as a strip. On the left, only the goals today moves (the plan's goals in focus, each with
  * its outcome, or until the day is planned, the goals with work on the calendar today), then what's today's with no
  * slot yet. On the right, the day as a timeline: everything with a time today in order, now on the line (what's on, or
- * when nothing is, the one thing to do), the free time still to come, and the slots you missed. Each task shows once.
+ * when nothing is, the one thing to do), the free time still to come, and what you missed that's waiting in the backlog.
+ * Each task shows once.
  * No backlog, no other days, no other goals.
  *
  * Done is one tap on a task's ring (or D for the one on now), and it should feel like something: the ring bursts in the
@@ -282,8 +283,8 @@ function Meta({ e, extra }: { e: Entry; extra?: React.ReactNode }) {
   const label = labelOf(t);
   const repeat = e.kind === 'repeat' ? null : repeatOf(t);
   const src = e.kind === 'event' ? sourceOf(t) : null;
-  const due = t.due && t.status === 'open' && !e.slip ? dueLabel(t.due, now) : null;
-  const open = t.status === 'open' && e.kind === 'task' && !e.slip;
+  const due = t.due && t.status === 'open' ? dueLabel(t.due, now) : null;
+  const open = t.status === 'open' && e.kind === 'task';
   return (
     <p className="td-m">
       {extra}
@@ -299,13 +300,11 @@ function Meta({ e, extra }: { e: Entry; extra?: React.ReactNode }) {
   );
 }
 
-/** The ring on the line: tick a task off there. An event, a repeat to come and a slot that's been left can't be. */
+/** The ring on the line: tick a task off there, missed ones too. An event and a repeat still to come can't be. */
 function Node({ e }: { e: Entry }) {
-  const t = e.task;
   if (e.kind === 'event') return <span className="td-node k-event" aria-hidden="true" />;
   if (e.kind === 'repeat') return <span className="td-node" aria-hidden="true"><span className="ring ghost" /></span>;
-  if (e.slip) return <span className="td-node is-left" aria-hidden="true"><span className="ring" /></span>;
-  return <Tick t={t} now={e.state === 'now'} />;
+  return <Tick t={e.task} now={e.state === 'now'} />;
 }
 
 /** The ring that ticks a task off: one tap. While it goes, it fills in the goal's colour and bursts. */
@@ -324,10 +323,10 @@ function Tick({ t, now }: { t: Task; now?: boolean }) {
 }
 
 function Title({ e, big }: { e: Entry; big?: boolean }) {
-  const { openEditor, completing, store } = usePlanner();
+  const { openEditor, completing } = usePlanner();
   const t = e.task;
-  // A repeat still to come isn't a task yet; a slot's task may have been deleted since.
-  if (e.kind === 'repeat' || (e.slip && !store.get(t.id))) return <span className="td-tt">{t.title}</span>;
+  // A repeat still to come isn't a task yet.
+  if (e.kind === 'repeat') return <span className="td-tt">{t.title}</span>;
   return (
     <button type="button" className={'td-tt' + (big ? ' big' : '')} onClick={() => openEditor(t.id)} title="Edit">
       <span className={'strike' + (completing.has(t.id) ? ' on' : '')}>{t.title}</span>
@@ -339,7 +338,7 @@ function Title({ e, big }: { e: Entry; big?: boolean }) {
 const When = ({ at }: { at: number }) => <span className="td-when num"><b>{fmtTime(at)}</b></span>;
 
 /** What's on right now: a card on the line with how long is left, and Done. */
-function NowCard({ e }: { e: Entry }) {
+function NowCard({ e, keyed }: { e: Entry; keyed: boolean }) {
   const { now, colorOf, completing } = usePlanner();
   const t = e.task;
   const left = Math.max(1, Math.round((e.end - now) / MIN));
@@ -356,7 +355,7 @@ function NowCard({ e }: { e: Entry }) {
           <span className="td-slot" aria-hidden="true"><i style={{ width: `${gone.toFixed(1)}%` }} /></span>
           <div className="td-cm">
             <Meta e={e} />
-            {!event && <DoneButton t={t} />}
+            {!event && <DoneButton t={t} keyed={keyed} />}
           </div>
         </div>
       </div>
@@ -364,12 +363,13 @@ function NowCard({ e }: { e: Entry }) {
   );
 }
 
-/** The big Done for what's on now, with its key on a laptop. */
-function DoneButton({ t }: { t: Task }) {
+/** The big Done for what's on now, with its key on a laptop when D is for it (with two on at once, D is the first's). */
+function DoneButton({ t, keyed = true }: { t: Task; keyed?: boolean }) {
   const { done, completing, wide } = usePlanner();
+  const hint = wide && keyed;
   return (
-    <button type="button" className="btn pri sm td-done" disabled={completing.has(t.id)} onClick={() => done(t.id, true)} aria-keyshortcuts={wide ? 'D' : undefined}>
-      <CheckIcon />Done{wide && <span className="kbd" aria-hidden="true">D</span>}
+    <button type="button" className="btn pri sm td-done" disabled={completing.has(t.id)} onClick={() => done(t.id, true)} aria-keyshortcuts={hint ? 'D' : undefined}>
+      <CheckIcon />Done{hint && <span className="kbd" aria-hidden="true">D</span>}
     </button>
   );
 }
@@ -413,27 +413,18 @@ function NowFree({ r }: { r: Extract<Row, { type: 'now' }> }) {
   );
 }
 
-/** What became of a slot that's been left: back in the backlog, moved, done after all, deleted or replaced. */
-function slipText(e: Entry, live: boolean, now: number): string {
-  const t = e.task;
-  if (!live || e.slip === 'dropped') return 'Deleted since';
-  if (e.slip === 'replaced') return 'Replaced by the next one';
-  if (t.status === 'done') return 'Done since';
-  return t.start != null ? `Moved to ${fmtWhen(t.start, now).replace(/^Today, /, '')}` : 'Back in the backlog';
-}
-
-function EntryRow({ e, just }: { e: Entry; just: Set<string> }) {
-  const { now, colorOf, store, completing } = usePlanner();
+function EntryRow({ e, just, keyed }: { e: Entry; just: Set<string>; keyed: boolean }) {
+  const { now, colorOf, completing } = usePlanner();
   const slotToday = useSlotToday();
-  if (e.state === 'now') return <NowCard e={e} />;
-  const live = !!store.get(e.task.id);
-  // A missed task you can still fit in: on its slot for its last hour, or back in the backlog.
-  const canSlot = e.state === 'missed' && live && e.task.status === 'open' && (e.slip ? e.task.start == null : true);
+  if (e.state === 'now') return <NowCard e={e} keyed={keyed} />;
+  // A missed task: on its slot for its last hour, or back in the backlog. Tick it off if you did it, or fit it in again.
+  const canSlot = e.state === 'missed' && e.task.status === 'open';
+  const missedText = e.slipped ? `Back in the backlog${e.slipped > 1 ? ` · missed ${e.slipped} slots today` : ''}` : `Back to the backlog at ${fmtTime(backAt(e.task))}`;
   const extra = e.point ? <span>Ticked off</span>
     : e.state === 'next' ? <span className="td-in">in {span((e.at - now) / MIN)}</span>
     : e.state === 'missed' ? <span className="loz hot">Missed</span> : null;
   return (
-    <li className={`td-r is-${e.state} k-${e.kind}${e.point ? ' is-point' : ''}${e.slip ? ' is-left' : ''}${!e.slip && (completing.has(e.task.id) || just.has(e.task.id)) ? ' is-just' : ''}`} style={tint(colorOf(e.task))}>
+    <li className={`td-r is-${e.state} k-${e.kind}${e.point ? ' is-point' : ''}${completing.has(e.task.id) || just.has(e.task.id) ? ' is-just' : ''}`} style={tint(colorOf(e.task))}>
       <When at={e.at} />
       <Node e={e} />
       <div className="td-c">
@@ -441,7 +432,7 @@ function EntryRow({ e, just }: { e: Entry; just: Set<string> }) {
         <Meta e={e} extra={extra} />
         {e.state === 'missed' && (
           <p className="td-miss">
-            <span className="muted">{e.slip ? slipText(e, live, now) : `Back to the backlog at ${fmtTime(backAt(e.task))}`}</span>
+            <span className="muted">{missedText}</span>
             {canSlot && <button type="button" className="btn text sm td-act" onClick={() => slotToday(e.task.id)}>Slot it later today</button>}
           </p>
         )}
@@ -481,7 +472,9 @@ function Timeline({ line, from, phone, just }: { line: DayLine; from: number; ph
     box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 72;
   });
 
-  const row = (r: Row) => r.type === 'entry' ? <EntryRow key={r.entry.key} e={r.entry} just={just} />
+  // D ticks off the first task on now (TodayView), so only its Done shows the key.
+  const keyed = line.rows.find(r => r.type === 'entry' && r.entry.state === 'now' && r.entry.kind === 'task');
+  const row = (r: Row) => r.type === 'entry' ? <EntryRow key={r.entry.key} e={r.entry} just={just} keyed={r === keyed} />
     : r.type === 'free' ? <Free key={`free:${r.from}`} from={r.from} to={r.to} />
     : <NowFree key="now" r={r} />;
   return (
@@ -513,8 +506,8 @@ export function TodayView({ phone }: { phone?: boolean }) {
   const { line, moving, from } = useToday();
   const just = useJustDone(tasks, store.loaded);
   // What D ticks off: the task on now, or when nothing's on, the one thing to do. Not a meeting.
-  const on = line.rows.find(r => r.type === 'entry' && r.entry.state === 'now');
-  const target = on ? (on.type === 'entry' && on.entry.kind === 'task' ? on.entry.task : null)
+  const onTask = line.rows.find(r => r.type === 'entry' && r.entry.state === 'now' && r.entry.kind === 'task');
+  const target = onTask?.type === 'entry' ? onTask.entry.task
     : line.rows.some(r => r.type === 'now') && !f.live ? f.now : null;
   const pressD = useRef<() => void>(() => {});
   pressD.current = () => { if (target && target.status === 'open' && !completing.has(target.id)) done(target.id, true); };
