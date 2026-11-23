@@ -2154,6 +2154,16 @@ button.td-tt:hover{text-decoration:underline;text-decoration-color:var(--hair2);
 .td-cm .td-m{flex:1;margin:0}
 .td-acts{display:flex;gap:6px}
 
+/* Delete: a bin at the end of a task's line. With a pointer it shows when you're on the row; on touch it's always there,
+   quietly. On the card for now it sits by Done, boxed. */
+.td-r.has-del{grid-template-columns:var(--tw) 28px minmax(0,1fr) 28px}
+.td-a.has-del{grid-template-columns:28px minmax(0,1fr) 28px}
+.td-del{position:relative;color:var(--faint)}
+.td-r .td-del{margin-top:1px}
+.ib.td-del:hover:not(:disabled){color:var(--accent-ink)}
+.td-acts .td-del{width:32px;height:28px}
+@media (hover:hover){.td-r>.td-del,.td-a>.td-del{opacity:0;transition:opacity var(--fast) var(--ease)}.td-r:hover>.td-del,.td-a:hover>.td-del,.td-r:focus-within>.td-del,.td-a:focus-within>.td-del{opacity:1}}
+
 /* On a phone: one column under the tabs, the goals short and stacked, the timeline before what has no slot. */
 .td.ph{--tw:60px;display:flex;flex-direction:column;gap:16px;height:auto;padding:14px 16px 0}
 .td.ph .td-head{grid-template-columns:minmax(0,1fr);gap:10px;padding:0}
@@ -2172,6 +2182,8 @@ button.td-tt:hover{text-decoration:underline;text-decoration-color:var(--hair2);
 .td.ph .td-card{padding:10px 12px 12px}
 .td.ph .td-cm{flex-direction:column;align-items:stretch;gap:10px}
 .td.ph .td-acts .btn{flex:1;height:40px}
+.td.ph .td-acts .td-del{width:44px;height:40px}
+.td.ph .td-r>.td-del::after,.td.ph .td-a>.td-del::after{content:"";position:absolute;inset:-8px}
 .td.ph .td-act{height:36px}
 .td.ph .td-any{padding:0}
 /* A ring on the line is small to look at and 44px to tap. */

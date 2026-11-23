@@ -9,10 +9,11 @@ import { backAt, isEvent } from '@/lib/select';
 import { describeRule } from '@/lib/repeat';
 import { dueLabel, fmtDur, fmtHour, fmtTime, longDate, shortDate, shortTitle } from '@/lib/format';
 import { MIN, addDays, atMinutes, fromYmd, startOfDay } from '@/lib/time';
+import { haptic } from '@/lib/native';
 import { usePlanner, useLists, suggestOn } from './Planner';
 import { PLAN_ASK, PLAN_URL } from './Today';
 import { daysLeft } from './Goals';
-import { CheckIcon, PlusIcon, RepeatIcon, SparkIcon, TargetIcon } from './icons';
+import { CheckIcon, PlusIcon, RepeatIcon, SparkIcon, TargetIcon, TrashIcon } from './icons';
 
 /*
  * The Today view: today and nothing else. Across the top, the date, how much of today is done and how much of your day
@@ -24,7 +25,8 @@ import { CheckIcon, PlusIcon, RepeatIcon, SparkIcon, TargetIcon } from './icons'
  * No backlog, no other days, no other goals.
  *
  * Done is one tap on a task's ring (or D for the one on now), and it should feel like something: the ring bursts in the
- * goal's colour, the row lights up, the day's count jumps and the goal's bar fills.
+ * goal's colour, the row lights up, the day's count jumps and the goal's bar fills. Delete is one tap too, on the bin at
+ * the end of a task's line, with Undo on the toast.
  */
 
 const tint = (color: string | null | undefined) => (color ? ({ '--c': color } as React.CSSProperties) : undefined);
@@ -251,7 +253,7 @@ function NoSlot({ list, just }: { list: Anytime[]; just: Set<string> }) {
           const why = whyText(a, now);
           const on = completing.has(t.id);
           return (
-            <li key={t.id} className={'td-a' + (on || just.has(t.id) ? ' is-just' : '')} style={tint(label?.color)}>
+            <li key={t.id} className={'td-a' + (on || just.has(t.id) ? ' is-just' : '') + (!event && deletable(t) ? ' has-del' : '')} style={tint(label?.color)}>
               {event ? <span className="td-node k-event" aria-hidden="true" /> : <Tick t={t} />}
               <div className="td-c">
                 <button type="button" className="td-tt" onClick={() => openEditor(t.id)}><span className={'strike' + (on ? ' on' : '')}>{t.title}</span></button>
@@ -265,6 +267,7 @@ function NoSlot({ list, just }: { list: Anytime[]; just: Set<string> }) {
                 </p>
                 {!event && <button type="button" className="btn text sm td-act" onClick={() => slotToday(t.id)}>Slot it today</button>}
               </div>
+              {!event && deletable(t) && <DeleteButton t={t} />}
             </li>
           );
         })}
@@ -322,6 +325,25 @@ function Tick({ t, now }: { t: Task; now?: boolean }) {
   );
 }
 
+/** Your own tasks can be deleted from here. A calendar's event or a Google task is read-only, so it isn't. */
+const deletable = (t: Task) => !t.externalId;
+
+/**
+ * The bin that deletes a task where it sits: one tap, with Undo on the toast. One of a repeat's is skipped instead, and
+ * the repeat goes on. On a laptop it shows when you're on the row; on a phone it's always there, quietly.
+ */
+function DeleteButton({ t, boxed }: { t: Task; boxed?: boolean }) {
+  const { store, undoable, deletedText, repeatOf, completing } = usePlanner();
+  const what = repeatOf(t) ? 'Skip this one' : 'Delete';
+  return (
+    <button type="button" className={'ib td-del' + (boxed ? '' : ' bare')} aria-label={`${what}: ${t.title}`}
+      title={what === 'Delete' ? 'Delete' : 'Skip this one; the repeat goes on'} disabled={completing.has(t.id)}
+      onClick={() => { haptic('warning'); undoable(deletedText(t), store.remove([t.id])); }}>
+      <TrashIcon size={boxed ? 15 : 14} />
+    </button>
+  );
+}
+
 function Title({ e, big }: { e: Entry; big?: boolean }) {
   const { openEditor, completing } = usePlanner();
   const t = e.task;
@@ -355,7 +377,12 @@ function NowCard({ e, keyed }: { e: Entry; keyed: boolean }) {
           <span className="td-slot" aria-hidden="true"><i style={{ width: `${gone.toFixed(1)}%` }} /></span>
           <div className="td-cm">
             <Meta e={e} />
-            {!event && <DoneButton t={t} keyed={keyed} />}
+            {!event && (
+              <span className="td-acts">
+                <DoneButton t={t} keyed={keyed} />
+                {deletable(t) && <DeleteButton t={t} boxed />}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -404,6 +431,7 @@ function NowFree({ r }: { r: Extract<Row, { type: 'now' }> }) {
               <span className="td-acts">
                 <DoneButton t={t} />
                 <button type="button" className="btn sec sm" onClick={() => place(t.id, from)} title={`On the calendar from ${fmtTime(from)}`}>Start now</button>
+                {deletable(t) && <DeleteButton t={t} boxed />}
               </span>
             </div>
           </div>
@@ -419,12 +447,13 @@ function EntryRow({ e, just, keyed }: { e: Entry; just: Set<string>; keyed: bool
   if (e.state === 'now') return <NowCard e={e} keyed={keyed} />;
   // A missed task: on its slot for its last hour, or back in the backlog. Tick it off if you did it, or fit it in again.
   const canSlot = e.state === 'missed' && e.task.status === 'open';
+  const canDelete = e.kind === 'task' && deletable(e.task);
   const missedText = e.slipped ? `Back in the backlog${e.slipped > 1 ? ` · missed ${e.slipped} slots today` : ''}` : `Back to the backlog at ${fmtTime(backAt(e.task))}`;
   const extra = e.point ? <span>Ticked off</span>
     : e.state === 'next' ? <span className="td-in">in {span((e.at - now) / MIN)}</span>
     : e.state === 'missed' ? <span className="loz hot">Missed</span> : null;
   return (
-    <li className={`td-r is-${e.state} k-${e.kind}${e.point ? ' is-point' : ''}${completing.has(e.task.id) || just.has(e.task.id) ? ' is-just' : ''}`} style={tint(colorOf(e.task))}>
+    <li className={`td-r is-${e.state} k-${e.kind}${e.point ? ' is-point' : ''}${completing.has(e.task.id) || just.has(e.task.id) ? ' is-just' : ''}${canDelete ? ' has-del' : ''}`} style={tint(colorOf(e.task))}>
       <When at={e.at} />
       <Node e={e} />
       <div className="td-c">
@@ -437,6 +466,7 @@ function EntryRow({ e, just, keyed }: { e: Entry; just: Set<string>; keyed: bool
           </p>
         )}
       </div>
+      {canDelete && <DeleteButton t={e.task} />}
     </li>
   );
 }
