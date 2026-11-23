@@ -111,6 +111,9 @@ export const InboxIcon = ({ size = 16 }: P) => (
 export const OpenIcon = ({ size = 14 }: P) => (
   <svg {...svg(size, 1.5)}><path d="M6 3.5H3.5v9h9V10M9 2.5h4.5V7M13.5 2.5L7.5 8.5" /></svg>
 );
+export const SunIcon = ({ size = 14 }: P) => (
+  <svg {...svg(size, 1.5)}><circle cx="8" cy="8" r="2.75" /><path d="M8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" /></svg>
+);
 export const ClockIcon = ({ size = 12 }: P) => (
   <svg {...svg(size, 1.5)}><circle cx="8" cy="8" r="6" /><path d="M8 4.75V8l2 1.5" /></svg>
 );

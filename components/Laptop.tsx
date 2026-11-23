@@ -12,9 +12,10 @@ import { LaptopCalendar } from './Calendar';
 import { ChatDock } from './Chat';
 import { Panel } from './Panel';
 import { Ambient } from './Ambient';
-import { AnalyticsIcon, CalendarIcon, SettingsIcon, ShareIcon, TargetIcon } from './icons';
+import { AnalyticsIcon, CalendarIcon, SettingsIcon, ShareIcon, SunIcon, TargetIcon } from './icons';
 import { GoalRail } from './GoalRail';
 import { GoalsView } from './GoalsView';
+import { TodayView } from './TodayView';
 import { useGoalWeek } from './Goals';
 import { fmtDur } from '@/lib/format';
 
@@ -36,11 +37,12 @@ export function OnGoals() {
   );
 }
 
-/** The two views: the calendar with your goals beside it, or your goals in full. */
+/** The three views: today on its own, the calendar with your goals beside it, or your goals in full. */
 function ViewSwitch() {
   const { mainView, setMainView } = usePlanner();
   return (
     <nav className="vswitch" aria-label="View">
+      <button type="button" aria-pressed={mainView === 'today'} onClick={() => setMainView('today')}><SunIcon size={14} />Today</button>
       <button type="button" aria-pressed={mainView === 'calendar'} onClick={() => setMainView('calendar')}><CalendarIcon size={14} />Calendar</button>
       <button type="button" aria-pressed={mainView === 'goals'} onClick={() => setMainView('goals')}><TargetIcon size={14} />Goals</button>
     </nav>
@@ -48,14 +50,14 @@ function ViewSwitch() {
 }
 
 function Header() {
-  const { now, openSheet, sheet, inbox } = usePlanner();
+  const { now, openSheet, sheet, inbox, mainView } = usePlanner();
   return (
     <header className="lp-top">
       <Brand />
       <ViewSwitch />
       <span className="spacer" />
       <div className="lp-end">
-        <div className="metrics" aria-label="This week"><OnGoals /></div>
+        {mainView !== 'today' && <div className="metrics" aria-label="This week"><OnGoals /></div>}
         <span className="clock num">{clockLine(now)}</span>
         <span className="vsep" aria-hidden="true" />
         <div className="lp-tools">
@@ -73,9 +75,10 @@ function Header() {
 }
 
 /**
- * The laptop planner, in one of two views. Calendar: the task you're on and your goals (just the goals; the backlog
- * behind a tray) on the left, the calendar on the right, with today's outcomes across its top once the day is planned.
- * Goals: every goal, and the one you open as its route or its map. The chat bar floats over both.
+ * The laptop planner, in one of three views. Today: today on its own, with only the goals it moves and the day as a
+ * timeline. Calendar: the task you're on and your goals (just the goals; the backlog behind a tray) on the left, the
+ * calendar on the right, with today's outcomes across its top once the day is planned. Goals: every goal, and the one
+ * you open as its route or its map. The chat bar floats over all three.
  */
 export function Laptop() {
   const { split, editorId, sheet, mainView } = usePlanner();
@@ -85,7 +88,11 @@ export function Laptop() {
   return (
     <div className={'lp' + (split.dragging ? ' sizing' : '')}>
       <Header />
-      {mainView === 'goals' ? (
+      {mainView === 'today' ? (
+        <div className="lp-body lp-today" inert={panel}>
+          <TodayView />
+        </div>
+      ) : mainView === 'goals' ? (
         <div className="lp-body lp-goals" inert={panel}>
           <GoalsView />
         </div>

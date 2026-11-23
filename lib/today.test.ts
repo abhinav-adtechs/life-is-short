@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from './model';
 import type { Goal } from './goals';
-import { MAX_DAYS, MAX_FOCUS, MAX_STEPS, OUTCOME_MAX, clearPlan, normalizeDays, outcomeView, planOn, setPlan, type DayPlan } from './today';
+import { MAX_DAYS, MAX_FOCUS, MAX_STEPS, OUTCOME_MAX, clearPlan, movingToday, normalizeDays, outcomeView, planOn, setPlan, type DayPlan } from './today';
 
 const at = (d: number, h: number, m = 0) => new Date(2026, 10, d, h, m).getTime();
 const FROM = at(20, 0), TO = at(21, 0);
@@ -96,5 +96,29 @@ describe('how an outcome stands', () => {
     expect(v?.steps.map(t => t.title)).toEqual(['Rework the deck', 'Easy 8k']);
     expect(v?.tasks).toEqual({ done: 0, tonight: 1, all: 1 });
     expect(outcomeView({ goal: 'nope', text: 'x', tasks: [] }, goals, tasks, FROM, TO)).toBeNull();
+  });
+});
+
+describe('the goals today moves', () => {
+  const goals = [goal('gpod', 'Launch the podcast'), goal('gv2', 'Ship v2'), goal('grow', 'Grow to 100', { parent: 'gpod' }), goal('grun', 'Run a half')];
+  const tops = goals.filter(g => !g.parent);
+  const tasks = [
+    task('Book guests', { goal: 'gpod', start: at(20, 12) }),
+    task('Cut the trailer', { goal: 'grow', status: 'done', doneAt: at(20, 9) }),
+    task('Fix the crash', { goal: 'gv2', start: at(21, 10) }),
+    task('Buy shoes', { goal: 'grun' }),
+  ];
+
+  it('is the plan’s goals in focus, in its order, once today is planned', () => {
+    const p = plan('2026-11-20', { focus: [{ goal: 'gv2', text: 'Build in for review', tasks: [] }, { goal: 'gone', text: 'x', tasks: [] }, { goal: 'gpod', text: 'Guests booked', tasks: [] }] });
+    expect(movingToday(p, goals, tops, tasks, FROM, TO).map(v => `${v.goal.title}: ${v.outcome.text}`)).toEqual(['Ship v2: Build in for review', 'Launch the podcast: Guests booked']);
+  });
+
+  it('is your top goals with work today, sub-goals’ too, when it isn’t planned', () => {
+    const views = movingToday(null, goals, tops, tasks, FROM, TO);
+    expect(views.map(v => v.goal.title)).toEqual(['Launch the podcast']);
+    expect(views[0].outcome.text).toBe('');
+    expect(views[0].steps.map(t => t.title)).toEqual(['Cut the trailer', 'Book guests']);
+    expect(movingToday(null, goals, tops, [], FROM, TO)).toEqual([]);
   });
 });

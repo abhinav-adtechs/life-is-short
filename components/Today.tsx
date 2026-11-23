@@ -123,7 +123,7 @@ export function TodayBand({ phone }: { phone?: boolean }) {
 
 /** What to ask Claude in the morning; the connector's plan_today saves the answer. */
 export const PLAN_ASK = 'Plan my day in Life is short: look at my goals, my calendar and my backlog, agree with me which goals today is for and what each one produces by tonight, then save it with plan_today.';
-const PLAN_URL = `https://claude.ai/new?q=${encodeURIComponent(PLAN_ASK)}`;
+export const PLAN_URL = `https://claude.ai/new?q=${encodeURIComponent(PLAN_ASK)}`;
 
 /**
  * Today isn't planned: say so plainly, across the top of the calendar where the outcomes will go, with the way to plan

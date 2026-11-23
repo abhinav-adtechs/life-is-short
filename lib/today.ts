@@ -122,3 +122,14 @@ export function outcomeView(o: Outcome, goals: Goal[], tasks: Task[], from: numb
     results: { done: tops.filter(resultDone).length, all: tops.length },
   };
 }
+
+/**
+ * The goals today moves, for the Today view. Planned: the plan's goals in focus, in its order, each with its outcome.
+ * Not planned: your top goals with work on the calendar today or ticked off today, in your order, with no outcome
+ * (`outcome.text` is empty). Goals with nothing today aren't in it either way: the view is only today's.
+ */
+export function movingToday(plan: DayPlan | null, goals: Goal[], tops: Goal[], tasks: Task[], from: number, to: number): OutcomeView[] {
+  const view = (o: Outcome) => outcomeView(o, goals, tasks, from, to);
+  if (plan) return plan.focus.flatMap(o => { const v = view(o); return v ? [v] : []; });
+  return tops.flatMap(g => { const v = view({ goal: g.id, text: '', tasks: [] }); return v && v.steps.length ? [v] : []; });
+}
