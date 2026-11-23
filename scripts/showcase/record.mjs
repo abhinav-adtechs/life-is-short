@@ -85,6 +85,9 @@ if (!DRY) {
 
 // Load the planner before the camera rolls.
 await S(() => { document.getElementById('app').src = '/app'; });
+// It opens on Today; the walkthrough starts from the Calendar view.
+await app.locator('.td').waitFor();
+await app.getByRole('button', { name: 'Calendar', exact: true }).click();
 await app.locator('section.next').waitFor();
 await wait(1500);
 if (!DRY) { await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: 1920, maxHeight: 1080, everyNthFrame: 1 }); }
@@ -171,6 +174,7 @@ await wait(1200);
 // 8 · Phone
 at('phone'); await S(() => stage.cursorOn(false));
 await S(() => { stage.show('#win', false); stage.caption('On every screen', 'Phone and laptop in sync — plus iPhone, iPad and Mac apps with Siri.'); });
+await phone.locator('.td').waitFor(); await phone.getByRole('tab', { name: /Goals/ }).click();
 await phone.locator('section.next').waitFor(); await wait(700);
 await S(() => stage.show('#phone')); await wait(2200); await mark('phone');
 await S(() => stage.cursorOn(true));
