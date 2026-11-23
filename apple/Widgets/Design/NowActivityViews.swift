@@ -247,7 +247,7 @@ struct NowActivityLockView: View {
 }
 
 private let onSky = Color.white
-private let skyShadow = Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.4)
+private let skyShadow = Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.55)
 private let lampLight = Color(rgb: 0xFFE7A8)
 
 /// The window's lamp, out once the activity is past its turn or the day is over.
@@ -268,8 +268,7 @@ struct ActivityLockWindow: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            background
+        Group {
             if let task = m.task {
                 HStack(spacing: 0) {
                     clock.frame(width: 143)
@@ -279,8 +278,10 @@ struct ActivityLockWindow: View {
                 note
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(height: m.task == nil ? 120 : 160)
-        .frame(maxWidth: .infinity)
+        // A background, so the filled scene can't size the view and push the words off its edges.
+        .background { background }
     }
 
     private var background: some View {
@@ -289,7 +290,7 @@ struct ActivityLockWindow: View {
             LinearGradient(colors: m.scene.shade, startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55))
             if m.task != nil {
                 // Behind the clock, so white type reads on any field.
-                EllipticalGradient(colors: [.black.opacity(0.32), .black.opacity(0)], center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
+                EllipticalGradient(colors: [.black.opacity(0.42), .black.opacity(0)], center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
                     .frame(width: 300, height: 160)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .offset(x: -96, y: 70)
@@ -307,7 +308,9 @@ struct ActivityLockWindow: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 WindowLamp(on: !m.outOfDate)
-                Text(ActivityWords.label(m, theme: false)).printed(10.5).lineLimit(1).fixedSize()
+                // "In a meeting" doesn't fit beside Refresh; the caption below already says Busy.
+                Text(m.step.kind == .busy && !m.outOfDate ? "Meeting" : ActivityWords.label(m, theme: false))
+                    .printed(10.5).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
                 if !m.outOfDate {
                     Button(intent: RefreshNowIntent()) {
@@ -497,17 +500,18 @@ private struct NextLine: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(next.start == nil ? "Then" : "Next").printed(label).foregroundStyle(muted)
+            Text(next.start == nil ? "Then" : "Next").printed(label).foregroundStyle(muted).fixedSize()
             if let start = next.start {
-                Text(NowWords.clock(start)).font(.geistMono(size, .semibold)).tracking(-0.3).foregroundStyle(ink)
+                Text(NowWords.clock(start)).font(.geistMono(size, .semibold)).tracking(-0.3).foregroundStyle(ink).fixedSize()
             }
             if let title = next.title {
                 Text(title).font(.geist(size, .medium)).foregroundStyle(ink).lineLimit(1).privacySensitive()
             } else if hidden {
-                Hidden(width: 84, height: 9, color: ink.opacity(0.12))
+                RoundedRectangle(cornerRadius: 3.5).fill(ink.opacity(0.12)).frame(maxWidth: 84).frame(height: 9)
+                    .accessibilityLabel("Hidden")
             }
             Spacer(minLength: 4)
-            Text(WidgetText.compactDuration(next.minutes)).font(.geistMono(11)).foregroundStyle(muted)
+            Text(WidgetText.compactDuration(next.minutes)).font(.geistMono(11)).foregroundStyle(muted).fixedSize()
         }
     }
 }
