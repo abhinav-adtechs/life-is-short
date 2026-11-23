@@ -5,8 +5,8 @@ import { MIN, endOf, ymd } from './time';
 
 /*
  * Today as one line, for the Today view: everything on the clock today in order (your tasks, your calendar's events,
- * the repeats still to come, what you ticked off without a time, at the moment you did it, and the slots you missed
- * today, even once their task has gone back to the backlog), where now is, and the free time left between them. What's today's but has no time yet (overdue, due today, or in today's plan) is kept
+ * the repeats still to come, what you ticked off without a time, at the moment you did it, and what you missed today
+ * that's waiting in the backlog), where now is, and the free time left between them. Each task is on it once. What's today's but has no time yet (overdue, due today, or in today's plan) is kept
  * beside the line rather than on it.
  */
 
@@ -31,10 +31,10 @@ export interface Entry {
   /** Ticked off today without ever being on the calendar: a point at the moment it was done. */
   point: boolean;
   /**
-   * A slot missed today whose task has since left it (lib/slips.ts): back in the backlog, moved, deleted or replaced.
-   * Always `missed`; `task` is the task as it is now, or as it was when it's gone.
+   * Missed today and back in the backlog (lib/slips.ts): how many of today's slots it missed. It sits at the last one,
+   * always `missed`, and it's still the task: tick it off, or slot it in again.
    */
-  slip?: Slip['how'];
+  slipped?: number;
 }
 
 export type Row =
@@ -77,7 +77,11 @@ export interface DayInput {
   hours: [number, number];
   /** The task ids today's plan names. */
   planSteps?: string[];
-  /** Missed slots (lib/slips.ts): today's go on the line where they were. */
+  /**
+   * Missed slots (lib/slips.ts). A task that missed a slot today and is still open in the backlog goes on the line,
+   * once, at the last slot it missed. One back on the calendar is there already; one moved to another day, done,
+   * deleted or replaced has nothing left to do today.
+   */
   slips?: Slip[];
   /** The shortest free time worth showing, in minutes. */
   minFree?: number;
@@ -100,14 +104,17 @@ function union(spans: [number, number][]): [number, number][] {
 export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps = [], slips = [], minFree = 15 }: DayInput): DayLine {
   const onDay = (t: Task) => t.start != null && t.start < to && endOf(t) > from;
   const byId = new Map(tasks.map(t => [t.id, t]));
-  // A missed slot whose task isn't on it any more (Undo puts it back, and then the task itself is the entry).
-  const missed = slips.filter(s => !s.due && s.start >= from && s.start < to && byId.get(s.id)?.start !== s.start).map(s => {
-    const t: Task = byId.get(s.id) ?? {
-      id: s.id, title: s.title, raw: '', notes: '', priority: s.priority, minutes: s.minutes, start: null, due: null,
-      status: 'open', created: s.at, order: 0, doneAt: null, label: s.label, goal: s.goal ?? null,
-    };
-    return { key: `slip:${s.id}@${s.start}`, kind: 'task' as EntryKind, task: t, at: s.start, end: s.start + s.minutes * MIN, point: false, slip: s.how };
-  });
+  // What missed today and is waiting in the backlog: one entry a task, at the last slot it missed.
+  const lastMiss = new Map<string, { slip: Slip; times: number }>();
+  for (const s of slips) {
+    const t = byId.get(s.id);
+    if (s.due || s.start < from || s.start >= to || !t || t.status !== 'open' || t.start != null || isEvent(t)) continue;
+    const was = lastMiss.get(s.id);
+    lastMiss.set(s.id, { slip: !was || s.start > was.slip.start ? s : was.slip, times: (was?.times ?? 0) + 1 });
+  }
+  const missed = [...lastMiss.values()].map(({ slip: s, times }) => ({
+    key: `slip:${s.id}`, kind: 'task' as EntryKind, task: byId.get(s.id) as Task, at: s.start, end: s.start + s.minutes * MIN, point: false, slipped: times,
+  }));
   const list: Omit<Entry, 'state'>[] = [
     ...missed,
     ...tasks.filter(onDay).map(t => ({ key: t.id, kind: (isEvent(t) ? 'event' : 'task') as EntryKind, task: t, at: t.start as number, end: endOf(t), point: false })),
@@ -117,7 +124,7 @@ export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps 
   ].sort((a, b) => (a.at - b.at) || (b.end - a.end) || a.task.title.localeCompare(b.task.title));
 
   const stateOf = (e: Omit<Entry, 'state'>): EntryState => {
-    if (e.slip) return 'missed';
+    if (e.slipped) return 'missed';
     if (e.kind === 'event') return e.end <= now ? 'over' : e.at <= now ? 'now' : 'later';
     if (e.kind === 'repeat') return e.at <= now ? 'over' : 'later';
     if (e.task.status === 'done') return 'done';
@@ -128,7 +135,7 @@ export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps 
   if (next) next.state = 'next';
 
   // What still takes up time: not done, not over, not a point, not a slot that's been left.
-  const busy = (e: Entry) => !e.point && !e.slip && e.state !== 'done' && e.state !== 'over';
+  const busy = (e: Entry) => !e.point && !e.slipped && e.state !== 'done' && e.state !== 'over';
   const day0 = from + hours[0] * 60 * MIN, day1 = from + hours[1] * 60 * MIN;
   const start = Math.max(now, day0);
   const gap = minFree * MIN;
@@ -174,7 +181,7 @@ export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps 
   anytime.sort((a, b) => (WHY[a.why] - WHY[b.why]) || (a.task.priority - b.task.priority)
     || (a.task.due ?? '').localeCompare(b.task.due ?? '') || ((a.task.order || 0) - (b.task.order || 0)));
 
-  // Each task once, as it is now: one that slipped and was then ticked off counts as done.
+  // Each task once, as it is now.
   const counted = new Map<string, boolean>();
   for (const e of entries) if (e.kind !== 'event') counted.set(e.key.startsWith('rep:') ? e.key : e.task.id, e.task.status === 'done');
   for (const a of anytime) if (!isEvent(a.task)) counted.set(a.task.id, false);
