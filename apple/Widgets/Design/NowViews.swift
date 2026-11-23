@@ -65,7 +65,9 @@ enum NowWords {
     static func shortContext(_ m: WidgetMoment) -> String {
         if case .until(let end) = m.context { return clock(end) }
         guard let now = m.now else { return "" }
-        return now.priority == 1 ? "Urgent · \(WidgetText.duration(now.minutes))" : WidgetText.duration(now.minutes)
+        // "As of Fri" leaves no room for "Urgent · ".
+        if m.stale { return WidgetText.compactDuration(now.minutes) }
+        return now.priority == 1 ? "Urgent · \(WidgetText.compactDuration(now.minutes))" : WidgetText.duration(now.minutes)
     }
 
     /// "Urgent · 1 h", or just "1 h".
@@ -167,7 +169,7 @@ struct NowWidgetView: View {
                 LinearGradient(colors: model.scene.shade, startPoint: .top, endPoint: .center)
                 if model.moment.now == nil && sceneSize != .large {
                     // Nothing to do: the words sit low on the view, over the fields.
-                    LinearGradient(colors: [.black.opacity(0), .black.opacity(0.35)], startPoint: UnitPoint(x: 0.5, y: 0.42), endPoint: .bottom)
+                    LinearGradient(colors: [.black.opacity(0), .black.opacity(0.5)], startPoint: UnitPoint(x: 0.5, y: 0.35), endPoint: .bottom)
                 } else if sceneSize == .medium {
                     // Behind the clock beside the ticket.
                     EllipticalGradient(colors: [.black.opacity(0.32), .black.opacity(0)], center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
@@ -198,7 +200,7 @@ struct NowWidgetView: View {
 // MARK: - The window: a ticket over the view
 
 private let onSky = Color.white
-private let skyShadow = Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.35)
+private let skyShadow = Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.55)
 
 /// The label across the top of the window: the lamp, Now, and what's beside it.
 private struct SkyLabel: View {
@@ -208,9 +210,9 @@ private struct SkyLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Lamp(color: m.stale ? Color.white.opacity(0.6) : Color(rgb: 0xFFE7A8), glow: !m.stale)
-            Text(NowWords.label(m)).printed(10.5)
+            Text(NowWords.label(m)).printed(10.5).lineLimit(1).fixedSize()
             Spacer(minLength: 4)
-            Text(trailing).printed(10.5).lineLimit(1).minimumScaleFactor(0.8)
+            Text(trailing).printed(10.5).lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(onSky.opacity(0.92))
         .shadow(color: skyShadow, radius: 4, y: 1)
@@ -232,7 +234,7 @@ private struct SkyNote: View {
                 .font(.geist(small, .medium)).opacity(0.9)
         }
         .foregroundStyle(onSky)
-        .shadow(color: Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.45), radius: 8, y: 1)
+        .shadow(color: Color(red: 5 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.7), radius: 6, y: 1)
         .lineLimit(2)
     }
 }
@@ -584,9 +586,9 @@ private struct ThemeLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Lamp(color: m.stale ? p.faint : p.accent, glow: p.dark && !m.stale).widgetAccentable()
-            Text(NowWords.label(m)).printed(10.5)
+            Text(NowWords.label(m)).printed(10.5).lineLimit(1).fixedSize()
             Spacer(minLength: 4)
-            Text(trailing).printed(10.5).lineLimit(1).minimumScaleFactor(0.8)
+            Text(trailing).printed(10.5).lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(p.muted)
     }
