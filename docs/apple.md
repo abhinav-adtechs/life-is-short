@@ -222,8 +222,10 @@ can't have it), so nothing on a server can change the activity: only the app can
 4. **Refresh on it** brings it up to date without opening the app: it's a `LiveActivityIntent`, which iOS runs in the
    app's process in the background (`Widgets/Live/NowActivity.swift`). It reads the day the planner last handed over
    from the App Group.
-5. **Show Now** does the same from anywhere: Shortcuts, Siri ("Show now in Life is short"), the Action button, or on
-   iOS 18 a control in Control Center or the Lock Screen's corners. It also puts the activity back after a swipe-away.
+5. **Show Now** does the same from anywhere: the **Show now** button in the planner's Settings → On this iPhone,
+   Shortcuts, Siri ("Show now in Life is short"), the Action button, or on iOS 18 a control in Control Center or the
+   Lock Screen's corners. It always puts up a fresh activity, even outside your day's hours or after a swipe-away, and
+   that one stays up until iOS ends it.
 
 A task added on the laptop reaches it the next time the app runs, as with the widgets.
 
@@ -231,15 +233,16 @@ A task added on the laptop reaches it the next time the app runs, as with the wi
 
 - **Eight hours.** iOS ends a Live Activity after 8 hours (it stays on the Lock Screen up to 4 more). Opening the
   planner swaps in a fresh one once the running one is 3 hours old and wouldn't last the day; Refresh does when it has
-  less than an hour left. It runs only in your day's hours (Settings → Calendar), and leaves a last word, "That's the
-  day", for half an hour after they end.
+  less than an hour left. It runs only in your day's hours (Settings → Calendar), unless you asked for it with Show
+  Now, and leaves a last word, "That's the day", for half an hour after they end.
 - **Started only from the app on screen, or an intent.** iOS allows nothing else, so it starts when the planner opens
   with a fresh day, from Refresh or from Show Now; anything else only updates it.
 - **4 KB.** Everything it carries fits in about 1.6 KB at the most, with titles cut by bytes (`LiveNow.fit`, tested).
 - **Swiped away** stays away for the rest of that day, unless you ask for it with Show Now or switch it on again.
 - **Signed out, or another server**: it ends at once, with the widgets.
-- **A reinstall** (every 7 days on a free Apple ID): the first launch of a new build ends the old activity and starts
-  afresh once the planner speaks.
+- **A reinstall** (every 7 days on a free Apple ID): the first launch of a new install ends the old activity, which iOS
+  would draw blank on the Lock Screen, and starts afresh once the planner speaks. Builds from Xcode all say build 1, so
+  an install is told apart by when its binary was made.
 
 **Keep it fresh with no taps:** in Shortcuts → Automation, add a **Time of Day** automation (say 8:55, 12:55 and 16:55)
 that runs **Show Now on the Lock Screen**, set to run immediately. It brings it up to date, and back if it ran out.
@@ -412,7 +415,8 @@ TestFlight for yourself and up to 100 people on your team needs none of this. Fo
 - **Now isn't on the Lock Screen**: check Settings → On this iPhone in the planner, then the iPhone's Settings → Life is
   short → Live Activities. It starts once the planner opens with today, within your day's hours, and stays away for the
   rest of a day you swiped it away (Show Now brings it back).
-- **The Lock Screen's Now is blank after a reinstall**: restart the iPhone. iOS sometimes loses track of a new build's
+- **The Lock Screen's Now is blank after a reinstall**: tap **Show now** in Settings → On this iPhone. If it's still
+  blank, restart the iPhone. iOS sometimes loses track of a new build's
   views until it restarts.
 - **The mic does nothing**: Settings → Privacy & Security → Microphone and Speech Recognition → Life is short.
 - **Google says "disallowed_useragent"**: the app is out of date (Connect Google must open the system sheet). Update

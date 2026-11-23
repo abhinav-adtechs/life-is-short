@@ -224,9 +224,10 @@ final class LiveNowTests: XCTestCase {
     // MARK: - When to start, update, swap and end it
 
     private func input(_ trigger: LiveNowPolicy.Trigger, _ date: Date, on: Bool = true, allowed: Bool = true, active: Bool = true,
-                       reading: LiveNowPolicy.Reading? = nil, running: LiveNowPolicy.Running? = nil, dismissed: String? = nil) -> LiveNowPolicy.Input {
+                       reading: LiveNowPolicy.Reading? = nil, running: LiveNowPolicy.Running? = nil, dismissed: String? = nil,
+                       pinned: Bool = false) -> LiveNowPolicy.Input {
         .init(trigger: trigger, date: date, on: on, allowed: allowed, active: active, reading: reading ?? .snapshot(snapshot()),
-              running: running, dismissed: dismissed, calendar: calendar)
+              running: running, dismissed: dismissed, pinned: pinned, calendar: calendar)
     }
 
     private func decide(_ i: LiveNowPolicy.Input) -> LiveNowPolicy.Action { LiveNowPolicy.decide(i) }
@@ -315,6 +316,22 @@ final class LiveNowTests: XCTestCase {
         XCTAssertEqual(kind(decide(input(.foreground, at(7, day: 21), running: running))), "end", "yesterday's, in the morning")
     }
 
+    func testShowNowWhateverTheHour() {
+        XCTAssertEqual(kind(decide(input(.show, at(8, 30), active: false))), "start", "before the day's hours")
+        XCTAssertEqual(kind(decide(input(.show, at(0, 5), active: false))), "start", "at midnight")
+        let early = LiveNowPolicy.Running(started: at(8, 30), state: state(at(8, 30)))
+        XCTAssertEqual(kind(decide(input(.leaving, at(8, 40), active: false, running: early, pinned: true))), "nothing", "stays once asked for")
+        XCTAssertEqual(kind(decide(input(.leaving, at(8, 40), active: false, running: early))), "end", "not asked for")
+        XCTAssertEqual(kind(decide(input(.snapshot, at(8, 30), pinned: true))), "nothing", "pinned means the one running")
+        XCTAssertEqual(kind(decide(input(.setting, at(8, 40), on: false, running: early, pinned: true))), "end", "switched off")
+    }
+
+    func testShowNowAlwaysPutsUpAFreshOne() {
+        let running = LiveNowPolicy.Running(started: at(10, 40), state: state(at(10, 50)))
+        XCTAssertEqual(kind(decide(input(.show, at(10, 50), running: running))), "rotate", "even unchanged and young")
+        XCTAssertEqual(kind(decide(input(.refresh, at(10, 50), active: false, running: running))), "nothing", "refresh only redraws")
+    }
+
     func testNeverYesterdaysDay() {
         var m = message()
         m["day"] = "2026-11-19"
@@ -333,6 +350,9 @@ final class LiveNowTests: XCTestCase {
                        .liveActivity(.init(hideTitles: true, style: .theme)))
         XCTAssertNil(BridgeRequest.parse(["type": "liveActivity", "on": "yes"]))
         XCTAssertNil(BridgeRequest.parse(["type": "liveActivity", "style": "neon"]))
+        XCTAssertEqual(BridgeRequest.parse(["type": "liveActivity", "show": true]), .liveActivity(.init(show: true)))
+        XCTAssertFalse(LiveActivityChange(show: true).isQuery)
+        XCTAssertNil(BridgeRequest.parse(["type": "liveActivity", "show": "now"]))
         XCTAssertEqual(BridgeRequest.liveActivity(.init()).allowed, [.planner])
     }
 }

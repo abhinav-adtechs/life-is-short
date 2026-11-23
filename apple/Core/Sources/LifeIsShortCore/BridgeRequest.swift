@@ -18,15 +18,18 @@ public struct LiveActivityChange: Equatable, Sendable {
     public var on: Bool?
     public var hideTitles: Bool?
     public var style: LiveNowStyle?
+    /// Show Now: put it on the Lock Screen now, fresh, whatever the hour.
+    public var show: Bool
 
-    public init(on: Bool? = nil, hideTitles: Bool? = nil, style: LiveNowStyle? = nil) {
+    public init(on: Bool? = nil, hideTitles: Bool? = nil, style: LiveNowStyle? = nil, show: Bool = false) {
         self.on = on
         self.hideTitles = hideTitles
         self.style = style
+        self.show = show
     }
 
     /// Nothing to change: the planner is asking how things stand.
-    public var isQuery: Bool { on == nil && hideTitles == nil && style == nil }
+    public var isQuery: Bool { on == nil && hideTitles == nil && style == nil && !show }
 }
 
 /// A message from the page (Bridge.js posts them through window.webkit.messageHandlers.lis), checked and typed.
@@ -121,6 +124,7 @@ public enum BridgeRequest: Equatable {
                 guard let name = raw as? String, let style = LiveNowStyle(rawValue: name) else { return nil }
                 change.style = style
             }
+            if let raw = message["show"] { guard let show = raw as? Bool else { return nil }; change.show = show }
             return .liveActivity(change)
         default:
             return nil

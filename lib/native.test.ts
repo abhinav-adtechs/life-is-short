@@ -151,6 +151,8 @@ describe('Bridge.js', () => {
     expect(app.posted).toContainEqual({ type: 'liveActivity' });
     expect((await liveActivity({ on: true, style: undefined }))?.on).toBe(true);
     expect(app.posted).toContainEqual({ type: 'liveActivity', on: true });
+    expect((await liveActivity({ show: true }))?.on).toBe(true);
+    expect(app.posted).toContainEqual({ type: 'liveActivity', show: true });
 
     const old = loadBridge({});
     vi.stubGlobal('window', old.win);
