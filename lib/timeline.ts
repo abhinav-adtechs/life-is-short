@@ -1,11 +1,12 @@
 import type { Task } from './model';
+import type { Slip } from './slips';
 import { isEvent } from './select';
 import { MIN, endOf, ymd } from './time';
 
 /*
  * Today as one line, for the Today view: everything on the clock today in order (your tasks, your calendar's events,
- * the repeats still to come, and what you ticked off without a time, at the moment you did it), where now is, and the
- * free time left between them. What's today's but has no time yet (overdue, due today, or in today's plan) is kept
+ * the repeats still to come, what you ticked off without a time, at the moment you did it, and the slots you missed
+ * today, even once their task has gone back to the backlog), where now is, and the free time left between them. What's today's but has no time yet (overdue, due today, or in today's plan) is kept
  * beside the line rather than on it.
  */
 
@@ -29,6 +30,11 @@ export interface Entry {
   state: EntryState;
   /** Ticked off today without ever being on the calendar: a point at the moment it was done. */
   point: boolean;
+  /**
+   * A slot missed today whose task has since left it (lib/slips.ts): back in the backlog, moved, deleted or replaced.
+   * Always `missed`; `task` is the task as it is now, or as it was when it's gone.
+   */
+  slip?: Slip['how'];
 }
 
 export type Row =
@@ -51,6 +57,11 @@ export interface DayLine {
   free: number;
   /** Minutes of your day from now to its end that are spoken for. */
   booked: number;
+  /**
+   * Today's tasks, each counted once, and how many are done: what's on the line (repeats to come and missed slots
+   * included) and what has no time yet. Calendar events aren't tasks.
+   */
+  tally: { done: number; total: number };
 }
 
 export interface DayInput {
@@ -66,6 +77,8 @@ export interface DayInput {
   hours: [number, number];
   /** The task ids today's plan names. */
   planSteps?: string[];
+  /** Missed slots (lib/slips.ts): today's go on the line where they were. */
+  slips?: Slip[];
   /** The shortest free time worth showing, in minutes. */
   minFree?: number;
 }
@@ -84,9 +97,19 @@ function union(spans: [number, number][]): [number, number][] {
 }
 
 /** Today in order, with now and the free time marked, and what's today's with no time. */
-export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps = [], minFree = 15 }: DayInput): DayLine {
+export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps = [], slips = [], minFree = 15 }: DayInput): DayLine {
   const onDay = (t: Task) => t.start != null && t.start < to && endOf(t) > from;
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  // A missed slot whose task isn't on it any more (Undo puts it back, and then the task itself is the entry).
+  const missed = slips.filter(s => !s.due && s.start >= from && s.start < to && byId.get(s.id)?.start !== s.start).map(s => {
+    const t: Task = byId.get(s.id) ?? {
+      id: s.id, title: s.title, raw: '', notes: '', priority: s.priority, minutes: s.minutes, start: null, due: null,
+      status: 'open', created: s.at, order: 0, doneAt: null, label: s.label, goal: s.goal ?? null,
+    };
+    return { key: `slip:${s.id}@${s.start}`, kind: 'task' as EntryKind, task: t, at: s.start, end: s.start + s.minutes * MIN, point: false, slip: s.how };
+  });
   const list: Omit<Entry, 'state'>[] = [
+    ...missed,
     ...tasks.filter(onDay).map(t => ({ key: t.id, kind: (isEvent(t) ? 'event' : 'task') as EntryKind, task: t, at: t.start as number, end: endOf(t), point: false })),
     ...upcoming.filter(onDay).map(t => ({ key: `rep:${t.id}`, kind: 'repeat' as EntryKind, task: t, at: t.start as number, end: endOf(t), point: false })),
     ...tasks.filter(t => t.start == null && !isEvent(t) && t.status === 'done' && t.doneAt != null && t.doneAt >= from && t.doneAt < to)
@@ -94,6 +117,7 @@ export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps 
   ].sort((a, b) => (a.at - b.at) || (b.end - a.end) || a.task.title.localeCompare(b.task.title));
 
   const stateOf = (e: Omit<Entry, 'state'>): EntryState => {
+    if (e.slip) return 'missed';
     if (e.kind === 'event') return e.end <= now ? 'over' : e.at <= now ? 'now' : 'later';
     if (e.kind === 'repeat') return e.at <= now ? 'over' : 'later';
     if (e.task.status === 'done') return 'done';
@@ -103,8 +127,8 @@ export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps 
   const next = entries.find(e => e.state === 'later');
   if (next) next.state = 'next';
 
-  // What still takes up time: not done, not over, not a point.
-  const busy = (e: Entry) => !e.point && e.state !== 'done' && e.state !== 'over';
+  // What still takes up time: not done, not over, not a point, not a slot that's been left.
+  const busy = (e: Entry) => !e.point && !e.slip && e.state !== 'done' && e.state !== 'over';
   const day0 = from + hours[0] * 60 * MIN, day1 = from + hours[1] * 60 * MIN;
   const start = Math.max(now, day0);
   const gap = minFree * MIN;
@@ -143,12 +167,18 @@ export function dayLine({ tasks, upcoming = [], now, from, to, hours, planSteps 
   const anytime: Anytime[] = [];
   for (const t of tasks) {
     if (t.status !== 'open' || t.start != null || timed.has(t.id)) continue;
-    // A calendar's all-day event reads as a deadline on its day; one from a day gone by isn't overdue.
+    // A calendar's all-day event comes as a deadline on its day; one from a day gone by isn't overdue.
     const why: AnytimeWhy | null = t.due === today ? 'due' : t.due && t.due < today && !isEvent(t) ? 'overdue' : plan.has(t.id) ? 'plan' : null;
     if (why) anytime.push({ task: t, why });
   }
   anytime.sort((a, b) => (WHY[a.why] - WHY[b.why]) || (a.task.priority - b.task.priority)
     || (a.task.due ?? '').localeCompare(b.task.due ?? '') || ((a.task.order || 0) - (b.task.order || 0)));
 
-  return { rows, anytime, free, booked };
+  // Each task once, as it is now: one that slipped and was then ticked off counts as done.
+  const counted = new Map<string, boolean>();
+  for (const e of entries) if (e.kind !== 'event') counted.set(e.key.startsWith('rep:') ? e.key : e.task.id, e.task.status === 'done');
+  for (const a of anytime) if (!isEvent(a.task)) counted.set(a.task.id, false);
+  const tally = { done: [...counted.values()].filter(Boolean).length, total: counted.size };
+
+  return { rows, anytime, free, booked, tally };
 }

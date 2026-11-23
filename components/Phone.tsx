@@ -82,10 +82,13 @@ export function Phone() {
       <header className="ph-top" inert={!!editorId || !!sheet || chat.open}>
         <Brand />
         <span className="spacer" />
-        <button type="button" className="ph-prog" aria-label="Today’s progress" onClick={() => setMenu(true)}>
-          <b className="num">{m.today.done} of {m.today.total}</b><span className="muted">today</span>
-          <span className="bar mini"><i style={{ width: pct(m.today.done, m.today.total) }} /></span>
-        </button>
+        {/* Today has its own count, so the pill steps aside there. */}
+        {phoneTab !== 'today' && (
+          <button type="button" className="ph-prog" aria-label="Today’s progress" onClick={() => setMenu(true)}>
+            <b className="num">{m.today.done} of {m.today.total}</b><span className="muted">today</span>
+            <span className="bar mini"><i style={{ width: pct(m.today.done, m.today.total) }} /></span>
+          </button>
+        )}
         <button type="button" className="ib bare touch" aria-label="More" aria-expanded={menu} onClick={() => setMenu(o => !o)}><MoreIcon /></button>
       </header>
       <div className="ph-scroll" inert={covered}>
